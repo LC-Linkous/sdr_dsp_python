@@ -14,6 +14,8 @@ from .mixing import frequency_shift, tune_to_baseband, remove_dc
 from .modulate import (fm_modulate, am_modulate, ssb_modulate,
                        ook_modulate, fsk_modulate, bpsk_modulate,
                        qpsk_modulate, rrc_taps, upsample, pulse_shape)
+from .channel import apply_channel, add_noise, add_cfo, add_delay
+from .framing import build_frame, find_frames, crc16
 from .channelize import channelize, channelize_bank
 from .agc import agc, AGC
 from .calibrate import power_dbm, Calibration, compute_cal_offset
@@ -38,6 +40,8 @@ __all__ = [
     "psd", "spectrogram",
     "frequency_shift", "tune_to_baseband", "remove_dc",
     "power_dbfs", "power_dbm", "Calibration", "compute_cal_offset", "agc", "AGC", "channelize", "channelize_bank",
+    "build_frame", "find_frames", "crc16",
+    "apply_channel", "add_noise", "add_cfo", "add_delay",
     "fm_modulate", "am_modulate", "ssb_modulate",
     "ook_modulate", "fsk_modulate", "bpsk_modulate", "qpsk_modulate",
     "rrc_taps", "upsample", "pulse_shape", "snr_db", "occupied_bandwidth",
