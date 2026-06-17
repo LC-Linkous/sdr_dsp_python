@@ -101,3 +101,43 @@ def test_fm_demod_deviation_scaling():
     amp2 = np.std(out2)
     ratio = amp2 / amp1
     assert abs(ratio - 2.0) < 0.2, f"deviation scaling off: ratio {ratio}"
+
+
+def test_edges_finds_runs():
+    bits = np.array([1, 1, 0, 0, 0, 1], dtype=np.uint8)
+    _, runs, vals = demod.edges(bits)
+    assert list(runs) == [2, 3, 1]
+    assert list(vals) == [1, 0, 1]
+
+
+def test_edges_empty():
+    ch, runs, vals = demod.edges(np.array([], dtype=np.uint8))
+    assert len(ch) == 0 and len(runs) == 0 and len(vals) == 0
+
+
+def test_estimate_symbol_rate():
+    # known pattern at 100 samples/symbol
+    pattern = [1, 0, 1, 1, 0, 0, 0, 1]
+    bits = np.repeat(pattern, 100).astype(np.uint8)
+    spb, rate = demod.estimate_symbol_rate(bits, 1_000_000)
+    assert abs(spb - 100) < 1
+    assert abs(rate - 10_000) < 200
+
+
+def test_slice_to_symbols_recovers_pattern():
+    pattern = [1, 0, 1, 1, 0, 0, 0, 1]
+    bits = np.repeat(pattern, 100).astype(np.uint8)
+    syms = demod.slice_to_symbols(bits, 100)
+    assert list(syms) == pattern
+
+
+def test_ook_full_chain():
+    # envelope -> slice -> timing -> symbols, on a synthetic burst
+    from helpers.signals import ook_burst
+    pattern = [1, 0, 1, 1, 0, 1, 0, 0]
+    iq, _ = ook_burst(pattern, 80, sample_rate=2e6, amp=1.0)
+    env = demod.ook_envelope(iq)
+    bits = demod.ook_slice(env)
+    spb, _ = demod.estimate_symbol_rate(bits, 2e6)
+    syms = demod.slice_to_symbols(bits, spb)
+    assert list(syms) == pattern
