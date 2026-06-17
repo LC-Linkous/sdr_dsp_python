@@ -23,6 +23,7 @@ from .core import (
     fm_demod, am_demod, ook_envelope, ook_slice,
     edges, estimate_symbol_rate, slice_to_symbols, deemphasis,
     matched_filter, detect_peak,
+    carrier_recovery, symbol_sync, LoopDiagnostics,
 )
 from .sources import IQSource, ArraySource, FileSource
 from . import io
@@ -46,4 +47,5 @@ __all__ = [
     "fm_demod", "am_demod", "ook_envelope", "ook_slice",
     "edges", "estimate_symbol_rate", "slice_to_symbols", "deemphasis",
     "matched_filter", "detect_peak",
+    "carrier_recovery", "symbol_sync", "LoopDiagnostics",
 ]
