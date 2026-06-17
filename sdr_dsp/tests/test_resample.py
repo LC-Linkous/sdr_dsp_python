@@ -95,3 +95,10 @@ def test_decimation_preserves_in_band():
     in_power = float(np.mean(np.abs(x) ** 2))
     out_power = float(np.mean(np.abs(out) ** 2))
     assert out_power > 0.5 * in_power    # in-band tone mostly preserved
+
+
+def test_resample_empty_and_short():
+    import numpy as np
+    # empty input -> empty output, no crash
+    out = resample.resample_poly(np.array([], dtype=np.complex64), 3, 2)
+    assert len(out) == 0

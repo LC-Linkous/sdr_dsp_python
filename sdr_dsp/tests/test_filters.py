@@ -84,3 +84,19 @@ def test_lowpass_cutoff_near_minus_3db():
     cross_hz = f[below[0]] if len(below) else f[-1]
     # within ~15% of requested cutoff (window filters aren't brick-wall)
     assert abs(cross_hz - cutoff) < 0.15 * cutoff
+
+
+def test_fir_apply_taps_longer_than_signal():
+    # a long filter on a short signal should not crash, returns signal-length
+    import numpy as np
+    x = np.ones(20, dtype=np.complex64)
+    taps = filters.design_lowpass(100_000, 1_000_000, num_taps=201)
+    out = filters.fir_apply(x, taps)
+    assert len(out) == len(x)
+
+
+def test_fir_apply_single_sample():
+    import numpy as np
+    out = filters.fir_apply(np.array([1 + 0j], dtype=np.complex64),
+                            np.array([0.5, 0.5]))
+    assert len(out) == 1

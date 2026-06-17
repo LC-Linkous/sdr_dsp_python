@@ -83,3 +83,53 @@ def test_mixing_roundtrip_identity():
     up = mixing.frequency_shift(x, 200_000, fs)
     back = mixing.frequency_shift(up, -200_000, fs)
     assert np.allclose(back, x, atol=1e-5)
+
+
+def test_psd_parseval_scaling():
+    # the integrated PSD should relate to time-domain power. For a unit tone,
+    # total power is ~1; the PSD integrated over frequency (linear) should
+    # recover a comparable value to mean |x|^2.
+    fs = 1_000_000
+    x = tone(100_000, fs, 16384, amp=1.0)
+    time_power = float(np.mean(np.abs(x) ** 2))      # ~1.0
+    freqs, psd_db = spectral.psd(x, fs, nfft=1024, window="rect")
+    psd_lin = 10 ** (psd_db / 10.0)
+    df = freqs[1] - freqs[0]
+    integrated = float(np.sum(psd_lin) * df)          # integrate over Hz
+    # within a few dB -- windowing/scaling conventions vary, but same order
+    ratio = integrated / time_power
+    assert 0.3 < ratio < 3.0
+
+
+def test_spectrogram_time_alignment():
+    # a burst that starts partway through should appear in the right time rows,
+    # not at the start.
+    fs = 1_000_000
+    n = 20480
+    x = np.zeros(n, dtype=np.complex64)
+    start = n // 2
+    x[start:start + 4096] = tone(100_000, fs, 4096)   # burst in the 2nd half
+    freqs, times, sxx = spectral.spectrogram(x, fs, nfft=512, overlap=0.5)
+    # find the row with the most energy; its time should be in the 2nd half
+    row_energy = np.sum(10 ** (sxx / 10), axis=1)
+    peak_row = int(np.argmax(row_energy))
+    peak_time = times[peak_row]
+    assert peak_time > (start / fs) * 0.8   # roughly in the burst region
+
+
+def test_mixing_empty_and_single():
+    # edge cases shouldn't crash
+    assert len(mixing.frequency_shift(np.array([], dtype=np.complex64), 1e3,
+                                      1e6)) == 0
+    out = mixing.frequency_shift(np.array([1 + 0j], dtype=np.complex64), 1e3, 1e6)
+    assert len(out) == 1
+
+
+def test_measure_occupied_bandwidth_wider_for_wider_signal():
+    # a wider-band signal should report a larger occupied bandwidth
+    fs = 1_000_000
+    narrow = tone(0, fs, 16384) + 0.01 * noise(16384, seed=10)
+    wide = noise(16384, seed=11)        # full-band noise
+    bw_narrow = measure.occupied_bandwidth(narrow, fs)
+    bw_wide = measure.occupied_bandwidth(wide, fs)
+    assert bw_wide > bw_narrow
