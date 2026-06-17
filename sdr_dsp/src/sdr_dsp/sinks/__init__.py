@@ -7,8 +7,9 @@ requires matplotlib.
 
 from .wav_sink import write_wav
 from .iq_sink import write_iq
+from .tx_sink import TXSink, LoopbackSink
 
-__all__ = ["write_wav", "write_iq", "plot_spectrum", "plot_spectrogram"]
+__all__ = ["write_wav", "write_iq", "TXSink", "LoopbackSink", "plot_spectrum", "plot_spectrogram"]
 
 
 def __getattr__(name):
