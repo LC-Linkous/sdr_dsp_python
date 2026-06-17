@@ -17,6 +17,7 @@ from .core import (
     frequency_shift, tune_to_baseband,
     power_dbfs, snr_db, occupied_bandwidth,
     fm_demod, am_demod, ook_envelope, ook_slice,
+    edges, estimate_symbol_rate, slice_to_symbols,
 )
 from .sources import IQSource, ArraySource, FileSource
 from . import io
@@ -32,4 +33,5 @@ __all__ = [
     "frequency_shift", "tune_to_baseband",
     "power_dbfs", "snr_db", "occupied_bandwidth",
     "fm_demod", "am_demod", "ook_envelope", "ook_slice",
+    "edges", "estimate_symbol_rate", "slice_to_symbols",
 ]

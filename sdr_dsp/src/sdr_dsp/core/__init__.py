@@ -11,7 +11,8 @@ from .resample import resample_poly, decimate, interpolate
 from .spectral import psd, spectrogram
 from .mixing import frequency_shift, tune_to_baseband
 from .measure import power_dbfs, snr_db, occupied_bandwidth
-from .demod import fm_demod, am_demod, ook_envelope, ook_slice
+from .demod import (fm_demod, am_demod, ook_envelope, ook_slice,
+                    edges, estimate_symbol_rate, slice_to_symbols)
 
 __all__ = [
     "design_lowpass", "design_bandpass", "design_highpass",
@@ -21,4 +22,5 @@ __all__ = [
     "frequency_shift", "tune_to_baseband",
     "power_dbfs", "snr_db", "occupied_bandwidth",
     "fm_demod", "am_demod", "ook_envelope", "ook_slice",
+    "edges", "estimate_symbol_rate", "slice_to_symbols",
 ]
