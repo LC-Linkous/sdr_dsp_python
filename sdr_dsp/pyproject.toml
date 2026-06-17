@@ -30,16 +30,21 @@ dependencies = [
 [project.optional-dependencies]
 # These extras are for the EXAMPLE scripts, not the library core. The library
 # itself depends only on numpy + scipy and knows nothing about any device.
-# Plotting for the analyzer/spectrogram examples (matplotlib ONLY -- no PyQt5;
-# its wheels don't resolve cleanly on Windows via uv).
+#
+# Quick start: `uv sync --extra examples` installs everything needed to run
+# ANY example (plotting + audio + hackrfpy). The granular extras below let you
+# install just what a specific example needs.
+
+# Plotting for the analyzer/spectrogram/teaching examples (matplotlib ONLY --
+# no PyQt5; its wheels don't resolve cleanly on Windows via uv).
 plotting = ["matplotlib"]
-# Optional live audio playback for example output; default writes a WAV.
+# Live audio playback (live_fm_listen.py); other audio examples write a WAV.
 audio = ["sounddevice"]
-# Live capture in the examples uses hackrfpy (from PyPI). It is NOT a library
-# dependency -- only example scripts that talk to a HackRF need it, and they
-# import it themselves. Install when running those examples:
-#     pip install hackrfpy        # plus the hackrf-tools binaries (OS level)
+# Live capture examples use hackrfpy (from PyPI). NOT a library dependency.
+# Live capture additionally needs the hackrf-tools binaries at the OS level.
 examples-hackrf = ["hackrfpy>=1.0.0"]
+# Aggregate: everything the examples can use, in one install.
+examples = ["matplotlib", "sounddevice", "hackrfpy>=1.0.0"]
 
 [dependency-groups]
 dev = ["pytest", "pytest-cov", "ruff", "mypy"]
