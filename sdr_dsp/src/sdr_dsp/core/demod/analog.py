@@ -102,3 +102,78 @@ def deemphasis(audio, sample_rate, tau_us=75.0):
         acc = a * x + (1.0 - a) * acc
         out[i] = acc
     return out
+
+
+def dsb_sc_demod(iq, sample_rate, bfo_hz=0.0):
+    """Demodulate double-sideband suppressed-carrier (DSB-SC). OUR code.
+
+    DSB-SC is AM with the carrier removed -- both sidebands, no carrier spike.
+    With the carrier suppressed there's no envelope to follow, so recovery needs
+    a coherent reference. For a complex baseband capture centered on the
+    (suppressed) carrier, the real part IS the message (the two sidebands beat
+    back together). A bfo_hz shift fine-tunes if the center is slightly off.
+
+    This is the conceptual midpoint between AM (carrier present, envelope) and
+    SSB (one sideband): DSB-SC keeps both sidebands but drops the carrier.
+    Returns the real demodulated message.
+    """
+    iq = np.asarray(iq, dtype=np.complex64)
+    if bfo_hz:
+        n = len(iq)
+        t = np.arange(n) / float(sample_rate)
+        iq = iq * np.exp(2j * np.pi * float(bfo_hz) * t).astype(np.complex64)
+    return np.real(iq).astype(np.float64)
+
+
+# Morse code lookup (International Morse) for the CW decoder.
+_MORSE = {
+    ".-": "A", "-...": "B", "-.-.": "C", "-..": "D", ".": "E", "..-.": "F",
+    "--.": "G", "....": "H", "..": "I", ".---": "J", "-.-": "K", ".-..": "L",
+    "--": "M", "-.": "N", "---": "O", ".--.": "P", "--.-": "Q", ".-.": "R",
+    "...": "S", "-": "T", "..-": "U", "...-": "V", ".--": "W", "-..-": "X",
+    "-.--": "Y", "--..": "Z", "-----": "0", ".----": "1", "..---": "2",
+    "...--": "3", "....-": "4", ".....": "5", "-....": "6", "--...": "7",
+    "---..": "8", "----.": "9", ".-.-.-": ".", "--..--": ",", "..--..": "?",
+    "-..-.": "/", "-.-.--": "!", ".-.-.": "+", "-...-": "=",
+}
+
+
+def cw_decode(bits, samples_per_symbol):
+    """Decode Morse (CW) from a sliced on/off stream. OUR code.
+
+    CW is on-off keying at audio rates: a "dit" is one unit on, a "dah" is three
+    units on, with one-unit gaps inside a character, three-unit gaps between
+    characters, and seven-unit gaps between words. Given a 0/1 stream and the
+    unit length (samples_per_symbol = one dit), this groups the on/off runs into
+    dits/dahs and gaps, then looks up the characters.
+
+    Front end: get the on/off stream from ook_envelope + ook_slice on a
+    tone-filtered capture, and estimate samples_per_symbol from the shortest
+    "on" run (one dit). Returns the decoded text string.
+
+    Honest note: CW timing is famously loose (hand-keyed sending varies), so the
+    unit estimate and the dit/dah threshold may need tuning on real signals.
+    """
+    from .timing import edges
+    _, run_lengths, run_values = edges(bits)
+    spb = float(samples_per_symbol)
+    if spb <= 0 or len(run_lengths) == 0:
+        return ""
+    text = []
+    symbol = []
+    for length, val in zip(run_lengths, run_values):
+        units = length / spb
+        if val == 1:                       # tone ON: dit (~1) or dah (~3)
+            symbol.append("." if units < 2 else "-")
+        else:                              # tone OFF: gap
+            if units < 2:                  # intra-character gap: continue
+                continue
+            # character or word gap: flush the current symbol
+            if symbol:
+                text.append(_MORSE.get("".join(symbol), "?"))
+                symbol = []
+            if units >= 5:                 # word gap
+                text.append(" ")
+    if symbol:                             # flush trailing symbol
+        text.append(_MORSE.get("".join(symbol), "?"))
+    return "".join(text)

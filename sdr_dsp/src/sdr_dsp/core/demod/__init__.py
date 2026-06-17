@@ -10,17 +10,21 @@ core.sync, not here, because they are reusable across demods.
 """
 
 from .phase import instantaneous_phase, instantaneous_frequency
-from .analog import fm_demod, am_demod, ssb_demod, deemphasis
-from .ask import ook_envelope, ook_slice
-from .fsk import fsk_demod
-from .psk import bpsk_demod
+from .analog import (fm_demod, am_demod, ssb_demod, deemphasis,
+                     dsb_sc_demod, cw_decode)
+from .ask import ook_envelope, ook_slice, nask_slice
+from .fsk import fsk_demod, fsk_demod_nlevel
+from .psk import (bpsk_demod, dbpsk_demod, dqpsk_demod,
+                  qpsk_demod, psk8_demod)
 from .timing import edges, estimate_symbol_rate, slice_to_symbols
 
 __all__ = [
     "instantaneous_phase", "instantaneous_frequency",
     "fm_demod", "am_demod", "ssb_demod", "deemphasis",
-    "ook_envelope", "ook_slice",
-    "fsk_demod",
-    "bpsk_demod",
+    "dsb_sc_demod", "cw_decode",
+    "ook_envelope", "ook_slice", "nask_slice",
+    "fsk_demod", "fsk_demod_nlevel",
+    "bpsk_demod", "dbpsk_demod", "dqpsk_demod",
+    "qpsk_demod", "psk8_demod",
     "edges", "estimate_symbol_rate", "slice_to_symbols",
 ]

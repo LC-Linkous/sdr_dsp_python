@@ -24,3 +24,29 @@ def fsk_demod(iq, sample_rate, threshold_hz=0.0):
     return (inst > float(threshold_hz)).astype(np.uint8)
 
 
+
+
+def fsk_demod_nlevel(iq, sample_rate, n_levels=4, thresholds=None):
+    """Demodulate N-level FSK (4-FSK, etc.) and CPFSK. OUR code.
+
+    Generalizes 2-FSK: instead of a single 0-threshold on instantaneous
+    frequency, it slices the frequency into n_levels bands. Used by 4-FSK
+    (DMR, P25, some pagers). CPFSK recovers the same way -- the continuous
+    phase is a transmit-side property; the receiver still reads instantaneous
+    frequency.
+
+    thresholds: explicit frequency band centers (Hz). If None, the levels are
+    spread uniformly across the observed frequency range -- fine for a clean
+    capture; pass measured centers for real signals. Returns per-sample symbol
+    indices 0..n_levels-1.
+    """
+    inst = instantaneous_frequency(iq, sample_rate=sample_rate)
+    if len(inst) == 0:
+        return np.zeros(0, dtype=np.uint8)
+    if thresholds is None:
+        lo, hi = float(np.percentile(inst, 2)), float(np.percentile(inst, 98))
+        centers = np.linspace(lo, hi, n_levels)
+    else:
+        centers = np.asarray(thresholds, dtype=np.float64)
+    idx = np.argmin(np.abs(inst[:, None] - centers[None, :]), axis=1)
+    return idx.astype(np.uint8)
