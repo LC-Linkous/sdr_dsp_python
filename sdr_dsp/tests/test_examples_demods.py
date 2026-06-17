@@ -164,3 +164,75 @@ def test_differential_psk_demo_ignores_offset():
     bits2, _ = dqpsk_demod(syms2)
     n2 = min(len(bits2), len(tx2))
     assert np.sum(np.array(bits2[:n2]) != np.array(tx2[:n2])) == 0
+
+
+def test_annotate_bursts_workflow():
+    import annotate_bursts as ab
+    import tempfile, os
+    from sdr_dsp.io import read_annotations
+    fs = 2e6
+    iq = ab.make_capture(fs)
+    from sdr_dsp.core import find_bursts
+    from sdr_dsp.io import save_iq, bursts_to_annotations
+    spans = find_bursts(iq, min_gap=500, min_len=1000)
+    anns = bursts_to_annotations(spans, label="burst {i}")
+    d = tempfile.mkdtemp()
+    save_iq(os.path.join(d, "a.iq"), iq, fs, annotations=anns)
+    loaded = read_annotations(os.path.join(d, "a.iq"))
+    assert len(loaded) == len(spans)
+
+
+def test_power_calibration_workflow():
+    import numpy as np
+    from sdr_dsp.core import compute_cal_offset, Calibration, power_dbfs
+    import tempfile, os
+    ref = (0.1 * np.exp(2j * np.pi * 0.05 * np.arange(20000))).astype(
+        np.complex64)
+    cal = compute_cal_offset(ref, known_dbm=-30.0, frequency_hz=433.92e6)
+    d = tempfile.mkdtemp()
+    fp = os.path.join(d, "demo.cal.json")
+    cal.save(fp)
+    cal2 = Calibration.load(fp)
+    # the reference reads back as its known power
+    assert abs(cal2.power_dbm(ref) - (-30.0)) < 1e-6
+
+
+def test_agc_demo_recoverable():
+    import numpy as np
+    from sdr_dsp.core import agc
+    n = 60000
+    t = np.arange(n)
+    env = 0.5 + 0.45 * np.cos(2 * np.pi * 2.5 * t / n)
+    sig = (env * np.exp(2j * np.pi * 0.05 * t)).astype(np.complex64)
+    adjusted, gain = agc(sig, target=0.5)
+    # the example's headline honesty claim
+    assert np.allclose(adjusted / gain, sig, atol=1e-5)
+    # and it flattens the fade
+    assert np.abs(adjusted)[n // 4:].std() < np.abs(sig)[n // 4:].std()
+
+
+def test_channelizer_example_both_modes():
+    import channelizer as ch
+    import numpy as np
+    from sdr_dsp.core import channelize, channelize_bank
+    fs = 2e6
+    iq = ch.synth_band(fs)
+    # single
+    out, rate = channelize(iq, fs, 300e3, 100e3)
+    assert rate < fs and len(out) > 0
+    # bank
+    chans, brate, freqs = channelize_bank(iq, fs, 8)
+    assert chans.shape[0] == 8
+
+
+def test_modulate_demo_closes_loop():
+    import numpy as np
+    from sdr_dsp.core import (ook_modulate, ook_envelope, ook_slice,
+                              qpsk_modulate, qpsk_demod)
+    bits = np.random.default_rng(0).integers(0, 2, 100)
+    # OOK loop
+    rec = ook_slice(ook_envelope(ook_modulate(bits, 20)))[::20][:len(bits)]
+    assert np.mean(rec != bits) == 0
+    # QPSK loop
+    qrec, _ = qpsk_demod(qpsk_modulate(bits, 1))
+    assert np.mean(qrec[:len(bits)] != bits) == 0
