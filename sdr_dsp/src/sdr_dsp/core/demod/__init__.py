@@ -16,6 +16,8 @@ from .ask import ook_envelope, ook_slice, nask_slice
 from .fsk import fsk_demod, fsk_demod_nlevel
 from .psk import (bpsk_demod, dbpsk_demod, dqpsk_demod,
                   qpsk_demod, psk8_demod)
+from .qam import qam16_demod
+from .spread import dsss_despread, fhss_detect_hops
 from .timing import edges, estimate_symbol_rate, slice_to_symbols
 
 __all__ = [
@@ -26,5 +28,6 @@ __all__ = [
     "fsk_demod", "fsk_demod_nlevel",
     "bpsk_demod", "dbpsk_demod", "dqpsk_demod",
     "qpsk_demod", "psk8_demod",
+    "qam16_demod", "dsss_despread", "fhss_detect_hops",
     "edges", "estimate_symbol_rate", "slice_to_symbols",
 ]
