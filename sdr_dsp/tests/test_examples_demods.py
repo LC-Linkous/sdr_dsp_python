@@ -236,3 +236,32 @@ def test_modulate_demo_closes_loop():
     # QPSK loop
     qrec, _ = qpsk_demod(qpsk_modulate(bits, 1))
     assert np.mean(qrec[:len(bits)] != bits) == 0
+
+
+def test_packet_loopback_example():
+    import numpy as np
+    from sdr_dsp.core import (build_frame, find_frames,
+                              ook_modulate, ook_envelope, ook_slice)
+    frame_bits = build_frame(b"ACK 42")
+    sps = 20
+    iq = ook_modulate(frame_bits, sps)
+    rec = np.asarray(ook_slice(ook_envelope(iq))[::sps][:len(frame_bits)],
+                     dtype=np.uint8)
+    found = find_frames(rec)
+    assert found and found[0]["payload"] == b"ACK 42" and found[0]["crc_ok"]
+
+
+def test_channel_sweep_example():
+    import numpy as np
+    from sdr_dsp.core import (build_frame, find_frames, apply_channel,
+                              fsk_modulate, fsk_demod)
+    frame = build_frame(b"CQ DE SDR")
+    sps = 20
+    fs = 1e6
+    iq = fsk_modulate(frame, sps, 50e3, fs)
+    # clean channel -> recovered
+    rx = apply_channel(iq, sample_rate=fs, snr_db=30, seed=1)
+    bits = np.asarray(fsk_demod(rx, fs)[sps // 2::sps][:len(frame)],
+                      dtype=np.uint8)
+    found = find_frames(bits)
+    assert found and found[0]["crc_ok"]
