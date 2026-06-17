@@ -56,3 +56,7 @@ class ArraySource:
     def read(self, n_samples: int) -> np.ndarray:
         """Return the whole array (or the first n_samples)."""
         return self.iq[:int(n_samples)]
+
+    def __repr__(self):
+        return (f"ArraySource({len(self.iq):,} samples @ "
+                f"{self.sample_rate/1e6:g} Msps)")
