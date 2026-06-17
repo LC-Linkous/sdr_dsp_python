@@ -28,21 +28,36 @@ def edges(bits):
     return change, run_lengths, run_values
 
 
-def estimate_symbol_rate(bits, sample_rate):
-    """Estimate samples-per-symbol from the shortest run in a sliced stream.
+def estimate_symbol_rate(bits, sample_rate, min_run=2):
+    """Estimate samples-per-symbol from the run lengths in a sliced stream.
 
-    The shortest on/off run is (usually) one symbol period. OUR code -- a
-    robust-enough heuristic for clean OOK/ASK bursts. Returns
-    (samples_per_symbol, symbol_rate_hz). Use the shortest run as the unit and
-    round longer runs to multiples of it.
+    The shortest on/off run is (usually) one symbol period. OUR code. Returns
+    (samples_per_symbol, symbol_rate_hz).
+
+    Robustness: a single glitch sample (from noise or a demod transient at a
+    symbol boundary) creates a spurious 1-sample run that would fool a naive
+    "minimum run" estimate. So we DISCARD runs shorter than min_run, then take a
+    low percentile of what remains as the symbol period -- stable against a few
+    outliers while still finding the shortest real symbol. Raise min_run if your
+    capture is very noisy; lower it (to 1) only for pristine synthetic data.
     """
     _, run_lengths, _ = edges(bits)
-    # ignore the leading/trailing idle runs (often huge) by taking the modal
-    # short run: the minimum of the interior runs is the symbol period.
+    # ignore the leading/trailing idle runs (often huge)
     interior = run_lengths[1:-1] if len(run_lengths) > 2 else run_lengths
     if len(interior) == 0:
         return 0.0, 0.0
-    spb = float(np.min(interior))
+    # drop glitch-length runs that aren't real symbols
+    real = interior[interior >= min_run]
+    if len(real) == 0:
+        real = interior
+    # the symbol period is the shortest *robust* run: use a low percentile so a
+    # couple of surviving short outliers don't drag it down.
+    spb = float(np.percentile(real, 5))
+    # snap to the nearest run that's actually near this estimate (cleaner than
+    # the raw percentile, which can land between integer sample counts)
+    near = real[np.abs(real - spb) <= 0.5 * spb]
+    if len(near):
+        spb = float(np.median(near))
     return spb, (sample_rate / spb if spb else 0.0)
 
 
