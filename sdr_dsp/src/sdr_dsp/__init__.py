@@ -14,24 +14,27 @@ from .core import (
     fir_apply, fir_apply_centered,
     resample_poly, decimate, interpolate,
     psd, spectrogram,
-    frequency_shift, tune_to_baseband,
+    frequency_shift, tune_to_baseband, remove_dc,
     power_dbfs, snr_db, occupied_bandwidth,
     fm_demod, am_demod, ook_envelope, ook_slice,
-    edges, estimate_symbol_rate, slice_to_symbols,
+    edges, estimate_symbol_rate, slice_to_symbols, deemphasis,
+    matched_filter, detect_peak,
 )
 from .sources import IQSource, ArraySource, FileSource
 from . import io
+from . import sinks
 
 __version__ = "0.1.0"
 
 __all__ = [
-    "core", "io", "IQSource", "ArraySource", "FileSource",
+    "core", "io", "sinks", "IQSource", "ArraySource", "FileSource",
     "design_lowpass", "design_bandpass", "design_highpass",
     "fir_apply", "fir_apply_centered",
     "resample_poly", "decimate", "interpolate",
     "psd", "spectrogram",
-    "frequency_shift", "tune_to_baseband",
+    "frequency_shift", "tune_to_baseband", "remove_dc",
     "power_dbfs", "snr_db", "occupied_bandwidth",
     "fm_demod", "am_demod", "ook_envelope", "ook_slice",
-    "edges", "estimate_symbol_rate", "slice_to_symbols",
+    "edges", "estimate_symbol_rate", "slice_to_symbols", "deemphasis",
+    "matched_filter", "detect_peak",
 ]
