@@ -40,7 +40,17 @@ class HackRFCapture:
 
     def __init__(self, center_freq, sample_rate, *, lna=16, vga=20, amp=False,
                  block_size=262144, tools_dir=None):
-        from hackrfpy import HackRF        # example dependency, imported here
+        try:
+            from hackrfpy import HackRF
+        except ImportError as e:
+            raise ImportError(
+                "HackRFCapture needs the hackrfpy package, which isn't "
+                "installed. Install it with:\n"
+                "    uv sync --extra examples-hackrf   (or: pip install hackrfpy)\n"
+                "Live capture also needs the hackrf-tools binaries at the OS "
+                "level (see https://pypi.org/project/hackrfpy/). The file-based "
+                "examples don't need any of this."
+            ) from e
         self.center_freq = float(center_freq)
         self.sample_rate = float(sample_rate)
         self.block_size = int(block_size)
