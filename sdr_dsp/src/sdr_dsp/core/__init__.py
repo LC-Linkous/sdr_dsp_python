@@ -15,7 +15,10 @@ from .measure import (power_dbfs, snr_db, occupied_bandwidth,
                      find_bursts, estimate_cfo)
 from .detect import matched_filter, detect_peak, correlate, convolve
 from .sync import carrier_recovery, symbol_sync, LoopDiagnostics
-from .....old.demod import (fm_demod, am_demod, ook_envelope, ook_slice,
+from .demod import (fm_demod, am_demod, ssb_demod, dsb_sc_demod, cw_decode,
+                    ook_envelope, ook_slice, nask_slice,
+                    fsk_demod, fsk_demod_nlevel,
+                    bpsk_demod, dbpsk_demod, dqpsk_demod, qpsk_demod, psk8_demod,
                     edges, estimate_symbol_rate, slice_to_symbols, deemphasis,
                     instantaneous_phase, instantaneous_frequency,
                     fsk_demod, ssb_demod, bpsk_demod)
@@ -31,7 +34,9 @@ __all__ = [
     "find_bursts", "estimate_cfo",
     "fm_demod", "am_demod", "ook_envelope", "ook_slice",
     "instantaneous_phase", "instantaneous_frequency",
-    "fsk_demod", "ssb_demod", "bpsk_demod",
+    "fsk_demod", "fsk_demod_nlevel", "ssb_demod", "dsb_sc_demod", "cw_decode",
+    "bpsk_demod", "dbpsk_demod", "dqpsk_demod", "nask_slice",
+    "qpsk_demod", "psk8_demod",
     "edges", "estimate_symbol_rate", "slice_to_symbols", "deemphasis",
     "matched_filter", "detect_peak", "correlate", "convolve",
     "carrier_recovery", "symbol_sync", "LoopDiagnostics",
