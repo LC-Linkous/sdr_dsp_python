@@ -19,7 +19,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, "src")
-from sdr_dsp.core.spectral import _get_window
+from src.sdr_dsp.core.spectral import _get_window
 
 
 def main():

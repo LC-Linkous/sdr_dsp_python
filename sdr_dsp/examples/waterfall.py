@@ -20,8 +20,8 @@ import sys
 import numpy as np
 
 sys.path.insert(0, "src")
-from sdr_dsp.io import load_iq
-from sdr_dsp.core import spectrogram
+from src.sdr_dsp.io import load_iq
+from src.sdr_dsp.core import spectrogram
 
 
 def main():

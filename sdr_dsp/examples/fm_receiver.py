@@ -20,8 +20,8 @@ import numpy as np
 # allow running from the repo without install
 sys.path.insert(0, "src")
 
-from sdr_dsp.sources import FileSource
-from sdr_dsp.core import (
+from src.sdr_dsp.sources import FileSource
+from src.sdr_dsp.core import (
     design_lowpass, fir_apply, fm_demod, resample_poly, frequency_shift,
 )
 

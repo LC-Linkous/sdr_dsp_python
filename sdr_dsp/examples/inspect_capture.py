@@ -17,8 +17,8 @@ import sys
 import numpy as np
 
 sys.path.insert(0, "src")
-from sdr_dsp.io import load_iq, read_meta
-from sdr_dsp.core import power_dbfs
+from src.sdr_dsp.io import load_iq, read_meta
+from src.sdr_dsp.core import power_dbfs
 
 
 def main():

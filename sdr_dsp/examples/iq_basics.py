@@ -40,7 +40,7 @@ def main():
         return 1
 
     if args.iq_file:
-        from sdr_dsp.io import load_iq
+        from src.sdr_dsp.io import load_iq
         iq, meta = load_iq(args.iq_file, count=args.samples)
         fs = float(meta.get("global", {}).get("core:sample_rate", args.rate))
         title = args.iq_file
