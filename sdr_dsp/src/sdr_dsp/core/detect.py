@@ -43,3 +43,30 @@ def detect_peak(signal, template, threshold=None):
     if threshold is not None and val < threshold:
         return None, val
     return idx, val
+
+
+def correlate(a, b, mode="full"):
+    """Cross-correlation of two signals, conjugation handled correctly. OUR code.
+
+    np.correlate already conjugates its second argument for complex input -- a
+    well-known footgun (conjugating it yourself double-conjugates and breaks the
+    result). This wrapper exists so that subtlety lives in ONE place. Returns
+    the complex cross-correlation; take np.abs for a magnitude.
+
+    mode: "full", "same", or "valid" (as numpy).
+    """
+    a = np.asarray(a)
+    b = np.asarray(b)
+    return np.correlate(a, b, mode=mode)
+
+
+def convolve(a, b, mode="full"):
+    """Convolution of two signals. OUR code (thin, for a uniform API).
+
+    Unlike correlate, convolution does NOT conjugate -- it's the filtering
+    operation. Provided alongside correlate so the distinction is explicit and
+    both are first-class.
+    """
+    a = np.asarray(a)
+    b = np.asarray(b)
+    return np.convolve(a, b, mode=mode)

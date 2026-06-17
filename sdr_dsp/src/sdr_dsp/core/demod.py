@@ -10,27 +10,55 @@ from __future__ import annotations
 import numpy as np
 
 
-def fm_demod(iq, deviation_hz=None, sample_rate=None):
-    """Demodulate frequency modulation via the phase discriminator. OUR code.
+def instantaneous_phase(iq, unwrap=True):
+    """The phase angle of each complex sample. OUR code.
 
-    The instantaneous frequency is the derivative of phase. The standard,
-    efficient discriminator computes the phase difference between consecutive
-    samples as angle(x[n] * conj(x[n-1])). Returns a real audio-rate-ish array.
+    Returns the per-sample phase in radians. With unwrap=True the 2*pi jumps are
+    removed so the phase is continuous (useful for seeing accumulated phase /
+    measuring frequency as its slope).
+    """
+    iq = np.asarray(iq, dtype=np.complex64)
+    phase = np.angle(iq).astype(np.float64)
+    return np.unwrap(phase) if unwrap else phase
 
-    If deviation_hz and sample_rate are given, the output is scaled to
-    approximate normalized audio; otherwise it returns raw radians/sample.
+
+def instantaneous_frequency(iq, sample_rate=None):
+    """The instantaneous frequency of a complex signal. OUR code.
+
+    Computed by the phase discriminator: the phase change between consecutive
+    samples, angle(x[n] * conj(x[n-1])). This is THE primitive under FM and FSK
+    demodulation, exposed so both build on it (and so you can analyze frequency
+    directly -- Doppler, drift, chirps).
+
+    Returns radians/sample, or Hz if sample_rate is given. Output length is
+    len(iq) - 1 (one difference per adjacent pair).
     """
     iq = np.asarray(iq, dtype=np.complex64)
     if len(iq) < 2:
         return np.zeros(0, dtype=np.float64)
-    # angle of the product of each sample with the conjugate of the previous
     prod = iq[1:] * np.conj(iq[:-1])
-    demod = np.angle(prod).astype(np.float64)  # radians/sample
+    rad_per_sample = np.angle(prod).astype(np.float64)
+    if sample_rate is not None:
+        return rad_per_sample * float(sample_rate) / (2.0 * np.pi)
+    return rad_per_sample
+
+
+def fm_demod(iq, deviation_hz=None, sample_rate=None):
+    """Demodulate frequency modulation via the phase discriminator. OUR code.
+
+    FM carries the message in instantaneous frequency, so demod IS the
+    instantaneous frequency (see instantaneous_frequency). Returns a real array.
+
+    If deviation_hz and sample_rate are given, the output is scaled by the peak
+    deviation to give roughly normalized audio; otherwise it returns raw
+    radians/sample.
+    """
+    if len(np.asarray(iq)) < 2:
+        return np.zeros(0, dtype=np.float64)
     if deviation_hz and sample_rate:
-        # radians/sample -> Hz -> normalized by peak deviation
-        inst_hz = demod * sample_rate / (2.0 * np.pi)
-        demod = inst_hz / float(deviation_hz)
-    return demod
+        inst_hz = instantaneous_frequency(iq, sample_rate=sample_rate)
+        return inst_hz / float(deviation_hz)
+    return instantaneous_frequency(iq)
 
 
 def am_demod(iq, dc_block=True):
@@ -140,3 +168,86 @@ def deemphasis(audio, sample_rate, tau_us=75.0):
         acc = a * x + (1.0 - a) * acc
         out[i] = acc
     return out
+
+
+def fsk_demod(iq, sample_rate, threshold_hz=0.0):
+    """Demodulate 2-level frequency-shift keying. OUR code.
+
+    FSK encodes bits as two frequencies (a "mark" and a "space"). Demod is the
+    instantaneous frequency, then a threshold: above threshold_hz -> 1, below
+    -> 0. With the default threshold 0, it splits on the sign of the frequency
+    deviation (correct when the two tones straddle the center frequency, which
+    is the common case after tuning to baseband).
+
+    Returns a uint8 per-sample bit stream; feed to the timing-recovery helpers
+    (estimate_symbol_rate / slice_to_symbols) to get symbols. Covers GFSK/MSK
+    well enough for typical ISM-band sensors and pagers.
+    """
+    inst = instantaneous_frequency(iq, sample_rate=sample_rate)
+    return (inst > float(threshold_hz)).astype(np.uint8)
+
+
+def ssb_demod(iq, sample_rate, sideband="usb", bfo_hz=0.0):
+    """Demodulate single-sideband (USB or LSB). OUR code.
+
+    SSB transmits one sideband of an AM signal with the carrier suppressed. In a
+    complex baseband capture the two sidebands are ALREADY separated: positive
+    frequencies are the upper sideband, negative frequencies the lower. So we
+    select a sideband by keeping only positive (USB) or only negative (LSB)
+    frequency content, then take the real part as audio.
+
+    (Note: simply conjugating and taking the real part does NOT work --
+    real(z) == real(conj(z)) -- so sideband selection must happen in the
+    frequency domain, which is what we do here.)
+
+    bfo_hz applies a beat-frequency-oscillator shift to fine-tune pitch, as a
+    real radio's BFO does (user-controlled).
+
+    Returns the real demodulated audio.
+    """
+    iq = np.asarray(iq, dtype=np.complex64)
+    n = len(iq)
+    if n == 0:
+        return np.zeros(0, dtype=np.float64)
+    if bfo_hz:
+        t = np.arange(n) / float(sample_rate)
+        iq = iq * np.exp(2j * np.pi * float(bfo_hz) * t).astype(np.complex64)
+
+    sb = sideband.lower()
+    if sb not in ("usb", "lsb"):
+        raise ValueError("sideband must be 'usb' or 'lsb'")
+
+    # select the sideband in the frequency domain: zero out the half we don't
+    # want, then return the real part of the inverse transform.
+    spec = np.fft.fft(iq)
+    freqs = np.fft.fftfreq(n)
+    if sb == "usb":
+        spec[freqs < 0] = 0.0      # keep positive frequencies
+    else:
+        spec[freqs > 0] = 0.0      # keep negative frequencies
+    selected = np.fft.ifft(spec)
+    return np.real(selected).astype(np.float64)
+
+
+def bpsk_demod(iq, normalize_phase=True):
+    """Demodulate binary phase-shift keying (coherent-ish). OUR code.
+
+    BPSK encodes bits as 0 or pi phase. With the carrier already at baseband and
+    roughly phase-aligned, the sign of the real part recovers the bits. This is
+    a SIMPLE demod: it assumes the signal is already carrier-aligned (no Costas
+    loop / carrier recovery). For captures with a residual carrier offset,
+    correct it first (see estimate_cfo / frequency_shift) -- the library does
+    not auto-recover the carrier.
+
+    Returns (bits, soft) where bits is uint8 (0/1) and soft is the real-part
+    decision statistic (useful for confidence / plotting a constellation).
+    """
+    iq = np.asarray(iq, dtype=np.complex64)
+    if normalize_phase and len(iq):
+        # remove a constant phase offset by aligning the dominant axis to real:
+        # rotate so the mean squared phase lands on the real axis.
+        rot = np.exp(-1j * 0.5 * np.angle(np.mean(iq ** 2)))
+        iq = iq * rot
+    soft = np.real(iq).astype(np.float64)
+    bits = (soft > 0).astype(np.uint8)
+    return bits, soft
