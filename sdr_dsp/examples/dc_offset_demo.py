@@ -21,13 +21,9 @@ import sys
 import numpy as np
 
 sys.path.insert(0, "src")
-from sdr_dsp.core import psd
+from sdr_dsp.core import psd, remove_dc
 
 
-def remove_dc(iq):
-    """Remove the DC offset / LO leakage: subtract the complex mean. OUR code."""
-    iq = np.asarray(iq)
-    return (iq - np.mean(iq)).astype(np.complex64)
 
 
 def main():

@@ -20,9 +20,10 @@ import numpy as np
 # allow running from the repo without install
 sys.path.insert(0, "src")
 
-from src.sdr_dsp.sources import FileSource
-from src.sdr_dsp.core import (
+from sdr_dsp.sources import FileSource
+from sdr_dsp.core import (
     design_lowpass, fir_apply, fm_demod, resample_poly, frequency_shift,
+    deemphasis,
 )
 
 
@@ -32,21 +33,6 @@ AUDIO_RATE = 48_000            # output WAV rate
 DEEMPHASIS_US = 75             # de-emphasis time constant (US: 75 us)
 
 
-def deemphasis(audio, sample_rate, tau_us=DEEMPHASIS_US):
-    """Single-pole de-emphasis filter (broadcast FM pre-emphasizes highs).
-
-    A simple one-pole IIR: y[n] = a*x[n] + (1-a)*y[n-1]. OUR code -- a trivial
-    recursive filter, not worth a scipy call.
-    """
-    tau = tau_us * 1e-6
-    dt = 1.0 / sample_rate
-    a = dt / (tau + dt)
-    out = np.empty_like(audio)
-    acc = 0.0
-    for i, x in enumerate(audio):
-        acc = a * x + (1 - a) * acc
-        out[i] = acc
-    return out
 
 
 def main():
@@ -94,7 +80,7 @@ def main():
     audio = resample_poly(audio, up, down)
 
     # 6. de-emphasis + normalize to int16 WAV range
-    audio = deemphasis(audio, AUDIO_RATE)
+    audio = deemphasis(audio, AUDIO_RATE, tau_us=DEEMPHASIS_US)
     peak = np.max(np.abs(audio)) or 1.0
     pcm = np.int16(np.clip(audio / peak * 0.9, -1, 1) * 32767)
 

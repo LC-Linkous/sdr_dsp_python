@@ -19,20 +19,9 @@ import sys
 import numpy as np
 
 sys.path.insert(0, "src")
+from sdr_dsp.core import matched_filter
 
 
-def matched_filter(signal, template):
-    """Correlate template against signal. OUR code (np.correlate).
-
-    Returns the correlation magnitude; its peak marks where the template best
-    aligns with the signal. NOTE: np.correlate already conjugates its second
-    argument for complex input, so we pass the template directly (conjugating
-    it ourselves would double-conjugate and break the match).
-    """
-    signal = np.asarray(signal)
-    template = np.asarray(template)
-    corr = np.correlate(signal, template, mode="valid")
-    return np.abs(corr)
 
 
 def main():
