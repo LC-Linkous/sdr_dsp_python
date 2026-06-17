@@ -25,3 +25,16 @@ def frequency_shift(iq, shift_hz, sample_rate):
 def tune_to_baseband(iq, offset_hz, sample_rate):
     """Bring a signal sitting at +offset_hz down to 0 Hz (DC)."""
     return frequency_shift(iq, -float(offset_hz), sample_rate)
+
+
+def remove_dc(iq):
+    """Remove the DC offset / LO leakage: subtract the complex mean. OUR code.
+
+    Direct-conversion SDRs leak their local oscillator into the band center,
+    producing a spurious spike at 0 Hz that isn't a real signal. Subtracting the
+    mean removes it. Returns complex64.
+    """
+    iq = np.asarray(iq)
+    if len(iq) == 0:
+        return iq.astype(np.complex64)
+    return (iq - np.mean(iq)).astype(np.complex64)

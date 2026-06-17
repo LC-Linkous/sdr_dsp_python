@@ -9,18 +9,20 @@ from .filters import (
 )
 from .resample import resample_poly, decimate, interpolate
 from .spectral import psd, spectrogram
-from .mixing import frequency_shift, tune_to_baseband
+from .mixing import frequency_shift, tune_to_baseband, remove_dc
 from .measure import power_dbfs, snr_db, occupied_bandwidth
+from .detect import matched_filter, detect_peak
 from .demod import (fm_demod, am_demod, ook_envelope, ook_slice,
-                    edges, estimate_symbol_rate, slice_to_symbols)
+                    edges, estimate_symbol_rate, slice_to_symbols, deemphasis)
 
 __all__ = [
     "design_lowpass", "design_bandpass", "design_highpass",
     "fir_apply", "fir_apply_centered",
     "resample_poly", "decimate", "interpolate",
     "psd", "spectrogram",
-    "frequency_shift", "tune_to_baseband",
+    "frequency_shift", "tune_to_baseband", "remove_dc",
     "power_dbfs", "snr_db", "occupied_bandwidth",
     "fm_demod", "am_demod", "ook_envelope", "ook_slice",
-    "edges", "estimate_symbol_rate", "slice_to_symbols",
+    "edges", "estimate_symbol_rate", "slice_to_symbols", "deemphasis",
+    "matched_filter", "detect_peak",
 ]

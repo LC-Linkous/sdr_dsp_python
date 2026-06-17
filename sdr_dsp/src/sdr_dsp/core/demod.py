@@ -120,3 +120,23 @@ def slice_to_symbols(bits, samples_per_symbol):
         count = max(1, int(round(length / spb)))
         out.extend([int(val)] * count)
     return np.array(out, dtype=np.uint8)
+
+
+def deemphasis(audio, sample_rate, tau_us=75.0):
+    """Single-pole de-emphasis filter for broadcast FM audio. OUR code.
+
+    Broadcast FM pre-emphasizes high frequencies before transmission; the
+    receiver must de-emphasize them back. A one-pole IIR does it:
+        y[n] = a*x[n] + (1-a)*y[n-1],   a = dt / (tau + dt)
+    tau_us: time constant (75 us in the Americas/Korea, 50 us elsewhere).
+    """
+    audio = np.asarray(audio, dtype=np.float64)
+    tau = tau_us * 1e-6
+    dt = 1.0 / float(sample_rate)
+    a = dt / (tau + dt)
+    out = np.empty_like(audio)
+    acc = 0.0
+    for i, x in enumerate(audio):
+        acc = a * x + (1.0 - a) * acc
+        out[i] = acc
+    return out
