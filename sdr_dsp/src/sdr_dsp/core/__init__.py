@@ -11,6 +11,12 @@ from .filters import (
 from .resample import resample_poly, decimate, interpolate
 from .spectral import psd, spectrogram
 from .mixing import frequency_shift, tune_to_baseband, remove_dc
+from .modulate import (fm_modulate, am_modulate, ssb_modulate,
+                       ook_modulate, fsk_modulate, bpsk_modulate,
+                       qpsk_modulate, rrc_taps, upsample, pulse_shape)
+from .channelize import channelize, channelize_bank
+from .agc import agc, AGC
+from .calibrate import power_dbm, Calibration, compute_cal_offset
 from .measure import (power_dbfs, snr_db, occupied_bandwidth,
                      find_bursts, estimate_cfo)
 from .detect import matched_filter, detect_peak, correlate, convolve
@@ -31,7 +37,10 @@ __all__ = [
     "resample_poly", "decimate", "interpolate",
     "psd", "spectrogram",
     "frequency_shift", "tune_to_baseband", "remove_dc",
-    "power_dbfs", "snr_db", "occupied_bandwidth",
+    "power_dbfs", "power_dbm", "Calibration", "compute_cal_offset", "agc", "AGC", "channelize", "channelize_bank",
+    "fm_modulate", "am_modulate", "ssb_modulate",
+    "ook_modulate", "fsk_modulate", "bpsk_modulate", "qpsk_modulate",
+    "rrc_taps", "upsample", "pulse_shape", "snr_db", "occupied_bandwidth",
     "find_bursts", "estimate_cfo",
     "fm_demod", "am_demod", "ook_envelope", "ook_slice",
     "instantaneous_phase", "instantaneous_frequency",
