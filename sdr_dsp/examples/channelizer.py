@@ -1,19 +1,24 @@
 #! /usr/bin/python3
-"""channelizer.py -- pull one narrow channel out of a wide capture.
+"""channelizer.py -- pull channels out of a wide capture, one or many.
 
-The capstone that ties three primitives together:
-    tune (mixing) -> lowpass (filter) -> decimate (resample).
-Given a wide capture and a target offset, it shifts that channel to baseband,
-filters to the channel bandwidth, and decimates to a lower rate -- giving you
-just that one channel at a manageable sample rate, ready to demod or save.
+Two jobs, two functions (both now live in the library core; this example shows
+them):
 
-Library deps only (numpy). No hardware -- runs on a saved capture. Can save the
-extracted channel back out as its own SigMF recording.
+  SINGLE -- channelize(): extract one channel at an arbitrary offset and
+    bandwidth. tune -> filter -> decimate. For when you want one specific signal.
+
+  BANK -- channelize_bank(): split the whole band into N equal channels at once
+    with a polyphase filterbank, far cheaper than running the single extractor N
+    times (one filter + an FFT instead of N mix-filter-decimate chains). For
+    monitoring a whole slice -- every FM station, every ISM channel -- at once.
+
+Library deps only (numpy); plotting is optional. Runs on a saved capture or a
+synthesized multi-signal band.
 
 Usage:
     python examples/channelizer.py wideband.iq --offset 250e3 --bw 100e3
-    python examples/channelizer.py wideband.iq --offset 250e3 --bw 100e3 \
-        --save channel.sigmf-data
+    python examples/channelizer.py wideband.iq --bank 16
+    python examples/channelizer.py                       # synthetic demo
 """
 import argparse
 import sys
@@ -21,83 +26,62 @@ import sys
 import numpy as np
 
 sys.path.insert(0, "src")
-from sdr_dsp.sources import FileSource
-from sdr_dsp.core import (
-    tune_to_baseband, design_lowpass, fir_apply, decimate, psd,
-)
+from sdr_dsp.core import channelize, channelize_bank, power_dbfs
 
 
-def channelize(iq, sample_rate, offset_hz, channel_bw, decim=None):
-    """Extract the channel at offset_hz with bandwidth channel_bw.
-
-    Returns (channel_iq, new_sample_rate). decim defaults to the largest
-    integer that keeps the channel comfortably inside the new Nyquist.
-    """
-    # 1. tune the channel to baseband
-    base = tune_to_baseband(iq, offset_hz, sample_rate)
-    # 2. lowpass to the channel half-bandwidth
-    taps = design_lowpass(channel_bw / 2, sample_rate, num_taps=201)
-    filt = fir_apply(base, taps)
-    # 3. decimate -- keep the new rate >= ~2.5x the channel bandwidth
-    if decim is None:
-        decim = max(1, int(sample_rate / (channel_bw * 2.5)))
-    out = decimate(filt, decim)
-    return out, sample_rate / decim
+def synth_band(fs, n=200000):
+    """A wide band with several signals at different offsets."""
+    t = np.arange(n) / fs
+    sig = (np.exp(2j * np.pi * (0.30 * fs / 2) * t)            # high channel
+           + 0.7 * np.exp(2j * np.pi * (-0.15 * fs / 2) * t)  # lower channel
+           + 0.5 * np.exp(2j * np.pi * (0.02 * fs / 2) * t))  # near center
+    sig += 0.02 * (np.random.randn(n) + 1j * np.random.randn(n))
+    return sig.astype(np.complex64)
 
 
 def main():
-    p = argparse.ArgumentParser(description="Channelizer: extract one channel.")
-    p.add_argument("iq_file")
-    p.add_argument("--offset", type=float, required=True,
-                   help="channel offset from capture center (Hz)")
-    p.add_argument("--bw", type=float, default=100e3,
-                   help="channel bandwidth to keep (Hz)")
-    p.add_argument("--decim", type=int, default=None,
-                   help="decimation factor (default: auto)")
-    p.add_argument("--save", default=None, help="save channel as SigMF")
-    p.add_argument("--plot", action="store_true")
+    p = argparse.ArgumentParser(description="Single or multi-channel extraction.")
+    p.add_argument("iq_file", nargs="?", default=None)
+    p.add_argument("--rate", type=float, default=2e6)
+    p.add_argument("--offset", type=float, default=300e3, help="single: offset Hz")
+    p.add_argument("--bw", type=float, default=100e3, help="single: bandwidth Hz")
+    p.add_argument("--bank", type=int, default=None,
+                   help="bank: split into this many channels instead")
+    p.add_argument("--oversample", action="store_true",
+                   help="bank: oversample by 2 (decim = N/2) for cleaner edges")
     args = p.parse_args()
 
-    src = FileSource(args.iq_file)
-    fs = src.sample_rate
-    print(f"[*] {src}")
-    print(f"[*] extracting channel at {args.offset/1e3:+g} kHz, "
-          f"{args.bw/1e3:g} kHz wide")
+    if args.iq_file:
+        from sdr_dsp.io import load_iq
+        iq, meta = load_iq(args.iq_file)
+        fs = float(meta.get("global", {}).get("core:sample_rate", args.rate))
+    else:
+        fs = args.rate
+        iq = synth_band(fs)
+        print(f"[*] synthetic wide band @ {fs/1e6:g} Msps")
 
-    chan, new_fs = channelize(src.iq, fs, args.offset, args.bw, args.decim)
-    print(f"[*] channel: {len(chan):,} samples @ {new_fs/1e3:g} ksps "
-          f"(decimated {int(fs/new_fs)}x)")
-
-    if args.save:
-        from sdr_dsp.io import save_iq
-        new_center = src.center_freq + args.offset
-        dp, mp = save_iq(args.save, chan, new_fs, center_freq=new_center)
-        print(f"[*] saved -> {dp}")
-
-    if args.plot:
-        try:
-            import matplotlib.pyplot as plt
-        except ImportError:
-            print("(install matplotlib to plot)")
-            return 0
-        f_wide, p_wide = psd(src.iq, fs, nfft=2048, center_freq=0)
-        f_chan, p_chan = psd(chan, new_fs, nfft=1024, center_freq=0)
-        fig, (a1, a2) = plt.subplots(2, 1, figsize=(11, 8))
-        a1.plot(f_wide / 1e3, p_wide, lw=0.7)
-        a1.axvline(args.offset / 1e3, color="r", ls="--", lw=0.8,
-                   label="target channel")
-        a1.set_title("wide capture (red = extracted channel)")
-        a1.set_xlabel("offset (kHz)")
-        a1.set_ylabel("PSD (dB)")
-        a1.legend()
-        a1.grid(alpha=0.3)
-        a2.plot(f_chan / 1e3, p_chan, lw=0.8, color="#2ca02c")
-        a2.set_title(f"extracted channel @ {new_fs/1e3:g} ksps")
-        a2.set_xlabel("baseband frequency (kHz)")
-        a2.set_ylabel("PSD (dB)")
-        a2.grid(alpha=0.3)
-        fig.tight_layout()
-        plt.show()
+    if args.bank:
+        # MULTI-CHANNEL: split the whole band at once
+        N = args.bank
+        decim = (N // 2) if args.oversample else N
+        chans, rate, freqs = channelize_bank(iq, fs, N, decim=decim)
+        print(f"[*] polyphase bank: {N} channels, each {rate/1e3:g} kHz wide "
+              f"({'oversampled' if args.oversample else 'critically sampled'})")
+        print(f"\n    {'ch':>3} {'center (kHz)':>14} {'power':>10}")
+        print("    " + "-" * 32)
+        for i, (f, c) in enumerate(zip(freqs, chans)):
+            pw = power_dbfs(c)
+            mark = "  <-- signal" if pw > -20 else ""
+            print(f"    {i:>3} {f/1e3:>14.1f} {pw:>7.1f} dB{mark}")
+        print(f"\n[*] each row is an IQ stream ready to demod or save")
+    else:
+        # SINGLE CHANNEL: one specific channel
+        ch, rate = channelize(iq, fs, args.offset, args.bw)
+        print(f"[*] extracted channel @ {args.offset/1e3:g} kHz, "
+              f"{args.bw/1e3:g} kHz wide -> {rate/1e3:g} kHz rate, "
+              f"{len(ch)} samples")
+        print(f"[*] channel power: {power_dbfs(ch):.1f} dBFS")
+        print(f"[*] ready to demod or save (use --bank N to split the whole band)")
     return 0
 
 
