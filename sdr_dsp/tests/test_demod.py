@@ -72,3 +72,32 @@ def test_ook_slice_custom_threshold():
     env = np.array([0.0, 0.1, 0.9, 1.0])
     out = demod.ook_slice(env, threshold=0.5)
     assert list(out) == [0, 0, 1, 1]
+
+
+def test_fm_demod_linearity_across_frequencies():
+    # the demod must track the message frequency across a RANGE, not just at
+    # one lucky point. Sweep several message tones; each must be recovered.
+    fs = 200_000
+    for msg_hz in (500, 1000, 2500, 5000, 10_000):
+        iq, _ = fm_signal(msg_hz, deviation_hz=20_000, sample_rate=fs, n=40_000)
+        out = demod.fm_demod(iq, deviation_hz=20_000, sample_rate=fs)
+        spec = np.abs(np.fft.rfft(out * np.hanning(len(out))))
+        freqs = np.fft.rfftfreq(len(out), 1.0 / fs)
+        peak = freqs[np.argmax(spec)]
+        assert abs(peak - msg_hz) < 100, f"failed at {msg_hz} Hz (got {peak})"
+
+
+def test_fm_demod_deviation_scaling():
+    # doubling the deviation should double the recovered amplitude (the
+    # discriminator output is proportional to instantaneous frequency).
+    fs = 200_000
+    msg_hz = 1000
+    iq1, _ = fm_signal(msg_hz, deviation_hz=10_000, sample_rate=fs, n=40_000)
+    iq2, _ = fm_signal(msg_hz, deviation_hz=20_000, sample_rate=fs, n=40_000)
+    # demod WITHOUT the deviation normalization to see the raw scaling
+    out1 = demod.fm_demod(iq1)
+    out2 = demod.fm_demod(iq2)
+    amp1 = np.std(out1)
+    amp2 = np.std(out2)
+    ratio = amp2 / amp1
+    assert abs(ratio - 2.0) < 0.2, f"deviation scaling off: ratio {ratio}"

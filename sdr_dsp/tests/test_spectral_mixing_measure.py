@@ -74,3 +74,12 @@ def test_occupied_bandwidth_positive():
     x = tone(0, fs, 16384) + 0.1 * noise(16384, seed=5)
     bw = measure.occupied_bandwidth(x, fs, fraction=0.99)
     assert bw > 0
+
+
+def test_mixing_roundtrip_identity():
+    # shift up by f then down by f recovers the original within precision
+    fs = 1_000_000
+    x = tone(100_000, fs, 8192)
+    up = mixing.frequency_shift(x, 200_000, fs)
+    back = mixing.frequency_shift(up, -200_000, fs)
+    assert np.allclose(back, x, atol=1e-5)

@@ -67,3 +67,20 @@ def test_fir_apply_rejects_empty_taps():
     import pytest
     with pytest.raises(ValueError):
         filters.fir_apply(np.ones(10), np.array([]))
+
+
+def test_lowpass_cutoff_near_minus_3db():
+    # the designed filter's -3 dB point should land near the requested cutoff
+    import numpy as np
+    fs = 1_000_000
+    cutoff = 100_000
+    taps = filters.design_lowpass(cutoff, fs, num_taps=255)
+    # frequency response via FFT of the taps
+    H = np.abs(np.fft.rfft(taps, 4096))
+    f = np.fft.rfftfreq(4096, 1.0 / fs)
+    H_db = 20 * np.log10(H / H.max() + 1e-12)
+    # find where it crosses -3 dB
+    below = np.where(H_db < -3.0)[0]
+    cross_hz = f[below[0]] if len(below) else f[-1]
+    # within ~15% of requested cutoff (window filters aren't brick-wall)
+    assert abs(cross_hz - cutoff) < 0.15 * cutoff

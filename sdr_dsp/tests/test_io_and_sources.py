@@ -55,3 +55,33 @@ def test_arraysource_protocol():
     s = ArraySource(x, sample_rate=1e6, center_freq=100e6, block_size=1000)
     assert s.sample_rate == 1e6
     assert sum(len(b) for b in s.blocks()) == 5000
+
+
+def test_sources_satisfy_protocol():
+    # FileSource and ArraySource must actually satisfy the runtime-checkable
+    # IQSource protocol -- this is the contract the DSP core relies on.
+    from sdr_dsp.sources import IQSource
+    a = ArraySource(np.ones(100, dtype=np.complex64), sample_rate=1e6)
+    assert isinstance(a, IQSource)
+
+
+def test_filesource_blocks_reassemble_exactly(tmp_path):
+    # blocks() must lose no samples at boundaries, even when block_size doesn't
+    # divide the length evenly.
+    x = (np.arange(10_007) + 1j * np.arange(10_007)).astype(np.complex64)
+    save_iq(tmp_path / "r.sigmf-data", x, sample_rate=2e6)
+    fs = FileSource(tmp_path / "r.sigmf-meta", block_size=1000)
+    rebuilt = np.concatenate(list(fs.blocks()))
+    assert len(rebuilt) == len(x)
+    assert np.array_equal(rebuilt, x)
+
+
+def test_load_unknown_datatype_errors(tmp_path):
+    import json
+    import pytest
+    np.zeros(100, dtype=np.int8).tofile(tmp_path / "bad.iq")
+    json.dump({"global": {"core:datatype": "not_a_real_type",
+                          "core:sample_rate": 1e6}, "captures": [{}]},
+              open(tmp_path / "bad.sigmf-meta", "w"))
+    with pytest.raises(ValueError):
+        load_iq(tmp_path / "bad.iq")

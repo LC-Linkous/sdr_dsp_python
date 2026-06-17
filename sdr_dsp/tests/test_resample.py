@@ -65,3 +65,33 @@ def test_resample_rejects_bad_factor():
     import pytest
     with pytest.raises(ValueError):
         resample.resample_poly(np.ones(10), 0, 1)
+
+
+def test_decimation_rejects_aliasing():
+    # THE anti-aliasing test: a tone above the post-decimation Nyquist must be
+    # rejected, not folded back. Without a working anti-alias filter it would
+    # alias to a spurious low frequency.
+    import numpy as np
+    from helpers.signals import tone
+    fs = 1_000_000
+    # decimate by 4 -> new Nyquist is 125 kHz. Put a tone at 300 kHz (above it).
+    x = tone(300_000, fs, 40_000)
+    out = resample.decimate(x, 4)
+    new_fs = fs / 4
+    # the aliased tone, if anti-aliasing failed, would appear strongly. Measure
+    # residual power: it should be heavily suppressed vs the input power.
+    in_power = float(np.mean(np.abs(x) ** 2))
+    out_power = float(np.mean(np.abs(out) ** 2))
+    assert out_power < 0.05 * in_power   # >13 dB rejection of out-of-band tone
+
+
+def test_decimation_preserves_in_band():
+    # sanity companion: a tone BELOW the new Nyquist survives decimation
+    import numpy as np
+    from helpers.signals import tone
+    fs = 1_000_000
+    x = tone(50_000, fs, 40_000)         # 50 kHz, well under 125 kHz Nyquist
+    out = resample.decimate(x, 4)
+    in_power = float(np.mean(np.abs(x) ** 2))
+    out_power = float(np.mean(np.abs(out) ** 2))
+    assert out_power > 0.5 * in_power    # in-band tone mostly preserved
