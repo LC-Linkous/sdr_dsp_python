@@ -141,3 +141,19 @@ def test_ook_full_chain():
     spb, _ = demod.estimate_symbol_rate(bits, 2e6)
     syms = demod.slice_to_symbols(bits, spb)
     assert list(syms) == pattern
+
+
+def test_estimate_symbol_rate_robust_to_glitches():
+    # boundary transients (brief spurious runs at symbol edges) shouldn't
+    # collapse the estimate to ~1, which the old min()-based code did. Model
+    # them as short 1-2 sample runs inserted at transitions.
+    pattern = [1, 0, 1, 1, 0, 0, 0, 1]
+    bits = list(np.repeat(pattern, 100).astype(np.uint8))
+    # insert a few 1-sample opposite-value glitches AT transitions (index near
+    # a boundary), the realistic transient pattern
+    for idx in (100, 300, 600):
+        bits[idx] ^= 1   # single flipped sample right at a run boundary
+    bits = np.array(bits, dtype=np.uint8)
+    spb, rate = demod.estimate_symbol_rate(bits, 1_000_000, min_run=3)
+    # should stay near 100 (the real symbol), not collapse toward 1
+    assert spb > 50, f"estimate collapsed to {spb}"
