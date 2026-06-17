@@ -14,7 +14,8 @@ from .mixing import frequency_shift, tune_to_baseband, remove_dc
 from .measure import (power_dbfs, snr_db, occupied_bandwidth,
                      find_bursts, estimate_cfo)
 from .detect import matched_filter, detect_peak, correlate, convolve
-from .demod import (fm_demod, am_demod, ook_envelope, ook_slice,
+from .sync import carrier_recovery, symbol_sync, LoopDiagnostics
+from .....old.demod import (fm_demod, am_demod, ook_envelope, ook_slice,
                     edges, estimate_symbol_rate, slice_to_symbols, deemphasis,
                     instantaneous_phase, instantaneous_frequency,
                     fsk_demod, ssb_demod, bpsk_demod)
@@ -33,4 +34,5 @@ __all__ = [
     "fsk_demod", "ssb_demod", "bpsk_demod",
     "edges", "estimate_symbol_rate", "slice_to_symbols", "deemphasis",
     "matched_filter", "detect_peak", "correlate", "convolve",
+    "carrier_recovery", "symbol_sync", "LoopDiagnostics",
 ]
