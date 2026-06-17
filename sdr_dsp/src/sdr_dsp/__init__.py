@@ -1,8 +1,11 @@
 """sdr_dsp: a personal, fully-functional DSP library for SDR IQ.
 
 The radio DSP is the library's own code; scipy designs filter taps and numpy
-provides the FFT. Core DSP operates on arrays and never touches devices -- IQ
-arrives through a source adapter (file or HackRF) and leaves through a sink.
+provides the FFT. The core operates on complex64 arrays and knows nothing about
+where they came from: IQ arrives through a source that satisfies the IQSource
+protocol (ArraySource / FileSource ship here; device sources live in your own
+application code) and analysis comes back out. The library provides the hooks;
+you provide the hardware.
 """
 
 from . import core
