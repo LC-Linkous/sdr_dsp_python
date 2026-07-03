@@ -265,3 +265,16 @@ def test_channel_sweep_example():
                       dtype=np.uint8)
     found = find_frames(bits)
     assert found and found[0]["crc_ok"]
+
+
+def test_two_station_link_example():
+    import two_station_link as tsl
+    from sdr_dsp.link import ARQ, run_sim
+    A = ARQ(window_size=1, timeout_ticks=3, max_retries=10)
+    B = ARQ(window_size=1, timeout_ticks=3, max_retries=10)
+    msgs = [b"CQ CQ", b"DE SDR"]
+    for m in msgs:
+        A.send(m)
+    transport = tsl.build_transport(25, drop_first=True)
+    _, received, log = run_sim(A, B, transport=transport, max_ticks=500)
+    assert received == msgs               # delivered despite the forced drop

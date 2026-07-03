@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from sdr_dsp.sinks import TXSink, LoopbackSink
-from sdr_dsp.core.link import ARQ, LiveLink, EventLog
+from sdr_dsp.link import ARQ, LiveLink, EventLog
 from sdr_dsp.core import build_frame, find_frames, fsk_modulate, fsk_demod
 
 FS = 1e6
