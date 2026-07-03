@@ -24,7 +24,7 @@ import numpy as np
 sys.path.insert(0, "src")
 from sdr_dsp.core import (build_frame, find_frames, apply_channel,
                           fsk_modulate, fsk_demod)
-from sdr_dsp.core.link import (ARQ, run_sim, run_link, replay, EventLog,
+from sdr_dsp.link import (ARQ, run_sim, run_link, replay, EventLog,
                                make_channel_transport)
 
 FS = 1e6

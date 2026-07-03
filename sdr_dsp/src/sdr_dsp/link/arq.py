@@ -31,7 +31,8 @@ from __future__ import annotations
 
 from collections import deque
 
-from .protocol import (TYPE_DATA, TYPE_ACK, pack_payload, unpack_payload)
+from .protocol import (TYPE_DATA, TYPE_ACK, pack_payload, unpack_payload,
+                       SEQ_MOD_MAX)
 
 
 class ARQ:
@@ -43,29 +44,49 @@ class ARQ:
         max_retries:  retransmit attempts before giving up on a frame.
         seq_mod:      sequence-number modulus (must be >= 2*window_size so the
                       window never aliases; defaults to 2*window_size).
+        cumulative_ack: if True, the receiver acknowledges the highest
+                      contiguously-received seq (one ACK confirms everything up
+                      to it) instead of each frame individually. Correct under
+                      loss; the traffic saving only appears with batched arrival.
+                      Default False (Selective Repeat, per-frame ACK).
     """
 
     def __init__(self, window_size=1, timeout_ticks=10, max_retries=5,
-                 seq_mod=None):
+                 seq_mod=None, cumulative_ack=False):
         if window_size < 1:
             raise ValueError("window_size must be >= 1")
         self.window_size = int(window_size)
         self.timeout_ticks = int(timeout_ticks)
         self.max_retries = int(max_retries)
+        self.cumulative_ack = bool(cumulative_ack)
         self.seq_mod = int(seq_mod) if seq_mod else 2 * self.window_size
         if self.seq_mod < 2 * self.window_size:
             raise ValueError("seq_mod must be >= 2*window_size")
+        if self.seq_mod > SEQ_MOD_MAX:
+            # the protocol header packs seq in one byte; a seq_mod above 256
+            # would alias silently on the wire. Reject it explicitly rather than
+            # corrupt. (For a stop-and-wait or modest window this never trips;
+            # it guards the large-window case.)
+            raise ValueError(
+                f"seq_mod={self.seq_mod} exceeds the header limit "
+                f"({SEQ_MOD_MAX}); window_size at most {SEQ_MOD_MAX // 2} with "
+                f"the default seq_mod. The 1-byte seq field cannot represent "
+                f"more than {SEQ_MOD_MAX} sequence numbers.")
 
         # --- sender state ---
         self._send_queue = deque()        # app messages waiting to go out
         self._next_seq = 0                # seq to assign to the next new frame
-        # outstanding frames: seq -> {"data", "age", "retries"}
+        self._send_base = 0               # oldest unacked seq (window left edge)
+        # outstanding frames: seq -> {"data", "age", "retries", "acked"}
         self._outstanding = {}
 
         # --- receiver state ---
         self._expected_rx = 0             # next seq we expect to deliver in order
         # buffered out-of-order frames (windowed mode): seq -> data
         self._rx_buffer = {}
+        # whether any frame has been delivered in order yet -- so a cumulative ACK
+        # of (expected_rx - 1) is meaningful even after expected_rx wraps to 0.
+        self._rx_delivered_any = False
 
         # --- output ---
         self._out = deque()               # pending intentions
@@ -103,16 +124,68 @@ class ARQ:
 
     # -- sender -----------------------------------------------------------
     def _pump_window(self):
-        """Move queued messages into flight while the window has room."""
-        while self._send_queue and len(self._outstanding) < self.window_size:
+        """Move queued messages into flight while the window has room.
+
+        The window is a contiguous range starting at the oldest UNACKNOWLEDGED
+        frame (the send base). A new frame may go out only if its sequence number
+        is within window_size of that base -- otherwise the sender's window would
+        slide past frames the receiver hasn't accepted yet, desynchronizing the
+        two windows (which silently drops frames under burst loss). So the gate
+        is the distance from the base, not merely the count of outstanding
+        frames.
+        """
+        while self._send_queue and self._window_has_room():
             data = self._send_queue.popleft()
             seq = self._next_seq
             self._next_seq = (self._next_seq + 1) % self.seq_mod
             self._outstanding[seq] = {"data": data, "age": 0, "retries": 0}
             self._emit_tx(TYPE_DATA, seq, data)
 
+    def _window_has_room(self):
+        """True if another frame fits without sliding past the send base.
+
+        The window spans [send_base, send_base + window_size). The next seq to
+        assign must stay inside it. Distance is modular.
+        """
+        distance = (self._next_seq - self._send_base) % self.seq_mod
+        return distance < self.window_size
+
+    def _advance_send_base(self):
+        """Slide the base forward past contiguous acknowledged frames.
+
+        A frame is removed from _outstanding when acked. The base advances over
+        any seq no longer outstanding (i.e. acked) until it reaches one still in
+        flight -- the Selective-Repeat window slide.
+        """
+        while (self._send_base != self._next_seq
+               and self._send_base not in self._outstanding):
+            self._send_base = (self._send_base + 1) % self.seq_mod
+
     def _emit_tx(self, frame_type, seq, data=b""):
         self._out.append(("tx", pack_payload(frame_type, seq, data)))
+
+    def _emit_data_ack(self, seq):
+        """Emit the ACK for a received DATA frame.
+
+        Selective (default): ACK exactly this seq -- it stands alone.
+
+        Cumulative: ACK the highest CONTIGUOUSLY-received seq, i.e.
+        (expected_rx - 1). A cumulative ACK for N means "I have everything
+        through N in order", so it must NEVER name an out-of-order seq -- doing
+        so would tell the sender a gap frame arrived when it didn't, letting the
+        sender clear and eventually reuse that sequence number while the receiver
+        still owes it (the aliasing bug). If nothing contiguous has been received
+        yet (expected_rx has not advanced from the receive base), there is
+        nothing to cumulatively acknowledge, so we emit no ACK and let the
+        sender's timeout drive a retransmit of the gap frame.
+        """
+        if not self.cumulative_ack:
+            self._emit_tx(TYPE_ACK, seq)            # selective: this frame
+            return
+        # cumulative: only ever ACK the contiguous high-water mark
+        if self._rx_delivered_any:
+            self._emit_tx(TYPE_ACK, (self._expected_rx - 1) % self.seq_mod)
+        # else: nothing contiguous yet -> no cumulative ACK to give (sender retries)
 
     def _on_tick(self):
         """Advance logical time; retransmit or give up on timed-out frames."""
@@ -124,7 +197,9 @@ class ARQ:
                     # give up on this frame
                     del self._outstanding[seq]
                     self._out.append(("failed", seq))
-                    # a gap frees window room; let queued messages flow
+                    # a gap frees window room; slide the base and let queued
+                    # messages flow
+                    self._advance_send_base()
                     self._pump_window()
                 else:
                     info["retries"] += 1
@@ -142,30 +217,57 @@ class ARQ:
             return
 
         if ftype == TYPE_ACK:
-            # an ACK acknowledges the frame with this seq
-            if seq in self._outstanding:
-                del self._outstanding[seq]
-                self._out.append(("done", seq))
-                self._pump_window()
+            if self.cumulative_ack:
+                # a cumulative ACK for seq N acknowledges every outstanding frame
+                # from the base through N -- BUT only if N is actually within the
+                # live window ahead of the base. A stale/duplicate ACK for a seq
+                # at or below the base (already acknowledged) must be IGNORED, not
+                # walked around the modulus (which would clear the whole window).
+                dist = (seq - self._send_base) % self.seq_mod
+                if self._outstanding and dist < self.window_size:
+                    acked_any = False
+                    for k in range(dist + 1):       # base .. seq inclusive
+                        s = (self._send_base + k) % self.seq_mod
+                        if s in self._outstanding:
+                            del self._outstanding[s]
+                            self._out.append(("done", s))
+                            acked_any = True
+                    if acked_any:
+                        self._advance_send_base()
+                        self._pump_window()
+                # else: stale/out-of-window cumulative ACK -> ignore
+            else:
+                # selective ACK: acknowledges exactly this frame
+                if seq in self._outstanding:
+                    del self._outstanding[seq]
+                    self._out.append(("done", seq))
+                    self._advance_send_base()
+                    self._pump_window()
             return
 
         if ftype == TYPE_DATA:
-            # always ACK a well-formed DATA frame (even a duplicate, since the
-            # sender retransmits when our earlier ACK was lost)
-            self._emit_tx(TYPE_ACK, seq)
             if self.window_size == 1:
-                # stop-and-wait: deliver only if this is the seq we expect.
-                # a retransmission carries the previous seq -> re-ACKed above,
-                # but not re-delivered.
+                # stop-and-wait: ACK any well-formed frame (a retransmission of
+                # the previous seq must be re-ACKed), but deliver only the
+                # expected one.
+                self._emit_tx(TYPE_ACK, seq)
                 if seq == self._expected_rx:
                     self._out.append(("deliver", data))
                     self._expected_rx = (self._expected_rx + 1) % self.seq_mod
             else:
-                # windowed: deliver in order, buffering gaps; ignore seqs already
-                # passed (duplicates) and those outside the receive window.
+                # windowed (Selective Repeat): only ACK frames we can actually
+                # account for -- those within the receive window (accepted now)
+                # or already-delivered duplicates (below the window). A frame
+                # ABOVE the window is NOT ACKed, so the sender won't mark it done
+                # while the receiver can't yet hold it -- which is what kept the
+                # two windows from desynchronizing under burst loss.
                 if self._in_rx_window(seq):
                     self._rx_buffer[seq] = data
                     self._drain_rx_in_order()
+                    self._emit_data_ack(seq)
+                elif self._is_rx_duplicate(seq):
+                    self._emit_data_ack(seq)   # re-ACK so a lost-ACK sender moves on
+                # else: above the window -> drop silently, do not ACK
 
     def _drain_rx_in_order(self):
         """Deliver buffered frames in sequence order (windowed receiver)."""
@@ -173,6 +275,7 @@ class ARQ:
             data = self._rx_buffer.pop(self._expected_rx)
             self._out.append(("deliver", data))
             self._expected_rx = (self._expected_rx + 1) % self.seq_mod
+            self._rx_delivered_any = True
 
     def _in_rx_window(self, seq):
         """True if seq is within the current receive window (windowed mode).
@@ -183,5 +286,14 @@ class ARQ:
         """
         for k in range(self.window_size):
             if (self._expected_rx + k) % self.seq_mod == seq:
+                return True
+        return False
+
+    def _is_rx_duplicate(self, seq):
+        """True if seq was already delivered (lies in the window_size range just
+        below expected_rx). Such a frame is re-ACKed but not re-delivered, so a
+        sender whose earlier ACK was lost can make progress."""
+        for k in range(1, self.window_size + 1):
+            if (self._expected_rx - k) % self.seq_mod == seq:
                 return True
         return False

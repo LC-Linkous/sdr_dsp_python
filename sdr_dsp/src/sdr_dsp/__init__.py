@@ -32,15 +32,15 @@ from .sources import IQSource, ArraySource, FileSource
 
 __version__ = "0.1.0"
 
-# io, sinks, stream and Pipeline are imported LAZILY (PEP 562) so that importing
+# io, sinks, stream, link and Pipeline are imported LAZILY (PEP 562) so that importing
 # the package -- or a submodule like `from sdr_dsp.core import demod` -- never
 # force-loads them during package initialization. Eagerly importing them here
 # created an import-ordering cycle on some platforms (the package was still
 # partially initialized when `stream` was pulled in). Lazy access keeps
-# `sdr_dsp.io`, `sdr_dsp.sinks`, `sdr_dsp.stream`, and `sdr_dsp.Pipeline` working
+# `sdr_dsp.io`, `sdr_dsp.sinks`, `sdr_dsp.stream`, `sdr_dsp.link`, and `sdr_dsp.Pipeline` working
 # identically while removing the fragility.
 def __getattr__(name):
-    if name in ("io", "sinks", "stream"):
+    if name in ("io", "sinks", "stream", "link"):
         import importlib
         mod = importlib.import_module(f".{name}", __name__)
         globals()[name] = mod
@@ -52,7 +52,7 @@ def __getattr__(name):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
-    "core", "io", "sinks", "stream", "Pipeline",
+    "core", "io", "sinks", "stream", "link", "Pipeline",
     "IQSource", "ArraySource", "FileSource",
     "design_lowpass", "design_bandpass", "design_highpass",
     "fir_apply", "fir_apply_centered",

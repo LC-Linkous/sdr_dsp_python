@@ -22,6 +22,11 @@ TYPE_DATA = 0x00
 TYPE_ACK = 0x01
 TYPE_NAK = 0x02
 
+# the seq field in the header is ONE byte, so sequence numbers are mod 256.
+# This is the governing limit on seq_mod (and hence window size) -- the ARQ
+# engine validates against it so a too-large window can't silently alias.
+SEQ_MOD_MAX = 256
+
 _TYPE_NAMES = {TYPE_DATA: "DATA", TYPE_ACK: "ACK", TYPE_NAK: "NAK"}
 
 
