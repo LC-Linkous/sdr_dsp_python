@@ -38,7 +38,7 @@ gets quantized coarsely. Consequences for the demod suite:
   capture it works; over the air at low SNR, expect errors. We provide it to show
   the principle, not to claim a QAM modem.
 
-## Cross-SDR context (so expectations are calibrated)
+## Cross-SDR context 
 
 | Radio | ADC | Rough role |
 |---|---|---|
@@ -48,18 +48,3 @@ gets quantized coarsely. Consequences for the demod suite:
 | SDRplay | 14-bit | Strong dynamic range and front-end filtering; better for weak-signal/QAM work. |
 | USRP (Ettus) | 12–16-bit | Lab-grade; what you'd reach for to do robust high-order demod. |
 
-The point is not that the HackRF is weak — it's that a 12–16 bit radio with
-front-end filtering will demodulate QAM and high-order PSK *more robustly*. On the
-HackRF, those are "we can show it works on a good capture," and this library is
-honest about that line rather than implying every modulation decodes flawlessly.
-
-## Why develop on it anyway
-
-We're pushing a $500 radio toward advanced skill-building deliberately. The
-HackRF's coverage means one device exercises the entire demod suite across real
-bands — broadcast FM, aircraft AM, ISM-band FSK/OOK, 2.4 GHz spread spectrum —
-and its limitations *force* the DSP to be honest. A library that works on
-HackRF captures, with clear-eyed caveats where the hardware strains, is more
-trustworthy than one tuned to a lab radio and quietly assumed to generalize.
-
-See `MODULATIONS.md` for the per-modulation status table.
