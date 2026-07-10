@@ -6,6 +6,8 @@ This is part of a personal ecosystem of libraries for experimenal and educationa
 
 `sdr_dsp` is a library, not a framework. When using, you have to import functions and classes and orchestrate the pipeline yourself in plain Python. There is no runtime, scheduler, flowgraph engine, or GUI. It is not a GNU Radio competitor or replacement. GNU Radio remains the right tool for large real-time flowgraphs; `sdr_dsp` is for direct, scriptable DSP in Python.
 
+NOTE: to make the documentation cover all parts of this library, AI is being used to summarize the codebase and the development notes. The largest improvement has been the spelling correction, and format updates to make the development easier to follow. All mistakes are human, and will likely take a revision or two to fix experimentally. 
+
 ## Design
 
 **The radio DSP is the library's own code.** Filtering, demodulation, resampling, mixing, and measurement are all implemented here. scipy is a design-time tool, not a runtime crutch: `scipy.signal` only *designs* filter coefficients, `numpy.fft` provides the FFT, and scipy doubles as a **test oracle** that the library's own implementations are verified against.
