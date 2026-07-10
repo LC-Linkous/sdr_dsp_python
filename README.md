@@ -38,12 +38,12 @@ sdr_dsp_python/
     │   │   ├── resample.py      # our polyphase resampler
     │   │   ├── spectral.py      # PSD, spectrogram (numpy FFT, our scaling)
     │   │   ├── mixing.py        # frequency translation
-    │   │   ├── measure.py       # power, SNR, occupied bandwidth
+    │   │   ├── measure.py       # power, SNR, occupied bandwidth, bursts, CFO
     │   │   ├── agc.py           # automatic gain control
     │   │   ├── calibrate.py     # dBFS → dBm calibration
     │   │   ├── channel.py       # simulated channel (AWGN, CFO, delay)
     │   │   ├── channelize.py    # channel extraction / channelizer bank
-    │   │   ├── detect.py        # burst detection, CFO estimation
+    │   │   ├── detect.py        # matched filter, correlation, peak detection
     │   │   ├── framing.py       # frame build/find, CRC
     │   │   ├── sync.py          # carrier recovery, symbol timing
     │   │   ├── demod/           # FM, AM, SSB, OOK, ASK, FSK, (D)PSK, QAM, DSSS/FHSS — all ours
