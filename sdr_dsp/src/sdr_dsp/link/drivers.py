@@ -16,6 +16,8 @@ convenience run_link() for the common simulated case.
 from __future__ import annotations
 
 import json
+
+import numpy as np
 from dataclasses import dataclass, field, asdict
 
 from .arq import ARQ
@@ -227,16 +229,30 @@ class LiveLink:
         demodulate: iq -> [frames]       (a demod + find_frames), used on RX.
         log:        optional EventLog to record the exchange (for later replay).
         station:    label for the log ("A"/"B").
+        carry_samples: how many trailing IQ samples to carry from each
+            on_rx_iq() call into the next. A streaming receiver delivers
+            blocks at arbitrary boundaries, and a frame split across two
+            blocks is invisible to both halves' demod -- silently lost. Set
+            this to at least one full frame's length in samples (frame bits x
+            samples_per_symbol, plus padding) and the overlap guarantees every
+            frame lands whole in some window. Default 0 preserves the old
+            per-block behavior, which is only correct when the caller
+            delivers burst-aligned segments (e.g. via find_bursts, or the
+            whole-buffer LoopbackSink loop). A frame that falls entirely
+            inside the overlap can be found twice; that is safe here -- ARQ
+            duplicate detection (sequence numbers) exists for exactly this.
     """
 
     def __init__(self, engine, sink, modulate, demodulate, log=None,
-                 station="A"):
+                 station="A", carry_samples=0):
         self.engine = engine
         self.sink = sink
         self.modulate = modulate
         self.demodulate = demodulate
         self.log = log
         self.station = station
+        self.carry_samples = int(carry_samples)
+        self._carry = np.zeros(0, dtype=np.complex64)
         self._tick = 0
 
     def pump(self):
@@ -260,7 +276,14 @@ class LiveLink:
 
     def on_rx_iq(self, iq):
         """Feed received IQ: demodulate, find frames, deliver each as an rx
-        event. Returns the app outputs produced."""
+        event. Returns the app outputs produced.
+
+        With carry_samples > 0, the tail of the previous call's IQ is
+        prepended so frames straddling a block boundary are still found."""
+        iq = np.asarray(iq, dtype=np.complex64)
+        if self.carry_samples > 0:
+            iq = np.concatenate([self._carry, iq])
+            self._carry = iq[-self.carry_samples:].copy()
         frames = self.demodulate(iq)
         for f in frames:
             payload = f["payload"]

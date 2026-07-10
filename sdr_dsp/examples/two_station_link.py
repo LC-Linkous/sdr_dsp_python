@@ -23,7 +23,7 @@ import numpy as np
 
 sys.path.insert(0, "src")
 from sdr_dsp.core import (build_frame, find_frames, apply_channel,
-                          fsk_modulate, fsk_demod)
+                          fsk_modulate, fsk_demod, sample_symbols)
 from sdr_dsp.link import (ARQ, run_sim, run_link, replay, EventLog,
                                make_channel_transport)
 
@@ -41,11 +41,22 @@ def build_transport(snr_db, drop_first=False):
         return False
 
     def modulate(payload):
-        return fsk_modulate(build_frame(payload), SPS, 50e3, FS)
+        # pad_symbols: guard silence so the frame's first/last symbols don't
+        # sit at the buffer edges (edge effects + delay corrupt them there).
+        return fsk_modulate(build_frame(payload), SPS, 50e3, FS, pad_symbols=4)
 
     def demodulate(iq):
-        bits = fsk_demod(iq, FS)[SPS // 2::SPS]
-        return find_frames(np.asarray(bits, dtype=np.uint8))
+        # The hardware-robust chain: smooth the instantaneous frequency
+        # (~sps/2 = a cheap matched filter), threshold at the weighted mean
+        # ("auto" -- self-centers under carrier offset between two radios),
+        # then sample symbol CENTERS with the phase estimated from the
+        # transitions (arbitrary delay-safe), masking the phase estimate to
+        # where there's actually signal.
+        raw = fsk_demod(iq, FS, threshold_hz="auto", smooth_samples=SPS // 2)
+        env = np.abs(iq)[: len(raw)]
+        active = env > 0.25 * env.max() if env.max() > 0 else None
+        bits = sample_symbols(raw, SPS, active=active)
+        return find_frames(bits)
 
     channel = functools.partial(apply_channel, sample_rate=FS, snr_db=snr_db,
                                 seed=1)

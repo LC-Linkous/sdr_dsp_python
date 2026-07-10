@@ -78,3 +78,49 @@ def slice_to_symbols(bits, samples_per_symbol):
     return np.array(out, dtype=np.uint8)
 
 
+
+def sample_symbols(bits, samples_per_symbol, active=None):
+    """Decimate an over-sampled 0/1 stream to symbols at the RIGHT phase. OUR code.
+
+    A per-sample bit stream (from fsk_demod / ook_slice) carries each symbol
+    samples_per_symbol times, but a real capture arrives with an arbitrary
+    delay -- so a fixed stride like bits[sps//2::sps] samples at an arbitrary
+    point in each symbol, sometimes right on the transitions. This estimates
+    the symbol phase FROM the stream itself: transitions can only occur at
+    symbol boundaries, so the circular mean of (transition_index mod sps) is
+    the boundary phase, and boundary + sps/2 is the symbol center.
+
+    Contrast with slice_to_symbols, which is run-length based: robust to
+    unknown phase but a single glitch sample inserts/deletes a bit and shifts
+    everything after it. This keeps the fixed-stride robustness (a glitch
+    corrupts one bit, not the alignment) while removing the phase assumption.
+    Use this one on hardware captures.
+
+    bits:               per-sample 0/1 stream (uint8).
+    samples_per_symbol: the (integer) oversampling factor.
+    active:             optional boolean mask, same length as bits (or 1 less,
+                        e.g. from a len-1 instantaneous-frequency chain).
+                        Transitions outside the mask are ignored when
+                        estimating the phase -- pass envelope > threshold so
+                        garbage flicker in silence between bursts doesn't
+                        pollute the estimate.
+
+    Returns a uint8 array with one entry per symbol period.
+    """
+    bits = np.asarray(bits, dtype=np.uint8)
+    sps = int(samples_per_symbol)
+    if sps <= 1 or len(bits) == 0:
+        return bits
+    phase = sps // 2
+    trans = np.flatnonzero(np.diff(bits))
+    if active is not None:
+        act = np.asarray(active, dtype=bool)
+        if len(act) and len(trans):
+            trans = trans[act[np.minimum(trans, len(act) - 1)]]
+    if len(trans):
+        # circular mean of the boundary phases (handles the 0/sps wraparound
+        # that breaks a plain median)
+        ang = (trans % sps) * (2.0 * np.pi / sps)
+        mean = np.angle(np.mean(np.exp(1j * ang))) % (2.0 * np.pi)
+        phase = int(round(mean * sps / (2.0 * np.pi) + sps / 2.0)) % sps
+    return bits[phase::sps]

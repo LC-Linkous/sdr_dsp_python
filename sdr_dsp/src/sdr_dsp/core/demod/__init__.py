@@ -18,7 +18,8 @@ from .psk import (bpsk_demod, dbpsk_demod, dqpsk_demod,
                   qpsk_demod, psk8_demod)
 from .qam import qam16_demod
 from .spread import dsss_despread, fhss_detect_hops
-from .timing import edges, estimate_symbol_rate, slice_to_symbols
+from .timing import (edges, estimate_symbol_rate, slice_to_symbols,
+                     sample_symbols)
 
 __all__ = [
     "instantaneous_phase", "instantaneous_frequency",
@@ -29,5 +30,5 @@ __all__ = [
     "bpsk_demod", "dbpsk_demod", "dqpsk_demod",
     "qpsk_demod", "psk8_demod",
     "qam16_demod", "dsss_despread", "fhss_detect_hops",
-    "edges", "estimate_symbol_rate", "slice_to_symbols",
+    "edges", "estimate_symbol_rate", "slice_to_symbols", "sample_symbols",
 ]

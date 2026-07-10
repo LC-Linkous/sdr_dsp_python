@@ -65,18 +65,31 @@ class LoopbackSink:
     def __init__(self, sample_rate, center_freq=0.0):
         self.sample_rate = float(sample_rate)
         self.center_freq = float(center_freq)
-        self.buffer = np.zeros(0, dtype=np.complex64)
+        self._chunks = []
         self.transmit_count = 0
+
+    @property
+    def buffer(self):
+        """All transmitted samples, concatenated (complex64).
+
+        Stored internally as a chunk list so repeated transmit() calls are
+        O(1) amortized instead of re-concatenating the whole history each
+        time; the concatenation happens (and is cached) on read.
+        """
+        if len(self._chunks) > 1:
+            self._chunks = [np.concatenate(self._chunks)]
+        if self._chunks:
+            return self._chunks[0]
+        return np.zeros(0, dtype=np.complex64)
 
     def transmit(self, iq):
         """Append the IQ to the in-memory buffer (no radio)."""
-        iq = np.asarray(iq, dtype=np.complex64)
-        self.buffer = np.concatenate([self.buffer, iq])
+        self._chunks.append(np.asarray(iq, dtype=np.complex64))
         self.transmit_count += 1
 
     def clear(self):
         """Reset the buffer and counter."""
-        self.buffer = np.zeros(0, dtype=np.complex64)
+        self._chunks = []
         self.transmit_count = 0
 
     def __repr__(self):

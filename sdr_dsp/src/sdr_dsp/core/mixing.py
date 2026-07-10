@@ -33,6 +33,14 @@ def remove_dc(iq):
     Direct-conversion SDRs leak their local oscillator into the band center,
     producing a spurious spike at 0 Hz that isn't a real signal. Subtracting the
     mean removes it. Returns complex64.
+
+    CAVEAT: the whole-record mean is only the DC offset when the record is
+    mostly noise. If a strong burst dominates the record (a triggered packet
+    capture), the burst's own mean contaminates the estimate and subtracting
+    it bends the signal. In that case estimate DC from a signal-free segment
+    and subtract that -- or better, capture offset-tuned (tune the hardware
+    100-200 kHz off-target and tune_to_baseband in software) so the LO spike
+    is never near your signal in the first place. See docs/DC_SPIKE.md.
     """
     iq = np.asarray(iq)
     if len(iq) == 0:

@@ -66,9 +66,18 @@ def find_bursts(iq, sample_rate=None, threshold=None, min_gap=0, min_len=1):
     threshold -- "where is the signal?" for packet/burst captures. The decoder
     examples did this ad-hoc; this is the reusable version.
 
-    threshold: envelope level for "on". If None, uses a midpoint between the
-               envelope's median (noise) and its peak (signal) -- a reasonable
-               default for a clean burst, but YOU can set it explicitly.
+    threshold: envelope level for "on". If None, uses the midpoint between the
+               envelope's 1st percentile (the noise floor) and its peak. The
+               floor is a low PERCENTILE, not the median, deliberately: the
+               median is only the noise floor when the record is mostly noise.
+               On a capture dominated by one long burst (a triggered packet
+               capture), the median IS the signal level, and a median-based
+               threshold lands above the signal and shreds one burst into
+               fragments. The percentile floor handles both regimes, as long
+               as at least ~1% of the record is signal-free. If your record
+               has NO quiet samples at all, or bursts sit near the noise
+               level, set threshold explicitly -- an automatic threshold is a
+               convenience, not a measurement.
     min_gap:   merge bursts separated by fewer than this many samples (bridges
                brief dropouts within one packet).
     min_len:   discard bursts shorter than this (rejects noise blips).
@@ -81,9 +90,9 @@ def find_bursts(iq, sample_rate=None, threshold=None, min_gap=0, min_len=1):
     if len(env) == 0:
         return []
     if threshold is None:
-        med = float(np.median(env))
+        floor = float(np.percentile(env, 1))
         pk = float(np.max(env))
-        threshold = med + 0.5 * (pk - med)
+        threshold = floor + 0.5 * (pk - floor)
     on = env > threshold
     if not on.any():
         return []
@@ -121,6 +130,14 @@ def estimate_cfo(iq, sample_rate, nfft=None):
 
     For a clean single-carrier signal this is just the FFT peak. For modulated
     signals it estimates the spectral centroid of the strongest region.
+
+    NOT for FSK. An FSK burst's strongest components are the mark/space tones
+    at +/-deviation_hz, so this returns roughly +/-deviation, NOT the carrier
+    offset -- and "correcting" with it moves the whole signal by a deviation,
+    which is worse than no correction. For FSK, threshold at the offset
+    directly instead: fsk_demod(iq, fs, threshold_hz="auto") uses the
+    amplitude-weighted mean of the instantaneous frequency, which IS the
+    offset when mark/space time is roughly balanced.
     """
     iq = np.asarray(iq, dtype=np.complex64)
     if len(iq) == 0:

@@ -28,7 +28,7 @@ from .demod import (fm_demod, am_demod, ssb_demod, dsb_sc_demod, cw_decode,
                     fsk_demod, fsk_demod_nlevel,
                     bpsk_demod, dbpsk_demod, dqpsk_demod, qpsk_demod, psk8_demod,
                     qam16_demod, dsss_despread, fhss_detect_hops,
-                    edges, estimate_symbol_rate, slice_to_symbols, deemphasis,
+                    edges, estimate_symbol_rate, slice_to_symbols, sample_symbols, deemphasis,
                     instantaneous_phase, instantaneous_frequency,
                     fsk_demod, ssb_demod, bpsk_demod)
 
@@ -52,7 +52,7 @@ __all__ = [
     "bpsk_demod", "dbpsk_demod", "dqpsk_demod", "nask_slice",
     "qpsk_demod", "psk8_demod", "qam16_demod",
     "dsss_despread", "fhss_detect_hops",
-    "edges", "estimate_symbol_rate", "slice_to_symbols", "deemphasis",
+    "edges", "estimate_symbol_rate", "slice_to_symbols", "sample_symbols", "deemphasis",
     "matched_filter", "detect_peak", "correlate", "convolve",
     "carrier_recovery", "symbol_sync", "LoopDiagnostics",
 ]
