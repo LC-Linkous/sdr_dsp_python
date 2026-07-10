@@ -6,7 +6,7 @@ Walks every public module, function, and class, pulling the REAL signature
 so the handbook can never drift from the code. Re-run after any API change.
 
 Usage:
-    PYTHONPATH=src python3 tools/generate_api_handbook.py > docs/sdr_dsp_API_HANDBOOK.md
+    PYTHONPATH=src python3 docs/dev_handbook/generate_api_handbook.py > docs/sdr_dsp_API_HANDBOOK.md
 """
 import importlib
 import inspect
@@ -140,7 +140,7 @@ def document_class(name, obj):
 def main():
     print("# sdr_dsp — Definitive API Handbook\n")
     print("> **Auto-generated** from the source by "
-          "`tools/generate_api_handbook.py`. Every signature, parameter, "
+          "`docs/dev_handbook/generate_api_handbook.py`. Every signature, parameter, "
           "default, and docstring is extracted directly from the code, so this "
           "handbook cannot drift from the library. Re-run the generator after "
           "any API change.\n")
