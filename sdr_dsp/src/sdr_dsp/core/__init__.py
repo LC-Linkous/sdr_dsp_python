@@ -15,6 +15,14 @@ from .modulate import (fm_modulate, am_modulate, ssb_modulate,
                        ook_modulate, fsk_modulate, bpsk_modulate,
                        qpsk_modulate, rrc_taps, upsample, pulse_shape)
 from .channel import apply_channel, add_noise, add_cfo, add_delay
+from .channel_impairments import (add_iq_imbalance, add_pa_nonlinearity,
+                                  add_phase_noise, DeviceImpairments,
+                                  make_device_impairments,
+                                  apply_device_impairments)
+from .features import (estimate_iq_imbalance, iq_image_ratio,
+                       estimate_cfo_ppm, estimate_phase_noise_variance,
+                       decide_symbols, error_vector, evm_stats,
+                       EVM_FEATURE_NAMES, fingerprint_vector, FEATURE_NAMES)
 from .framing import build_frame, find_frames, crc16
 from .channelize import channelize, channelize_bank
 from .agc import agc, AGC
@@ -42,6 +50,11 @@ __all__ = [
     "power_dbfs", "power_dbm", "Calibration", "compute_cal_offset", "agc", "AGC", "channelize", "channelize_bank",
     "build_frame", "find_frames", "crc16",
     "apply_channel", "add_noise", "add_cfo", "add_delay",
+    "add_iq_imbalance", "add_pa_nonlinearity", "add_phase_noise",
+    "DeviceImpairments", "make_device_impairments", "apply_device_impairments",
+    "estimate_iq_imbalance", "iq_image_ratio", "estimate_cfo_ppm",
+    "estimate_phase_noise_variance", "decide_symbols", "error_vector",
+    "evm_stats", "EVM_FEATURE_NAMES", "fingerprint_vector", "FEATURE_NAMES",
     "fm_modulate", "am_modulate", "ssb_modulate",
     "ook_modulate", "fsk_modulate", "bpsk_modulate", "qpsk_modulate",
     "rrc_taps", "upsample", "pulse_shape", "snr_db", "occupied_bandwidth",
