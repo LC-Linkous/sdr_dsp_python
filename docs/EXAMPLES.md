@@ -101,6 +101,18 @@ The TX arc, in build order — each script is one phase of "the library can now 
 | `cfo_demo.py` | Measure a carrier frequency offset — and only correct it if you ask. Embodies the measure-don't-auto-apply principle. | |
 | `power_calibration.py` | Turn dBFS into absolute dBm via a one-time calibration against a known reference (opt-in, advanced; only valid for the gain/frequency measured). | |
 
+## Impairment modeling & extraction
+
+Analog hardware stamps a physical signature onto everything a radio transmits.
+The library can synthesize those impairments and measure them back out — the
+same verify-against-truth loop as the rest of the library. (Turning the extracted
+features into a device *identity* is application logic that lives outside this
+library; see §13 of [`sdr_dsp_REFERENCE.md`](sdr_dsp_REFERENCE.md).)
+
+| Example | What it does | Needs |
+|---|---|---|
+| `impairment_extraction.py` | Stamp a known impairment (I/Q imbalance, PA nonlinearity, phase noise, CFO) onto a clean signal, then recover it with the estimators; and the error-cloud centerpiece — same 16-QAM and noise under four impairments, showing the error *geometry* (not size) is the signature. With `--plot`, see the clouds. | |
+
 ## Streaming
 
 | Example | What it does | Needs |
