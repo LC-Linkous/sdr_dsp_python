@@ -14,6 +14,7 @@
 - [core — pure DSP](#core--pure-dsp)
 - [core.demod — demodulators](#core.demod--demodulators)
 - [core.modulate — modulators](#core.modulate--modulators)
+- [core.features — fingerprint extractors](#core.features--fingerprint-extractors)
 - [sources — receive seam](#sources--receive-seam)
 - [sinks — output & transmit seam](#sinks--output-&-transmit-seam)
 - [io — file formats](#io--file-formats)
@@ -2332,6 +2333,36 @@ Write the calibration to a human-readable JSON file.
 
 
 
+### class `DeviceImpairments`
+
+A fixed bundle of impairments = one virtual device's signature.
+
+Frozen and fully inspectable: the same instance applied to any signal
+produces that "device's" fingerprint, and the fields *are* the ground truth
+the estimators are tested against.
+
+
+**Constructor:** `DeviceImpairments(self, iq_gain_db: 'float', iq_phase_deg: 'float', pa_coeffs: 'tuple[complex, ...]', phase_noise_hz: 'float', cfo_ppm: 'float') -> None`
+
+| Parameter | Type | Default |
+|---|---|---|
+| `iq_gain_db` | `float` | *required* |
+| `iq_phase_deg` | `float` | *required* |
+| `pa_coeffs` | `tuple[complex, ...]` | *required* |
+| `phase_noise_hz` | `float` | *required* |
+| `cfo_ppm` | `float` | *required* |
+
+
+**Attributes:**
+
+- `iq_gain_db`: `float`
+- `iq_phase_deg`: `float`
+- `pa_coeffs`: `tuple[complex, ...]`
+- `phase_noise_hz`: `float`
+- `cfo_ppm`: `float`
+
+
+
 ### class `LoopDiagnostics`
 
 Per-sample evidence of a recovery loop's behavior.
@@ -2415,6 +2446,54 @@ as the input (the tail is truncated); negative delay advances. OUR code.
 
 
 
+### `add_iq_imbalance(iq: 'np.ndarray', gain_db: 'float', phase_deg: 'float') -> 'np.ndarray'`
+
+Apply I/Q gain/phase imbalance: ``r = alpha*s + beta*conj(s)``.
+
+A perfectly balanced up/down-converter has ``gain_db == 0`` and
+``phase_deg == 0`` (identity). Real hardware mismatches the I and Q paths
+slightly; the resulting ``beta`` term injects a scaled conjugate ("image")
+of the signal, and the image-rejection ratio ``|beta/alpha|**2`` is a
+device-specific fingerprint.
+
+Parameters
+----------
+iq : np.ndarray
+    Complex baseband input. Not mutated.
+gain_db : float
+    Gain mismatch between I and Q paths, in dB. 0 = balanced.
+phase_deg : float
+    Phase mismatch (quadrature error), in degrees. 0 = balanced.
+
+Returns
+-------
+np.ndarray
+    complex64, same length as input.
+
+Notes
+-----
+With linear gain ``g = 10**(gain_db/20)`` and phase ``phi`` in radians::
+
+    alpha = (1 + g*exp(-j*phi)) / 2
+    beta  = (1 - g*exp(+j*phi)) / 2
+    r     = alpha*s + beta*conj(s)
+
+This is the standard second-order I/Q imbalance model used by the estimator.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `iq` | `np.ndarray` | *required* |
+| `gain_db` | `float` | *required* |
+| `phase_deg` | `float` | *required* |
+
+
+**Returns:** `np.ndarray`
+
+
+
 ### `add_noise(iq, snr_db, rng=None)`
 
 Add complex AWGN at a specified SNR (dB) relative to the signal. OUR code.
@@ -2431,6 +2510,101 @@ set noise -- by the SNR you want, not an arbitrary amplitude.
 | `iq` |  | *required* |
 | `snr_db` |  | *required* |
 | `rng` |  | `None` |
+
+
+
+### `add_pa_nonlinearity(iq: 'np.ndarray', coeffs: 'np.ndarray | list[complex]') -> 'np.ndarray'`
+
+Apply a memoryless power-amplifier nonlinearity (odd-order polynomial).
+
+Models AM/AM and AM/PM distortion as::
+
+    y = sum_k  c_k * x * |x|**(2k)   for k = 0, 1, 2, ...
+
+The linear term ``c_0`` is the small-signal gain; higher terms are the
+device-specific compression characteristic. Complex ``c_k`` capture AM/PM
+(phase distortion) as well as AM/AM (amplitude distortion).
+
+Parameters
+----------
+iq : np.ndarray
+    Complex baseband input. Not mutated.
+coeffs : sequence of complex
+    ``[c_0, c_1, c_2, ...]``. ``[1.0]`` is a pure linear passthrough
+    (identity gain, no distortion).
+
+Returns
+-------
+np.ndarray
+    complex64, same length as input.
+
+Notes
+-----
+This is the odd-order-only Taylor form (each term carries an extra
+``|x|**2``), which is the standard baseband PA model — even-order products
+fall out of band and are not represented here.
+
+.. warning::
+    On a **constant-envelope** signal (``|x| = A`` everywhere: GFSK, FSK,
+    MSK, unshaped PSK) this entire model collapses to multiplication by
+    the single complex constant ``sum_k c_k * A**(2k)`` — indistinguishable
+    from a bulk gain/phase, carrying zero fingerprint information. This is
+    exact, not an approximation: PA nonlinearity is only observable through
+    amplitude *variation* (QAM, OFDM, shaped/filtered transitions, OOK
+    edges). Don't expect a PA-linked feature to move on constant-envelope
+    captures.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `iq` | `np.ndarray` | *required* |
+| `coeffs` | `np.ndarray | list[complex]` | *required* |
+
+
+**Returns:** `np.ndarray`
+
+
+
+### `add_phase_noise(iq: 'np.ndarray', linewidth_hz: 'float', sample_rate: 'float', seed: 'int | None' = None) -> 'np.ndarray'`
+
+Apply oscillator phase noise as a Wiener (random-walk) phase process.
+
+A free-running oscillator's phase does a random walk; the per-sample phase
+increment is zero-mean Gaussian with variance ``2*pi*linewidth/fs``. This
+produces a Lorentzian-shaped phase-noise spectrum characterized by the
+linewidth, which is device-specific.
+
+Parameters
+----------
+iq : np.ndarray
+    Complex baseband input. Not mutated.
+linewidth_hz : float
+    Oscillator linewidth (Hz). 0 = ideal oscillator (no phase noise).
+sample_rate : float
+    Sample rate (Hz).
+seed : int, optional
+    Seed for the random walk; fixing it makes the result deterministic (so
+    one seed == one repeatable "device").
+
+Returns
+-------
+np.ndarray
+    complex64, same length as input.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `iq` | `np.ndarray` | *required* |
+| `linewidth_hz` | `float` | *required* |
+| `sample_rate` | `float` | *required* |
+| `seed` | `int | None` | `None` |
+
+
+**Returns:** `np.ndarray`
 
 
 
@@ -2549,6 +2723,50 @@ to test how the link holds up before any hardware.
 | `scale` |  | `1.0` |
 | `phase` |  | `0.0` |
 | `seed` |  | `None` |
+
+
+
+### `apply_device_impairments(iq: 'np.ndarray', device: 'DeviceImpairments', sample_rate: 'float', carrier_hz: 'float', seed: 'int | None' = None) -> 'np.ndarray'`
+
+Apply a full device signature to a clean signal.
+
+Order matches the physical chain: PA nonlinearity and I/Q imbalance at the
+converter, then oscillator phase noise, then the carrier-frequency offset.
+CFO is applied here (rather than deferring to ``add_cfo``) so a device
+signature is self-contained; a caller wanting propagation effects layers
+``apply_channel`` on top afterwards.
+
+Parameters
+----------
+iq : np.ndarray
+    Clean complex baseband. Not mutated.
+device : DeviceImpairments
+    The signature to stamp on.
+sample_rate : float
+    Sample rate (Hz).
+carrier_hz : float
+    Nominal carrier (Hz), needed to turn ppm into an absolute CFO.
+seed : int, optional
+    Seed for the phase-noise random walk within this application.
+
+Returns
+-------
+np.ndarray
+    complex64.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `iq` | `np.ndarray` | *required* |
+| `device` | `DeviceImpairments` | *required* |
+| `sample_rate` | `float` | *required* |
+| `carrier_hz` | `float` | *required* |
+| `seed` | `int | None` | `None` |
+
+
+**Returns:** `np.ndarray`
 
 
 
@@ -2872,6 +3090,40 @@ differential product (sign gives the bit, magnitude gives confidence).
 
 
 
+### `decide_symbols(rx_symbols: 'np.ndarray', constellation: 'np.ndarray') -> 'np.ndarray'`
+
+Nearest-constellation-point decision for each received symbol.
+
+A pure, fully vectorized minimum-distance slicer. Provided so callers who
+have received symbols but not the ideal decisions can obtain ``s_hat``
+without hiding the decision inside another function.
+
+Parameters
+----------
+rx_symbols : np.ndarray
+    Complex received symbols (one sample per symbol). Not mutated.
+constellation : np.ndarray
+    Complex array of the ideal constellation points.
+
+Returns
+-------
+np.ndarray
+    Complex array, same length as ``rx_symbols``, each entry one of the
+    constellation points.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `rx_symbols` | `np.ndarray` | *required* |
+| `constellation` | `np.ndarray` | *required* |
+
+
+**Returns:** `np.ndarray`
+
+
+
 ### `decimate(iq, factor, half_len=10)`
 
 Lowpass then keep every ``factor``-th sample. OUR code (via resample).
@@ -3068,6 +3320,36 @@ on/off stream.
 
 
 
+### `error_vector(rx_symbols: 'np.ndarray', ref_symbols: 'np.ndarray') -> 'np.ndarray'`
+
+Per-symbol error ``e_k = r_k - s_hat_k``.
+
+Parameters
+----------
+rx_symbols : np.ndarray
+    Complex received symbols. Not mutated.
+ref_symbols : np.ndarray
+    Ideal reference symbols of equal length (the decided or known-true
+    constellation points).
+
+Returns
+-------
+np.ndarray
+    Complex error per symbol.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `rx_symbols` | `np.ndarray` | *required* |
+| `ref_symbols` | `np.ndarray` | *required* |
+
+
+**Returns:** `np.ndarray`
+
+
+
 ### `estimate_cfo(iq, sample_rate, nfft=None)`
 
 Estimate a signal's carrier frequency offset from band center. OUR code.
@@ -3100,6 +3382,168 @@ offset when mark/space time is roughly balanced.
 
 
 
+### `estimate_cfo_ppm(cfo_hz: 'float', carrier_hz: 'float') -> 'float'`
+
+Convert an absolute CFO (Hz) into carrier-relative ppm.
+
+ppm is the device-comparable unit: it normalizes out the carrier so that the
+*same crystal* reads the same ppm regardless of which channel it's tuned to.
+The absolute ``cfo_hz`` is expected to come from the library's existing
+``measure.estimate_cfo`` (kept separate so this module stays a thin, testable
+unit-conversion rather than duplicating the estimator).
+
+Parameters
+----------
+cfo_hz : float
+    Absolute carrier-frequency offset (Hz), e.g. from ``estimate_cfo``.
+carrier_hz : float
+    Nominal carrier frequency (Hz).
+
+Returns
+-------
+float
+    Offset in parts-per-million of the carrier.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `cfo_hz` | `float` | *required* |
+| `carrier_hz` | `float` | *required* |
+
+
+**Returns:** `float`
+
+
+
+### `estimate_iq_imbalance(iq: 'np.ndarray') -> 'tuple[float, float]'`
+
+Estimate I/Q gain/phase imbalance from second-order statistics.
+
+For a proper (rotationally invariant) baseband signal the pseudo-covariance
+``E[s^2]`` is zero. I/Q imbalance mixes in ``beta*conj(s)``, which makes
+``E[r^2]`` nonzero; the ratio to the ordinary power ``E[|r|^2]`` recovers the
+imbalance parameters.
+
+.. warning::
+    Valid only for **proper** modulations (``E[s^2] ~= 0``). Real hardware
+    imbalance produces ``|c| << 1`` (an IRR of -25 dB corresponds to
+    ``|c| ~= 0.1``); if ``|c| > 0.5`` the properness assumption has almost
+    certainly failed (OOK, BPSK, a strong DC term, or a tone) and the
+    returned numbers describe the modulation, not the device. A
+    ``RuntimeWarning`` is emitted in that regime rather than silently
+    returning garbage — measurement is still returned (the library never
+    hides), but do not feed it to a classifier.
+
+Parameters
+----------
+iq : np.ndarray
+    Complex baseband. Should be roughly zero-mean; a DC term biases the
+    pseudo-covariance, so remove DC first if present (the library's
+    ``remove_dc`` does this). Not mutated.
+
+Returns
+-------
+(gain_db, phase_deg) : tuple of float
+    Estimated gain mismatch (dB) and phase mismatch (degrees). A balanced
+    signal returns approximately (0.0, 0.0).
+
+Notes
+-----
+Let ``c = E[r^2] / E[|r|^2]`` (normalized pseudo-covariance). Writing
+``r = alpha*s + beta*conj(s)`` with proper ``s`` (``E[s^2]=0``)::
+
+    E[|r|^2] = (|alpha|^2 + |beta|^2) * sigma^2
+    E[r^2]   = 2 * alpha * beta * sigma^2
+    => c     = 2*alpha*beta / (|alpha|^2 + |beta|^2)
+
+The model also satisfies ``alpha = 1 - conj(beta)`` (from the definitions of
+``alpha`` and ``beta``), which closes the system. A first-order guess
+``beta ~ c/2`` is accurate only for gain-dominated imbalance; for
+phase-dominated imbalance ``alpha`` is not real and the naive guess biases the
+phase estimate. We therefore solve the fixed point::
+
+    alpha = 1 - conj(beta)
+    beta  = c * (|alpha|^2 + |beta|^2) / (2*alpha)
+
+a few iterations of which converge for the small imbalances real hardware
+exhibits. Then ``g*exp(-j*phi) = 2*alpha - 1`` recovers the parameters::
+
+    gain_db = 20*log10(|2*alpha - 1|)
+    phase   = -angle(2*alpha - 1)
+
+Accuracy floor: this reads the signal's *own* residual ``E[s^2]`` as
+imbalance. For finite random data ``E[s^2]`` is small but nonzero, setting a
+sub-degree phase floor. Longer captures and pilot/known symbols reduce it;
+for fingerprinting the floor is itself part of the (receiver-side) signature
+to be controlled for.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `iq` | `np.ndarray` | *required* |
+
+
+**Returns:** `tuple[float, float]`
+
+
+
+### `estimate_phase_noise_variance(iq: 'np.ndarray', reference: 'np.ndarray | None' = None) -> 'float'`
+
+Estimate residual phase-error variance (a phase-noise proxy).
+
+After the intended modulation and any bulk CFO are removed, what remains in
+the phase is largely oscillator phase noise. Its variance is a compact,
+device-linked summary. If a clean ``reference`` is supplied (e.g. the ideal
+modulated signal in a closed-loop test), the phase error is measured against
+it directly; otherwise the sample-to-sample phase increment variance is used,
+which is insensitive to a constant residual CFO.
+
+Parameters
+----------
+iq : np.ndarray
+    Complex baseband (post-recovery). Not mutated.
+reference : np.ndarray, optional
+    Ideal signal of equal length. If given, variance of
+    ``angle(iq * conj(reference))`` is returned.
+
+Returns
+-------
+float
+    Phase-error variance in rad^2.
+
+Notes
+-----
+The differenced form removes a constant frequency offset (a linear phase
+ramp differences to a constant, which the variance ignores), isolating the
+random-walk component that phase noise contributes.
+
+.. warning::
+    The no-reference path measures the variance of ALL phase increments.
+    On a still-modulated signal with phase/frequency content (FSK, PSK,
+    GFSK) the modulation dominates that variance by orders of magnitude —
+    an FSK deviation of a few kHz swamps a few-hundred-Hz linewidth. Use
+    this either (a) against a ``reference`` in a closed-loop test, or
+    (b) on the *residual* after demodulation/recovery has removed the
+    intended modulation. On raw modulated captures it is a modulation
+    feature, not a device feature.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `iq` | `np.ndarray` | *required* |
+| `reference` | `np.ndarray | None` | `None` |
+
+
+**Returns:** `float`
+
+
+
 ### `estimate_symbol_rate(bits, sample_rate, min_run=2)`
 
 Estimate samples-per-symbol from the run lengths in a sliced stream.
@@ -3122,6 +3566,53 @@ capture is very noisy; lower it (to 1) only for pristine synthetic data.
 | `bits` |  | *required* |
 | `sample_rate` |  | *required* |
 | `min_run` |  | `2` |
+
+
+
+### `evm_stats(errors: 'np.ndarray', ref_symbols: 'np.ndarray | None' = None, normalize: 'bool' = False) -> 'np.ndarray'`
+
+Summarize the error cloud into a fixed feature vector.
+
+Returns the moments described by :data:`EVM_FEATURE_NAMES`, in that order.
+The higher moments (skew, kurtosis, I/Q correlation) are what separate a
+receiver-noise-dominated cloud (Gaussian, symmetric, uncorrelated) from a
+device-impairment-dominated one (structured, skewed, correlated).
+
+.. note::
+    For fingerprinting, weight the *shape* moments (skew, kurtosis,
+    ``err_corr_iq``) over the *magnitude* features: ``evm_rms`` and
+    ``evm_mean_mag`` scale directly with receiver noise, so at moderate SNR
+    they are mostly a distance-to-antenna thermometer. A classifier fed the
+    raw vector will happily learn the capture geometry from them unless
+    SNR is controlled or the magnitude features are dropped/normalized.
+
+Parameters
+----------
+errors : np.ndarray
+    Complex per-symbol error from :func:`error_vector`. Not mutated.
+ref_symbols : np.ndarray, optional
+    Needed only if ``normalize=True``, to divide by the reference RMS.
+normalize : bool, default False
+    If True, scale the magnitude features by the reference RMS so EVM is
+    expressed as a fraction (the conventional %EVM/100). Off by default to
+    honor the no-hidden-normalization rule.
+
+Returns
+-------
+np.ndarray
+    Real-valued feature vector, length ``len(EVM_FEATURE_NAMES)``.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `errors` | `np.ndarray` | *required* |
+| `ref_symbols` | `np.ndarray | None` | `None` |
+| `normalize` | `bool` | `False` |
+
+
+**Returns:** `np.ndarray`
 
 
 
@@ -3214,6 +3705,54 @@ past so one packet isn't reported twice.
 | `bits` |  | *required* |
 | `sync` |  | `None` |
 | `max_sync_errors` |  | `2` |
+
+
+
+### `fingerprint_vector(iq: 'np.ndarray', sample_rate: 'float', carrier_hz: 'float', cfo_hz: 'float' = 0.0, rx_symbols: 'np.ndarray | None' = None, ref_symbols: 'np.ndarray | None' = None) -> 'tuple[np.ndarray, tuple[str, ...]]'`
+
+Assemble the full fingerprint feature vector for one capture.
+
+The impairment features (imbalance, CFO ppm, phase-noise variance) are always
+computed from the IQ. The EVM/error-cloud block is included only when both
+``rx_symbols`` and ``ref_symbols`` are supplied (i.e. the caller has run a
+demod far enough to have synchronized symbols and their decisions); otherwise
+those slots are filled with NaN so the vector length stays fixed.
+
+Parameters
+----------
+iq : np.ndarray
+    Complex baseband for this capture (ideally post-recovery). Not mutated.
+sample_rate : float
+    Sample rate (Hz).
+carrier_hz : float
+    Nominal carrier (Hz), for the ppm conversion.
+cfo_hz : float, default 0.0
+    Absolute CFO from ``measure.estimate_cfo``, passed in rather than
+    recomputed here (keeps this module a thin assembler). 0 if unknown.
+rx_symbols, ref_symbols : np.ndarray, optional
+    Synchronized received symbols and their ideal references, for the EVM
+    block. If either is None, EVM features are NaN.
+
+Returns
+-------
+(vector, names) : tuple[np.ndarray, tuple[str, ...]]
+    ``vector`` is float64 of length ``len(FEATURE_NAMES)``; ``names`` is
+    :data:`FEATURE_NAMES`.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `iq` | `np.ndarray` | *required* |
+| `sample_rate` | `float` | *required* |
+| `carrier_hz` | `float` | *required* |
+| `cfo_hz` | `float` | `0.0` |
+| `rx_symbols` | `np.ndarray | None` | `None` |
+| `ref_symbols` | `np.ndarray | None` | `None` |
+
+
+**Returns:** `tuple[np.ndarray, tuple[str, ...]]`
 
 
 
@@ -3496,6 +4035,78 @@ Upsample by ``factor`` with interpolation filtering. OUR code.
 | `iq` |  | *required* |
 | `factor` |  | *required* |
 | `half_len` |  | `10` |
+
+
+
+### `iq_image_ratio(iq: 'np.ndarray') -> 'float'`
+
+Rotation-invariant I/Q-imbalance magnitude: ``|E[r^2]| / E[|r|^2]``.
+
+Unlike the separate ``(gain_db, phase_deg)`` from
+:func:`estimate_iq_imbalance`, this scalar is invariant to an unknown bulk
+carrier phase rotation (a rotation by ``theta`` multiplies ``E[r^2]`` by
+``exp(2j*theta)`` but leaves its magnitude unchanged). That makes it the
+receiver-robust imbalance fingerprint: it depends on the transmitter's
+image-rejection, not on where the receiver happened to sample the carrier
+phase. Prefer this feature for classification; keep the split gain/phase for
+diagnostics where the absolute axis orientation is known.
+
+.. warning::
+    This statistic assumes a **proper** modulation (``E[s^2] ~= 0``:
+    QPSK, M-PSK for M>2, square QAM, GFSK). On an improper modulation it
+    measures the *modulation*, not the device: a perfect, unimpaired OOK
+    or BPSK signal reads ~1.0 (the maximum) because the signal's own
+    pseudo-covariance is nonzero by construction. Gate on modulation
+    class before trusting this as a fingerprint feature.
+
+Parameters
+----------
+iq : np.ndarray
+    Complex baseband (roughly zero-mean). Not mutated.
+
+Returns
+-------
+float
+    Non-negative image ratio. ~0 for a balanced signal; grows with imbalance.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `iq` | `np.ndarray` | *required* |
+
+
+**Returns:** `float`
+
+
+
+### `make_device_impairments(seed: 'int') -> 'DeviceImpairments'`
+
+Draw a random-but-fixed impairment set — one repeatable virtual device.
+
+The distributions are deliberately in *realistic* ranges (small imbalances,
+mild compression, modest ppm offsets) so synthesized devices resemble real
+hardware spread rather than exaggerated toy values.
+
+Parameters
+----------
+seed : int
+    Device identity. Same seed -> identical device, every time.
+
+Returns
+-------
+DeviceImpairments
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `seed` | `int` | *required* |
+
+
+**Returns:** `DeviceImpairments`
 
 
 
@@ -5059,6 +5670,380 @@ filter to spread it into a pulse. Returns a complex64 array sps times longer.
 
 ---
 
+## core.features — fingerprint extractors
+
+Pure-DSP feature extraction for RF device fingerprinting; classification lives outside the library.
+
+Import: `import sdr_dsp.core.features`
+
+### Functions
+
+### `decide_symbols(rx_symbols: 'np.ndarray', constellation: 'np.ndarray') -> 'np.ndarray'`
+
+Nearest-constellation-point decision for each received symbol.
+
+A pure, fully vectorized minimum-distance slicer. Provided so callers who
+have received symbols but not the ideal decisions can obtain ``s_hat``
+without hiding the decision inside another function.
+
+Parameters
+----------
+rx_symbols : np.ndarray
+    Complex received symbols (one sample per symbol). Not mutated.
+constellation : np.ndarray
+    Complex array of the ideal constellation points.
+
+Returns
+-------
+np.ndarray
+    Complex array, same length as ``rx_symbols``, each entry one of the
+    constellation points.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `rx_symbols` | `np.ndarray` | *required* |
+| `constellation` | `np.ndarray` | *required* |
+
+
+**Returns:** `np.ndarray`
+
+
+
+### `error_vector(rx_symbols: 'np.ndarray', ref_symbols: 'np.ndarray') -> 'np.ndarray'`
+
+Per-symbol error ``e_k = r_k - s_hat_k``.
+
+Parameters
+----------
+rx_symbols : np.ndarray
+    Complex received symbols. Not mutated.
+ref_symbols : np.ndarray
+    Ideal reference symbols of equal length (the decided or known-true
+    constellation points).
+
+Returns
+-------
+np.ndarray
+    Complex error per symbol.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `rx_symbols` | `np.ndarray` | *required* |
+| `ref_symbols` | `np.ndarray` | *required* |
+
+
+**Returns:** `np.ndarray`
+
+
+
+### `estimate_cfo_ppm(cfo_hz: 'float', carrier_hz: 'float') -> 'float'`
+
+Convert an absolute CFO (Hz) into carrier-relative ppm.
+
+ppm is the device-comparable unit: it normalizes out the carrier so that the
+*same crystal* reads the same ppm regardless of which channel it's tuned to.
+The absolute ``cfo_hz`` is expected to come from the library's existing
+``measure.estimate_cfo`` (kept separate so this module stays a thin, testable
+unit-conversion rather than duplicating the estimator).
+
+Parameters
+----------
+cfo_hz : float
+    Absolute carrier-frequency offset (Hz), e.g. from ``estimate_cfo``.
+carrier_hz : float
+    Nominal carrier frequency (Hz).
+
+Returns
+-------
+float
+    Offset in parts-per-million of the carrier.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `cfo_hz` | `float` | *required* |
+| `carrier_hz` | `float` | *required* |
+
+
+**Returns:** `float`
+
+
+
+### `estimate_iq_imbalance(iq: 'np.ndarray') -> 'tuple[float, float]'`
+
+Estimate I/Q gain/phase imbalance from second-order statistics.
+
+For a proper (rotationally invariant) baseband signal the pseudo-covariance
+``E[s^2]`` is zero. I/Q imbalance mixes in ``beta*conj(s)``, which makes
+``E[r^2]`` nonzero; the ratio to the ordinary power ``E[|r|^2]`` recovers the
+imbalance parameters.
+
+.. warning::
+    Valid only for **proper** modulations (``E[s^2] ~= 0``). Real hardware
+    imbalance produces ``|c| << 1`` (an IRR of -25 dB corresponds to
+    ``|c| ~= 0.1``); if ``|c| > 0.5`` the properness assumption has almost
+    certainly failed (OOK, BPSK, a strong DC term, or a tone) and the
+    returned numbers describe the modulation, not the device. A
+    ``RuntimeWarning`` is emitted in that regime rather than silently
+    returning garbage — measurement is still returned (the library never
+    hides), but do not feed it to a classifier.
+
+Parameters
+----------
+iq : np.ndarray
+    Complex baseband. Should be roughly zero-mean; a DC term biases the
+    pseudo-covariance, so remove DC first if present (the library's
+    ``remove_dc`` does this). Not mutated.
+
+Returns
+-------
+(gain_db, phase_deg) : tuple of float
+    Estimated gain mismatch (dB) and phase mismatch (degrees). A balanced
+    signal returns approximately (0.0, 0.0).
+
+Notes
+-----
+Let ``c = E[r^2] / E[|r|^2]`` (normalized pseudo-covariance). Writing
+``r = alpha*s + beta*conj(s)`` with proper ``s`` (``E[s^2]=0``)::
+
+    E[|r|^2] = (|alpha|^2 + |beta|^2) * sigma^2
+    E[r^2]   = 2 * alpha * beta * sigma^2
+    => c     = 2*alpha*beta / (|alpha|^2 + |beta|^2)
+
+The model also satisfies ``alpha = 1 - conj(beta)`` (from the definitions of
+``alpha`` and ``beta``), which closes the system. A first-order guess
+``beta ~ c/2`` is accurate only for gain-dominated imbalance; for
+phase-dominated imbalance ``alpha`` is not real and the naive guess biases the
+phase estimate. We therefore solve the fixed point::
+
+    alpha = 1 - conj(beta)
+    beta  = c * (|alpha|^2 + |beta|^2) / (2*alpha)
+
+a few iterations of which converge for the small imbalances real hardware
+exhibits. Then ``g*exp(-j*phi) = 2*alpha - 1`` recovers the parameters::
+
+    gain_db = 20*log10(|2*alpha - 1|)
+    phase   = -angle(2*alpha - 1)
+
+Accuracy floor: this reads the signal's *own* residual ``E[s^2]`` as
+imbalance. For finite random data ``E[s^2]`` is small but nonzero, setting a
+sub-degree phase floor. Longer captures and pilot/known symbols reduce it;
+for fingerprinting the floor is itself part of the (receiver-side) signature
+to be controlled for.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `iq` | `np.ndarray` | *required* |
+
+
+**Returns:** `tuple[float, float]`
+
+
+
+### `estimate_phase_noise_variance(iq: 'np.ndarray', reference: 'np.ndarray | None' = None) -> 'float'`
+
+Estimate residual phase-error variance (a phase-noise proxy).
+
+After the intended modulation and any bulk CFO are removed, what remains in
+the phase is largely oscillator phase noise. Its variance is a compact,
+device-linked summary. If a clean ``reference`` is supplied (e.g. the ideal
+modulated signal in a closed-loop test), the phase error is measured against
+it directly; otherwise the sample-to-sample phase increment variance is used,
+which is insensitive to a constant residual CFO.
+
+Parameters
+----------
+iq : np.ndarray
+    Complex baseband (post-recovery). Not mutated.
+reference : np.ndarray, optional
+    Ideal signal of equal length. If given, variance of
+    ``angle(iq * conj(reference))`` is returned.
+
+Returns
+-------
+float
+    Phase-error variance in rad^2.
+
+Notes
+-----
+The differenced form removes a constant frequency offset (a linear phase
+ramp differences to a constant, which the variance ignores), isolating the
+random-walk component that phase noise contributes.
+
+.. warning::
+    The no-reference path measures the variance of ALL phase increments.
+    On a still-modulated signal with phase/frequency content (FSK, PSK,
+    GFSK) the modulation dominates that variance by orders of magnitude —
+    an FSK deviation of a few kHz swamps a few-hundred-Hz linewidth. Use
+    this either (a) against a ``reference`` in a closed-loop test, or
+    (b) on the *residual* after demodulation/recovery has removed the
+    intended modulation. On raw modulated captures it is a modulation
+    feature, not a device feature.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `iq` | `np.ndarray` | *required* |
+| `reference` | `np.ndarray | None` | `None` |
+
+
+**Returns:** `float`
+
+
+
+### `evm_stats(errors: 'np.ndarray', ref_symbols: 'np.ndarray | None' = None, normalize: 'bool' = False) -> 'np.ndarray'`
+
+Summarize the error cloud into a fixed feature vector.
+
+Returns the moments described by :data:`EVM_FEATURE_NAMES`, in that order.
+The higher moments (skew, kurtosis, I/Q correlation) are what separate a
+receiver-noise-dominated cloud (Gaussian, symmetric, uncorrelated) from a
+device-impairment-dominated one (structured, skewed, correlated).
+
+.. note::
+    For fingerprinting, weight the *shape* moments (skew, kurtosis,
+    ``err_corr_iq``) over the *magnitude* features: ``evm_rms`` and
+    ``evm_mean_mag`` scale directly with receiver noise, so at moderate SNR
+    they are mostly a distance-to-antenna thermometer. A classifier fed the
+    raw vector will happily learn the capture geometry from them unless
+    SNR is controlled or the magnitude features are dropped/normalized.
+
+Parameters
+----------
+errors : np.ndarray
+    Complex per-symbol error from :func:`error_vector`. Not mutated.
+ref_symbols : np.ndarray, optional
+    Needed only if ``normalize=True``, to divide by the reference RMS.
+normalize : bool, default False
+    If True, scale the magnitude features by the reference RMS so EVM is
+    expressed as a fraction (the conventional %EVM/100). Off by default to
+    honor the no-hidden-normalization rule.
+
+Returns
+-------
+np.ndarray
+    Real-valued feature vector, length ``len(EVM_FEATURE_NAMES)``.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `errors` | `np.ndarray` | *required* |
+| `ref_symbols` | `np.ndarray | None` | `None` |
+| `normalize` | `bool` | `False` |
+
+
+**Returns:** `np.ndarray`
+
+
+
+### `fingerprint_vector(iq: 'np.ndarray', sample_rate: 'float', carrier_hz: 'float', cfo_hz: 'float' = 0.0, rx_symbols: 'np.ndarray | None' = None, ref_symbols: 'np.ndarray | None' = None) -> 'tuple[np.ndarray, tuple[str, ...]]'`
+
+Assemble the full fingerprint feature vector for one capture.
+
+The impairment features (imbalance, CFO ppm, phase-noise variance) are always
+computed from the IQ. The EVM/error-cloud block is included only when both
+``rx_symbols`` and ``ref_symbols`` are supplied (i.e. the caller has run a
+demod far enough to have synchronized symbols and their decisions); otherwise
+those slots are filled with NaN so the vector length stays fixed.
+
+Parameters
+----------
+iq : np.ndarray
+    Complex baseband for this capture (ideally post-recovery). Not mutated.
+sample_rate : float
+    Sample rate (Hz).
+carrier_hz : float
+    Nominal carrier (Hz), for the ppm conversion.
+cfo_hz : float, default 0.0
+    Absolute CFO from ``measure.estimate_cfo``, passed in rather than
+    recomputed here (keeps this module a thin assembler). 0 if unknown.
+rx_symbols, ref_symbols : np.ndarray, optional
+    Synchronized received symbols and their ideal references, for the EVM
+    block. If either is None, EVM features are NaN.
+
+Returns
+-------
+(vector, names) : tuple[np.ndarray, tuple[str, ...]]
+    ``vector`` is float64 of length ``len(FEATURE_NAMES)``; ``names`` is
+    :data:`FEATURE_NAMES`.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `iq` | `np.ndarray` | *required* |
+| `sample_rate` | `float` | *required* |
+| `carrier_hz` | `float` | *required* |
+| `cfo_hz` | `float` | `0.0` |
+| `rx_symbols` | `np.ndarray | None` | `None` |
+| `ref_symbols` | `np.ndarray | None` | `None` |
+
+
+**Returns:** `tuple[np.ndarray, tuple[str, ...]]`
+
+
+
+### `iq_image_ratio(iq: 'np.ndarray') -> 'float'`
+
+Rotation-invariant I/Q-imbalance magnitude: ``|E[r^2]| / E[|r|^2]``.
+
+Unlike the separate ``(gain_db, phase_deg)`` from
+:func:`estimate_iq_imbalance`, this scalar is invariant to an unknown bulk
+carrier phase rotation (a rotation by ``theta`` multiplies ``E[r^2]`` by
+``exp(2j*theta)`` but leaves its magnitude unchanged). That makes it the
+receiver-robust imbalance fingerprint: it depends on the transmitter's
+image-rejection, not on where the receiver happened to sample the carrier
+phase. Prefer this feature for classification; keep the split gain/phase for
+diagnostics where the absolute axis orientation is known.
+
+.. warning::
+    This statistic assumes a **proper** modulation (``E[s^2] ~= 0``:
+    QPSK, M-PSK for M>2, square QAM, GFSK). On an improper modulation it
+    measures the *modulation*, not the device: a perfect, unimpaired OOK
+    or BPSK signal reads ~1.0 (the maximum) because the signal's own
+    pseudo-covariance is nonzero by construction. Gate on modulation
+    class before trusting this as a fingerprint feature.
+
+Parameters
+----------
+iq : np.ndarray
+    Complex baseband (roughly zero-mean). Not mutated.
+
+Returns
+-------
+float
+    Non-negative image ratio. ~0 for a balanced signal; grows with imbalance.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `iq` | `np.ndarray` | *required* |
+
+
+**Returns:** `float`
+
+
+
+---
+
 ## sources — receive seam
 
 IQSource protocol and concrete sources.
@@ -6089,3 +7074,4 @@ Raises ValueError if too short to hold the 2-byte header.
 
 
 ---
+
