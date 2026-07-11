@@ -3,15 +3,20 @@
 A complete reference for the `sdr_dsp` library: what it is, how it's built, how
 to use it, how to extend it, and where its weaknesses are and what
 still needs real hardware to validate. This is the deep document; the README is
-the quick start.
+the quick start, and the call-level companion is
+[`sdr_dsp_API_HANDBOOK.md`](sdr_dsp_API_HANDBOOK.md) — auto-generated from the
+source, it holds every signature, parameter, default, and docstring. When this
+document and the handbook disagree on a signature, the handbook (regenerated)
+wins; when they disagree on intent or architecture, this document wins.
 
 This document has been AI created based on existing documentation and a sweep of
 all functions. It's being human validated as development continues. 
 
 > **Status at time of writing:** RX path complete; TX path complete in software
-> through Phase E's seam (real radiation pending bench). 305 tests passing, 1
-> skipped (hardware). The one area with known, documented weakness is the
-> windowed (N>1) ARQ flow control — see §11.
+> through Phase E's seam (real radiation pending bench). 355 tests passing, 1
+> skipped (hardware). Windowed (N>1) ARQ and cumulative ACK are now validated
+> correct under the loss-stress suites (§11.1); the honest remaining gaps are
+> the model-vs-reality limits in §11.2–11.7 and the bench work in §12.
 
 ---
 
@@ -29,9 +34,10 @@ all functions. It's being human validated as development continues.
 10. Development workflow & testing discipline
 11. Known weaknesses & honest limitations
 12. What needs real hardware to validate
-13. Sample data: what exists, what's needed
-14. Experiments to characterize real RX/TX behavior
-15. System flow diagrams (Mermaid + ASCII)
+13. Device fingerprinting: feature extraction & the impairment model
+14. Sample data: what exists, what's needed
+15. Experiments to characterize real RX/TX behavior
+16. System flow diagrams (Mermaid + ASCII)
 
 ---
 
@@ -162,7 +168,16 @@ nothing from `core`.
   (polyphase filterbank).
 - **channel.py** — `apply_channel`, `add_noise`, `add_cfo`, `add_delay`
   (simulated propagation).
+- **channel_impairments.py** — device-signature *synthesis* (the fingerprint
+  forward model / test oracle): `add_iq_imbalance`, `add_pa_nonlinearity`,
+  `add_phase_noise`, `DeviceImpairments`, `make_device_impairments`,
+  `apply_device_impairments`. See §13.
 - **framing.py** — `build_frame`, `find_frames`, `crc16`.
+- **features/** — fingerprint feature *extraction* (see §13):
+  - impairments.py (`iq_image_ratio`, `estimate_iq_imbalance`,
+    `estimate_cfo_ppm`, `estimate_phase_noise_variance`),
+    evm.py (`decide_symbols`, `error_vector`, `evm_stats`, `EVM_FEATURE_NAMES`),
+    fingerprint.py (`fingerprint_vector`, `FEATURE_NAMES`).
 - **demod/** — the demodulator package (see §9 for structure):
   - analog.py (fm/am/ssb/dsb_sc/cw/deemphasis), ask.py (ook/nask),
     fsk.py, psk.py (bpsk/qpsk/psk8/dbpsk/dqpsk), qam.py (qam16),
@@ -446,7 +461,9 @@ round-trip but with matched filtering before slicing.
 ## 10. Development workflow & testing discipline
 
 **The test count is the signal.** Every feature lands with tests; the suite is
-run after every change. Current: 305 passing, 1 skipped (hardware).
+run after every change. Current: 355 passing, 1 skipped (hardware) — the most
+recent addition being the hardware-readiness suite (`test_hardware_readiness.py`),
+which closed the delay-sweep gap the closed-loop oracle had been missing.
 
 **Test categories used throughout:**
 - *Reference-oracle tests* — compare against scipy (filters, resampling) or a
@@ -464,6 +481,12 @@ run after every change. Current: 305 passing, 1 skipped (hardware).
 uv run pytest                              # full suite
 uv run pytest tests/test_modulate.py -q    # one module
 uv run pytest -m hardware                  # hardware-only (needs a device)
+```
+
+**After any API change**, regenerate the API handbook so it stays true to its
+"cannot drift" promise (run from the `sdr_dsp/` project directory):
+```
+PYTHONPATH=src python3 ../docs/dev_handbook/generate_api_handbook.py > ../docs/sdr_dsp_API_HANDBOOK.md
 ```
 
 **The discipline that has caught real bugs:** read what's actually in front of
@@ -549,7 +572,7 @@ latency bounds.
 ## 12. What needs real hardware to validate
 
 Everything below is proven in software but **unproven on a radio**. This is the
-bench checklist (expanded from PHASE_E_BENCH.md).
+bench checklist.
 
 **Transmit path:**
 - [ ] The actual `transmit()` device call (currently a guarded, unimplemented
@@ -584,7 +607,125 @@ bench checklist (expanded from PHASE_E_BENCH.md).
 
 ---
 
-## 13. Sample data: what exists, what's needed
+## 13. Impairment modeling & feature extraction
+
+Two radios sending identical bits emit different *waveforms*, because each carries
+the additive physical signature of its analog hardware. `sdr_dsp` provides the
+pure-DSP **feature extraction** and a matching **impairment synthesizer** to test
+it against. Turning those feature vectors into device *identities* — the
+classifier, labeled captures, trained models — is application logic that lives in
+a separate consuming project (it needs sklearn/torch; the library must not). The
+demonstrating example is `examples/impairment_extraction.py`.
+
+This section is the architectural summary. The full mathematics — proofs,
+physics, and history — lives with that consuming project
+(`RF_FINGERPRINTING_MATH.md`), the natural home for the in-depth identification
+story.
+
+### 13.1 The dividing line
+
+The same test as everywhere else in the library: *would this be useful to
+someone not doing fingerprinting?* Extractors and the impairment model are
+general DSP → they live in the library. The classifier, the labeled data, and
+the trained models only make sense for identifying *your* devices → a separate
+consuming project (`device-fingerprint/`, `uv add sdr_dsp`).
+
+### 13.2 The forward model — `core/channel_impairments.py`
+
+The test oracle: stamp a *known* signature onto a clean signal, then confirm the
+estimators recover it. This is the fingerprinting analog of the scipy-oracle
+filter tests. All obey the §2 contract (pure, deterministic given a seed,
+complex64 in/out, numpy only).
+
+- `add_iq_imbalance(iq, gain_db, phase_deg)` — mixer mismatch as
+  `r = α·s + β·s*`; the `β·s*` conjugate-image term is the signature.
+- `add_pa_nonlinearity(iq, coeffs)` — memoryless odd-order PA polynomial
+  `Σ cₖ·x·|x|^{2k}` (AM/AM + AM/PM). **Note:** exactly zero effect on
+  constant-envelope signals (see §13.5).
+- `add_phase_noise(iq, linewidth_hz, sample_rate, seed)` — Wiener (random-walk)
+  oscillator phase; per-step variance `2π·Δν/f_s`.
+- `make_device_impairments(seed)` → `DeviceImpairments` — a frozen, inspectable
+  bundle = one repeatable virtual device, drawn from realistic ranges.
+- `apply_device_impairments(iq, device, fs, carrier, seed)` — apply the full
+  signature in physical order (PA → imbalance → phase noise → CFO). Layer
+  `apply_channel` on top for propagation effects.
+
+This module sits *beside* `channel.py`, not inside it, on purpose: `channel.py`
+models propagation (what happens *between* radios), this models the transmitter
+(what a device stamps on *everything* it sends).
+
+### 13.3 The estimators — `core/features/impairments.py`
+
+Each inverts one impairment and returns numbers, never a correction (the honest-
+DSP rule):
+
+- `iq_image_ratio(iq)` → `|E[r²]|/E[|r|²]`. **The** feature to classify on:
+  rotation-invariant, so it depends on the transmitter's image rejection, not on
+  where your receiver sampled the carrier phase (a bulk phase rotation multiplies
+  `E[r²]` by `e^{2jθ}`, which the magnitude discards — proof in the consuming
+  project's math doc).
+- `estimate_iq_imbalance(iq)` → `(gain_db, phase_deg)`. Split form, for
+  diagnostics — rotates with the carrier, so treat with care in a classifier.
+  Guarded: warns on improper input (§13.5).
+- `estimate_cfo_ppm(cfo_hz, carrier_hz)` — thin Hz→ppm conversion (the
+  device-comparable crystal unit); the absolute Hz comes from
+  `measure.estimate_cfo`.
+- `estimate_phase_noise_variance(iq, reference=None)` — residual phase-error
+  variance; differences the phase to reject constant CFO. Device-linked only
+  against a reference or post-demod (§13.5).
+
+### 13.4 EVM / error cloud — `core/features/evm.py` and assembly
+
+After deciding symbols, the error `e = r − ŝ` carries the signature the bits
+discard. `evm_stats` returns nine moments (`EVM_FEATURE_NAMES`): magnitude
+(evm_rms, mean) plus the *shape* moments (per-quadrature variance, skew,
+kurtosis, I/Q correlation) that distinguish a noise-dominated Gaussian ball from
+a device-dominated structured cloud. `decide_symbols` and `error_vector` are the
+pure helpers beneath it.
+
+`core/features/fingerprint.py` assembles everything into one stable, ordered
+vector (`FEATURE_NAMES`, length 14 without symbols; the EVM slots fill with NaN
+until synchronized symbols are supplied). Append new features at the END, never
+insert — the classifier relies on the ordering.
+
+### 13.5 The three traps (and how the code guards them)
+
+Physics constrains what's estimable, and the library refuses to pretend
+otherwise:
+
+1. **Properness.** I/Q-imbalance estimation assumes `E[s²]=0` (QPSK/QAM/GFSK).
+   On an improper signal (OOK, BPSK, DC, a tone) `E[s²]≠0` already, and the
+   estimator reads *modulation* as *device* — a clean OOK signal reports image
+   ratio ≈ 1.0. `estimate_iq_imbalance` emits a `RuntimeWarning` when `|c|>0.5`.
+2. **Constant envelope.** PA nonlinearity is *exactly* invisible on a constant-
+   envelope signal (`|x|=A` ⇒ `y = x·ΣcₖA^{2k}`, one complex constant). GFSK/FSK
+   have no PA fingerprint; only amplitude-varying modulations (QAM, OFDM, OOK
+   edges) expose it. Documented on `add_pa_nonlinearity`.
+3. **SNR trap.** `evm_rms`/`evm_mean_mag` scale with receiver noise — at moderate
+   SNR they're a distance-to-antenna thermometer, not a device feature. Weight
+   the shape moments. Documented on `evm_stats`.
+
+### 13.6 The separability guard — the go/no-go
+
+`test_fingerprint_separates_devices_across_channels` is the fingerprinting analog
+of the ARQ loss-stress suites: it asserts within-device feature variance (across
+channels) is smaller than between-device variance (across devices). With only the
+two symbol-free features it reaches ~68% five-way (chance 20%) — deliberately
+modest, guarding the weak path so a regression toward chance is caught. Strong
+separability comes from the symbol-domain EVM features plus more captures.
+
+**The honest bottom line:** whether fingerprinting works for *your* devices
+through *your* receiver is an empirical `S_B/S_W` measurement, not a theorem. The
+cheap first experiment (before building any classifier): capture a few bursts
+each from several *same-model* devices plus repeat captures of one device across
+hours/temperature, compute `cfo_ppm`, and compare within- vs between-device
+spread. If same-model crystals don't separate, or one drifts across another
+overnight, the steady-state approach needs rethinking — an afternoon spent, not a
+project. See §12 for the hardware-validation checklist this feeds into.
+
+---
+
+## 14. Sample data: what exists, what's needed
 
 **Exists** (`sample_data/`):
 - `fm_2Msps.iq` + `.sigmf-meta` — an FM capture at 2 Msps.
@@ -610,7 +751,7 @@ Each new sample should ship with a SigMF sidecar documenting capture conditions
 
 ---
 
-## 14. Experiments to characterize real RX/TX behavior
+## 15. Experiments to characterize real RX/TX behavior
 
 Concrete experiments to run with the HackRF One (and other RF gear) to get the
 data the simulation can't provide. Ordered roughly easiest → hardest.
@@ -657,7 +798,7 @@ data the simulation can't provide. Ordered roughly easiest → hardest.
 
 ---
 
-## 15. System flow diagrams
+## 16. System flow diagrams
 
 ### 15.1 The ARQ engine — event/intention model (Mermaid)
 
