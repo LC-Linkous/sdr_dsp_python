@@ -39,6 +39,101 @@ def snr_db(iq, sample_rate, signal_band_hz, nfft=1024):
     return 10.0 * np.log10(sig_p / (noise_p + 1e-20))
 
 
+def capture_health(iq, sample_rate, channel_bw=None, adc_bits=8,
+                   min_counts=4.0, min_excess_db=3.0, nfft=8192):
+    """Assess whether a recording actually contains a signal. OUR code.
+
+    Answers the question that precedes all DSP: is there anything in this
+    file? Nearly every "it ran without errors but the output is silent or
+    sounds like hiss" report is a property of the recording -- an antenna
+    that wasn't connected, gain set too low, or a capture tuned somewhere
+    with nothing on it -- and no amount of processing recovers a signal that
+    was never recorded.
+
+    Two independent checks:
+
+    ``adc_counts``
+        How much of the digitizer's range the recording used, recovered by
+        scaling the normalized peak back up by the converter's full scale.
+        A capture peaking at a couple of counts out of 127 is quantization
+        noise; there is no signal in it at any gain setting downstream.
+
+        Measured per component, as max(|I|, |Q|), because I and Q are
+        quantized by separate converters and clipping happens to each of
+        them independently. The complex magnitude |I + jQ| would read up to
+        sqrt(2) higher and can exceed full scale outright -- a sample at
+        I=127, Q=127 is 179 by that measure, which is not a number any 8-bit
+        converter can produce.
+
+    ``channel_excess_db``
+        Power inside ``channel_bw`` of DC, relative to the outer 20% of the
+        span. A real carrier is a hump standing above its surroundings; a
+        flat spectrum means nothing is there. Skipped when channel_bw is
+        None or the capture is too short to average.
+
+    Args:
+        iq:          complex samples normalized to +/-1 (as sources return).
+        sample_rate: Hz, used to place the channel band.
+        channel_bw:  half-width in Hz of the channel of interest. None skips
+                     the spectral check.
+        adc_bits:    converter width; 8 for HackRF's ci8 (full scale 127).
+        min_counts:  ADC counts below which the capture is called empty.
+        min_excess_db: in-band excess below which no carrier is called.
+        nfft:        FFT size for the averaged spectrum.
+
+    Returns a dict with ``ok`` (bool), ``adc_counts``, ``channel_excess_db``
+    (None if not computed), ``peak_dbfs``, and ``reasons`` (list of strings
+    describing each failure, empty when ok).
+
+    This is a screening tool, not a detector. A signal far weaker than the
+    noise floor in the channel -- spread spectrum below the noise, say --
+    will be reported as absent, which is the right answer for "can I demod
+    this directly" and the wrong one for "is there anything here at all."
+    """
+    iq = np.asarray(iq)
+    full_scale = float(2 ** (adc_bits - 1) - 1)
+    reasons = []
+
+    if iq.size == 0:
+        return {"ok": False, "adc_counts": 0.0, "channel_excess_db": None,
+                "peak_dbfs": float("-inf"), "reasons": ["capture is empty"]}
+
+    peak = float(max(np.max(np.abs(iq.real)), np.max(np.abs(iq.imag))))
+    adc_counts = peak * full_scale
+    if adc_counts < min_counts:
+        reasons.append(
+            f"capture peaks at ~{adc_counts:.1f} of {full_scale:.0f} ADC "
+            f"counts, which is the noise floor: check the antenna, raise "
+            f"gain, and confirm the tuned frequency")
+
+    excess = None
+    if channel_bw is not None and sample_rate > 0:
+        nseg = min(64, iq.size // nfft)
+        if nseg >= 4:
+            win = np.hanning(nfft)
+            acc = np.zeros(nfft)
+            for k in range(nseg):
+                seg = iq[k * nfft:(k + 1) * nfft] * win
+                acc += np.abs(np.fft.fftshift(np.fft.fft(seg))) ** 2
+            psd_db = 10.0 * np.log10(acc / nseg + 1e-30)
+            freqs = np.fft.fftshift(np.fft.fftfreq(nfft, 1.0 / sample_rate))
+            in_band = np.abs(freqs) <= channel_bw
+            out_band = np.abs(freqs) >= 0.4 * sample_rate
+            if in_band.any() and out_band.any():
+                excess = float(psd_db[in_band].mean()
+                               - psd_db[out_band].mean())
+                if excess < min_excess_db:
+                    reasons.append(
+                        f"channel is only {excess:+.1f} dB above the band "
+                        f"edges, so no carrier is present: demodulating this "
+                        f"yields noise, not signal")
+
+    return {"ok": not reasons, "adc_counts": adc_counts,
+            "channel_excess_db": excess,
+            "peak_dbfs": 20.0 * np.log10(peak + 1e-20),
+            "reasons": reasons}
+
+
 def occupied_bandwidth(iq, sample_rate, fraction=0.99, nfft=1024):
     """Bandwidth containing ``fraction`` of the total power (e.g. 99%).
 
