@@ -21,7 +21,6 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
 from sdr_dsp.core import (build_frame, find_frames, apply_channel,
                           fsk_modulate, fsk_demod, sample_symbols)
 from sdr_dsp.link import (ARQ, run_sim, run_link, replay, EventLog,
@@ -29,7 +28,6 @@ from sdr_dsp.link import (ARQ, run_sim, run_link, replay, EventLog,
 
 FS = 1e6
 SPS = 20
-
 
 def build_transport(snr_db, drop_first=False):
     state = {"used": False}
@@ -62,7 +60,6 @@ def build_transport(snr_db, drop_first=False):
                                 seed=1)
     return make_channel_transport(modulate, demodulate, channel,
                                   drop_predicate=maybe_drop)
-
 
 def main():
     p = argparse.ArgumentParser(description="Two-station acked message exchange.")
@@ -115,7 +112,6 @@ def main():
     print("\n[*] this is the software-provable two-SDR exchange; the live "
           "driver (real radio) is Phase E")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

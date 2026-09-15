@@ -3,71 +3,280 @@
 
 The live counterpart to fm_receiver.py: instead of writing a WAV, it streams
 from the HackRF, demodulates block by block, and plays the audio in real time.
-Same DSP chain, a live source and an audio sink.
 
-Requires hackrfpy + hackrf-tools AND sounddevice (examples extras):
-    pip install hackrfpy sounddevice
+Set STATION_HZ below and run it. Everything else has a working default.
 
-Usage:
-    python examples/live_fm_listen.py --freq 96.5e6
-    python examples/live_fm_listen.py --freq 101.1e6 --rate 2e6
+    python examples/live_fm_listen.py
+    python examples/live_fm_listen.py --freq 101.1e6    # override for one run
+
+Requires hackrfpy + the hackrf-tools binaries, AND sounddevice:
+    uv sync --extra examples-hackrf --extra audio
+
+Two things make a streaming receiver different from the file-based one, and
+both are handled below rather than papered over.
+
+REAL TIME. Resampling 2 Msps straight down to 48 kHz means up=3, down=125:
+resample_poly upsamples to 6 Msps and runs a 2501-tap filter there, which
+measures about 2.4x real time on a normal laptop -- it can never keep up, and
+you would hear stuttering no matter how fast the machine is. Decimating the
+IQ by 5 first (free, since the channel filter has to run anyway) drops the
+ratio to up=3, down=25 and the filter to 501 taps at 1.2 Msps. Same audio,
+about 0.36x real time.
+
+CONTINUITY. Every stage here has memory, and a block boundary is not a signal
+boundary. A filter restarted each block ramps up from an empty delay line; a
+phase discriminator restarted each block loses its reference sample; a
+one-pole IIR restarted each block jumps from zero. At eight blocks a second
+those produce a steady buzz. Each stage below carries its state across
+blocks, so the output matches what you would get by processing the whole
+stream at once.
 """
+
+# ===========================================================================
+#  CONFIG -- EDIT THIS
+# ===========================================================================
+
+# The station to listen to, in Hz. 98.5e6 is 98.5 MHz.
+STATION_HZ = 103.5e6 #98.5e6
+
+VOLUME = 0.5              # 0..1 output level
+DEEMPHASIS_US = 75        # 75 in the Americas/South Korea, 50 most elsewhere
+AUTO_GAIN = True          # probe the band and pick LNA/VGA before listening
+LNA_DB, VGA_DB = 16, 20   # used when AUTO_GAIN is False
+TOOLS_DIR = None          # path to hackrf-tools if not on PATH
+
+# ===========================================================================
+
 import argparse
 import sys
 from math import gcd
 
 import numpy as np
 
-sys.path.insert(0, "src")
-sys.path.insert(0, "examples")
-from sdr_dsp.core import design_lowpass, fir_apply, fm_demod, resample_poly
+from sdr_dsp.core import (design_lowpass, fir_apply, fm_demod, resample_poly,
+                          deemphasis, capture_health)
 
-FM_DEVIATION = 75_000
+SAMPLE_RATE = 2_000_000   # HackRF minimum, and plenty for one FM channel
+DECIMATION = 5            # 2 Msps -> 400 kHz before demodulating
+CHANNEL_BW = 100_000      # half-width of the FM channel we keep
+CHANNEL_TAPS = 201
 AUDIO_RATE = 48_000
+FM_DEVIATION = 75_000
+BLOCK_SAMPLES = 250_000   # 0.125 s per block; must divide by DECIMATION
+
+# Warm-up for the de-emphasis IIR, which has no state argument. It forgets
+# exponentially, so priming it with the tail of the previous block and
+# discarding that region is exact far below the noise floor: tau is 3.6
+# samples at 48 kHz, so 64 samples leaves an error around e^-18.
+DEEMPH_WARMUP = 64
+
+
+class FMStream:
+    """Stateful FM receive chain: complex64 blocks in, audio blocks out.
+
+    Holds the delay line of every stage between calls, so consecutive blocks
+    join seamlessly instead of clicking at each boundary.
+    """
+
+    def __init__(self, sample_rate=SAMPLE_RATE, decimation=DECIMATION,
+                 channel_bw=CHANNEL_BW, audio_rate=AUDIO_RATE,
+                 deemph_us=DEEMPHASIS_US):
+        self.fs = float(sample_rate)
+        self.dec = int(decimation)
+        self.inter_fs = self.fs / self.dec
+        self.audio_rate = int(audio_rate)
+        self.deemph_us = deemph_us
+
+        self.taps = design_lowpass(channel_bw, self.fs, num_taps=CHANNEL_TAPS)
+        g = gcd(self.audio_rate, int(self.inter_fs))
+        self.up = self.audio_rate // g
+        self.down = int(self.inter_fs) // g
+
+        # resample_poly builds 2*10*max(up,down)+1 taps at the upsampled rate
+        # and compensates their group delay, which makes it non-causal: an
+        # output sample depends on input both behind and AHEAD of it. So the
+        # resampler needs history on both sides. Past context (rs_hist) is
+        # carried from the previous block; future context (rs_ahead) is
+        # obtained by holding the newest samples back until the block after
+        # next, rather than letting resample_poly pad them with zeros. Both
+        # are whole multiples of `down` so the output accounting stays exact
+        # instead of drifting on a rounding.
+        ntaps = 20 * max(self.up, self.down) + 1
+        need = (ntaps + self.up - 1) // self.up
+        self.rs_hist = ((need + self.down - 1) // self.down) * self.down
+        self.rs_ahead = self.rs_hist
+
+        # carried state
+        self._iq_tail = np.zeros(len(self.taps) - 1, dtype=np.complex64)
+        self._demod_tail = np.zeros(1, dtype=np.complex64)
+        self._rs_buf = np.zeros(self.rs_hist, dtype=np.float64)
+        self._deemph_tail = np.zeros(DEEMPH_WARMUP, dtype=np.float64)
+
+    @staticmethod
+    def _roll_tail(tail, new):
+        """Keep the last len(tail) samples of (tail + new)."""
+        n = len(tail)
+        if new.size >= n:
+            return new[-n:].copy()
+        return np.concatenate([tail[new.size:], new])
+
+    def process(self, block):
+        """One block of complex64 IQ -> one block of real audio."""
+        block = np.asarray(block, dtype=np.complex64)
+        if block.size % self.dec:
+            block = block[:block.size - (block.size % self.dec)]
+        if block.size == 0:
+            return np.zeros(0)
+
+        # 1. channel filter, overlap-save. Feeding the previous block's tail
+        #    and keeping only the new region gives exactly the output of a
+        #    filter that never stopped running.
+        m = len(self._iq_tail)
+        filtered = fir_apply(np.concatenate([self._iq_tail, block]),
+                             self.taps)[m:]
+        self._iq_tail = self._roll_tail(self._iq_tail, block)
+
+        # 2. decimate. Block length is a multiple of `dec`, so the sampling
+        #    phase stays aligned from one block to the next.
+        narrow = filtered[::self.dec]
+        if narrow.size == 0:
+            return np.zeros(0)
+
+        # 3. FM demodulate. The discriminator differences consecutive phases,
+        #    so it needs the last sample of the previous block to produce a
+        #    correct first output sample instead of a spurious jump.
+        primed = np.concatenate([self._demod_tail, narrow])
+        audio = fm_demod(primed, deviation_hz=FM_DEVIATION,
+                         sample_rate=self.inter_fs)[-narrow.size:]
+        self._demod_tail = narrow[-1:].copy()
+
+        # 4. resample to audio rate. Emit only samples that have both past
+        #    and future context available; hold the rest until more arrives.
+        #    The cost is rs_ahead samples of latency -- here about 0.4 ms,
+        #    inaudible -- in exchange for output identical to processing the
+        #    whole stream at once.
+        buf = np.concatenate([self._rs_buf, audio])
+        avail = buf.size - self.rs_hist - self.rs_ahead
+        if avail < self.down:
+            self._rs_buf = buf
+            return np.zeros(0)
+        k = (avail // self.down) * self.down
+        chunk = buf[:self.rs_hist + k + self.rs_ahead]
+        drop = self.rs_hist * self.up // self.down
+        keep = (self.rs_hist + k) * self.up // self.down
+        out = resample_poly(chunk, self.up, self.down)[drop:keep]
+        self._rs_buf = buf[k:]
+
+        # 5. de-emphasis. Broadcast FM pre-emphasizes treble before
+        #    transmission; without undoing it the audio is harsh and hissy.
+        primed = np.concatenate([self._deemph_tail, out])
+        shaped = deemphasis(primed, self.audio_rate,
+                            tau_us=self.deemph_us)[len(self._deemph_tail):]
+        self._deemph_tail = self._roll_tail(self._deemph_tail, out)
+        return shaped
+
+
+def pick_gain(h, freq):
+    """Short probe captures to find a gain that uses the ADC sensibly."""
+    lna, vga = 16, 20
+    counts = 0.0
+    for _ in range(10):
+        iq = h.capture_array(freq, SAMPLE_RATE, int(SAMPLE_RATE * 0.05),
+                             lna=lna, vga=vga, amp=False)
+        counts = float(max(np.max(np.abs(iq.real)),
+                           np.max(np.abs(iq.imag)))) * 127.0
+        if 45.0 <= counts <= 110.0:
+            return lna, vga, counts
+        if counts > 110.0:
+            if vga > 0:
+                vga = max(0, vga - 6)
+            elif lna > 0:
+                lna -= 8
+            else:
+                return lna, vga, counts
+        else:
+            if vga < 62:
+                deficit = 20 * np.log10(45.0 / max(counts, 0.5))
+                vga = min(62, vga + max(2, int(deficit // 2) * 2))
+            elif lna < 40:
+                lna, vga = lna + 8, 20
+            else:
+                return lna, vga, counts
+    return lna, vga, counts
 
 
 def main():
     p = argparse.ArgumentParser(description="Live FM receiver -> speakers.")
-    p.add_argument("--freq", type=float, required=True, help="station Hz")
-    p.add_argument("--rate", type=float, default=2e6)
-    p.add_argument("--audio-bw", type=float, default=100e3)
-    p.add_argument("--lna", type=int, default=16)
-    p.add_argument("--vga", type=int, default=20)
+    p.add_argument("--freq", type=float, default=STATION_HZ,
+                   help=f"station Hz (default: STATION_HZ = {STATION_HZ:g})")
+    p.add_argument("--volume", type=float, default=VOLUME)
+    p.add_argument("--lna", type=int, default=LNA_DB)
+    p.add_argument("--vga", type=int, default=VGA_DB)
+    p.add_argument("--no-auto-gain", action="store_true")
     args = p.parse_args()
 
     try:
-        from hackrf_capture import HackRFCapture
-    except ImportError as e:
-        print(f"needs hackrfpy: pip install hackrfpy  ({e})", file=sys.stderr)
-        return 1
-    try:
         import sounddevice as sd
-    except ImportError:
-        print("needs sounddevice: pip install sounddevice", file=sys.stderr)
+    except ModuleNotFoundError:
+        print("needs sounddevice:  uv sync --extra audio", file=sys.stderr)
+        return 1
+    try:
+        from hackrfpy import HackRF
+    except ModuleNotFoundError:
+        print("needs hackrfpy:  uv sync --extra examples-hackrf",
+              file=sys.stderr)
+        return 1
+    from hackrf_capture import HackRFCapture
+
+    h = HackRF(tools_dir=TOOLS_DIR, verbose=False)
+    det = h.detect()
+    if not det["ready"]:
+        print(f"no usable HackRF: {det['problem']}", file=sys.stderr)
         return 1
 
-    fs = args.rate
-    taps = design_lowpass(args.audio_bw, fs, num_taps=101)
-    g = gcd(int(AUDIO_RATE), int(fs))
-    up, down = int(AUDIO_RATE) // g, int(fs) // g
+    lna, vga = args.lna, args.vga
+    if AUTO_GAIN and not args.no_auto_gain:
+        print("[*] probing for a working gain ...")
+        lna, vga, counts = pick_gain(h, args.freq)
+        print(f"    lna={lna} vga={vga}  ({counts:.0f}/127 ADC counts)")
 
-    print(f"[*] tuning {args.freq/1e6:g} MHz; Ctrl-C to stop")
-    stream = sd.OutputStream(samplerate=AUDIO_RATE, channels=1, dtype="float32")
+    # Is the station actually there? Cheaper to say so now than to let
+    # someone listen to hiss and wonder whether the DSP is broken.
+    probe = h.capture_array(args.freq, SAMPLE_RATE, int(SAMPLE_RATE * 0.1),
+                            lna=lna, vga=vga, amp=False)
+    health = capture_health(probe, SAMPLE_RATE, channel_bw=CHANNEL_BW)
+    if health["ok"]:
+        print(f"[*] station present: channel "
+              f"{health['channel_excess_db']:+.1f} dB above the band edges")
+    else:
+        for r in health["reasons"]:
+            print(f"[!] {r}")
+        print("[!] listening anyway -- expect hiss. Check the frequency, the")
+        print("    antenna, and that this station is on the air locally.")
+
+    chain = FMStream()
+    print(f"[*] {args.freq/1e6:g} MHz -> {SAMPLE_RATE/1e6:g} Msps, decimate "
+          f"{DECIMATION}x to {chain.inter_fs/1e3:g} kHz, resample "
+          f"up={chain.up} down={chain.down} -> {AUDIO_RATE/1e3:g} kHz audio")
+    print("[*] Ctrl-C to stop")
+
+    stream = sd.OutputStream(samplerate=AUDIO_RATE, channels=1,
+                             dtype="float32")
     stream.start()
-
+    blocks = 0
     try:
-        with HackRFCapture(args.freq, fs, lna=args.lna, vga=args.vga,
-                           block_size=int(fs // 10)) as src:
+        with HackRFCapture(args.freq, SAMPLE_RATE, lna=lna, vga=vga,
+                           block_size=BLOCK_SAMPLES,
+                           tools_dir=TOOLS_DIR) as src:
             for iq in src.blocks():
-                if len(iq) < len(taps) * 2:
+                audio = chain.process(iq)
+                if audio.size == 0:
                     continue
-                filt = fir_apply(iq, taps)
-                audio = fm_demod(filt, deviation_hz=FM_DEVIATION,
-                                 sample_rate=fs)
-                audio = resample_poly(audio, up, down)
-                # normalize softly and play
-                peak = np.max(np.abs(audio)) or 1.0
-                stream.write((audio / peak * 0.7).astype(np.float32))
+                stream.write(
+                    np.clip(audio * args.volume, -1.0, 1.0).astype(np.float32))
+                blocks += 1
+                if blocks % 40 == 0:
+                    print(f"    {blocks * BLOCK_SAMPLES / SAMPLE_RATE:.0f}s")
     except KeyboardInterrupt:
         print("\n[*] stopped")
     finally:

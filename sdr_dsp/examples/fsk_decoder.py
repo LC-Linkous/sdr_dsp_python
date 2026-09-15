@@ -20,10 +20,8 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
 from sdr_dsp.core import (fsk_demod, fsk_demod_nlevel, estimate_symbol_rate,
                           slice_to_symbols, instantaneous_frequency)
-
 
 def make_demo(fs, levels):
     rng = np.random.default_rng(0)
@@ -40,7 +38,6 @@ def make_demo(fs, levels):
     iq += 0.05 * (rng.standard_normal(len(iq))
                   + 1j * rng.standard_normal(len(iq)))
     return iq, syms
-
 
 def main():
     p = argparse.ArgumentParser(description="Decode an FSK capture.")
@@ -114,7 +111,6 @@ def main():
         errs = sum(int(a) != int(b) for a, b in zip(syms[:n], truth[:n]))
         print(f"[*] vs known truth: {n-errs}/{n} symbols match")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

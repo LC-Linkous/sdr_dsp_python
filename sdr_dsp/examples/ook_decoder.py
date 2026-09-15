@@ -20,12 +20,10 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
-from src.sdr_dsp.io import load_iq
-from src.sdr_dsp.core import (
+from sdr_dsp.io import load_iq
+from sdr_dsp.core import (
     ook_envelope, ook_slice, estimate_symbol_rate, slice_to_symbols, edges,
 )
-
 
 def main():
     p = argparse.ArgumentParser(description="Decode an OOK/ASK capture to bits.")
@@ -84,7 +82,6 @@ def main():
           "repeating unit. Try --smooth 20-100 if the envelope is noisy, or "
           "--threshold to tune the on/off decision.")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

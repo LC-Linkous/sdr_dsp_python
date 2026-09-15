@@ -19,9 +19,7 @@ import time
 import numpy as np
 from scipy import signal as sig
 
-sys.path.insert(0, "src")
 from sdr_dsp.core import resample_poly as ours
-
 
 def bench(fn, *a, repeat=5):
     best = float("inf")
@@ -30,7 +28,6 @@ def bench(fn, *a, repeat=5):
         out = fn(*a)
         best = min(best, time.perf_counter() - t0)
     return out, best
-
 
 def main():
     p = argparse.ArgumentParser(description="Benchmark our resampler vs scipy.")
@@ -88,7 +85,6 @@ def main():
         fig.tight_layout()
         plt.show()
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

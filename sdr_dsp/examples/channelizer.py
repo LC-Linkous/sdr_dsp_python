@@ -25,9 +25,7 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
 from sdr_dsp.core import channelize, channelize_bank, power_dbfs
-
 
 def synth_band(fs, n=200000):
     """A wide band with several signals at different offsets."""
@@ -37,7 +35,6 @@ def synth_band(fs, n=200000):
            + 0.5 * np.exp(2j * np.pi * (0.02 * fs / 2) * t))  # near center
     sig += 0.02 * (np.random.randn(n) + 1j * np.random.randn(n))
     return sig.astype(np.complex64)
-
 
 def main():
     p = argparse.ArgumentParser(description="Single or multi-channel extraction.")
@@ -83,7 +80,6 @@ def main():
         print(f"[*] channel power: {power_dbfs(ch):.1f} dBFS")
         print(f"[*] ready to demod or save (use --bank N to split the whole band)")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

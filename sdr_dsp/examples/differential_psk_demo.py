@@ -22,9 +22,7 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
 from sdr_dsp.core import dbpsk_demod, dqpsk_demod
-
 
 def make_dbpsk(nbits, offset, noise, seed=0):
     rng = np.random.default_rng(seed)
@@ -39,7 +37,6 @@ def make_dbpsk(nbits, offset, noise, seed=0):
     syms += noise * (rng.standard_normal(len(syms))
                      + 1j * rng.standard_normal(len(syms)))
     return syms.astype(np.complex64), bits
-
 
 def make_dqpsk(nsym, offset, noise, seed=0):
     rng = np.random.default_rng(seed)
@@ -56,7 +53,6 @@ def make_dqpsk(nsym, offset, noise, seed=0):
                      + 1j * rng.standard_normal(len(syms)))
     tx_bits = [b for pair in sym_bits for b in pair]
     return syms.astype(np.complex64), tx_bits
-
 
 def main():
     p = argparse.ArgumentParser(description="Differential PSK demo.")
@@ -90,7 +86,6 @@ def main():
         print("[*] the constant phase offset cancelled -- that's the whole "
               "point of differential PSK")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

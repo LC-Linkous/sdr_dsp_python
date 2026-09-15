@@ -19,10 +19,8 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
-from src.sdr_dsp.io import load_iq
-from src.sdr_dsp.core import spectrogram
-
+from sdr_dsp.io import load_iq
+from sdr_dsp.core import spectrogram
 
 def main():
     p = argparse.ArgumentParser(description="Offline spectrogram waterfall.")
@@ -66,7 +64,6 @@ def main():
     fig.tight_layout()
     plt.show()
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

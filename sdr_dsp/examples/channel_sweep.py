@@ -21,12 +21,10 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
 from sdr_dsp.core import (build_frame, find_frames, apply_channel,
                           ook_modulate, ook_envelope, ook_slice,
                           fsk_modulate, fsk_demod,
                           bpsk_modulate, bpsk_demod, carrier_recovery)
-
 
 def modulate(bits, scheme, sps, fs):
     if scheme == "ook":
@@ -34,7 +32,6 @@ def modulate(bits, scheme, sps, fs):
     if scheme == "fsk":
         return fsk_modulate(bits, sps, 50e3, fs)
     return bpsk_modulate(bits, sps)
-
 
 def demodulate(iq, scheme, sps, fs, nbits, recover=False):
     if scheme == "ook":
@@ -46,7 +43,6 @@ def demodulate(iq, scheme, sps, fs, nbits, recover=False):
         iq = carrier_recovery(iq, method="costas", order=2)
     rec, _ = bpsk_demod(iq)
     return rec[::sps][:nbits] if sps > 1 else rec[:nbits]
-
 
 def main():
     p = argparse.ArgumentParser(description="Sweep a packet over worsening SNR.")
@@ -84,7 +80,6 @@ def main():
     print("\n[*] recovered/flagged/lost is what the ACK protocol keys off "
           "(Phase D)")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -17,10 +17,7 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
-sys.path.insert(0, "examples")
 from sdr_dsp.core import psd
-
 
 def main():
     p = argparse.ArgumentParser(description="Live spectrum display.")
@@ -75,7 +72,6 @@ def main():
         pass
     print("[*] stopped")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

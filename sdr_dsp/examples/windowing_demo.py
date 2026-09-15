@@ -18,9 +18,7 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
-from src.sdr_dsp.core.spectral import _get_window
-
+from sdr_dsp.core.spectral import _get_window
 
 def main():
     p = argparse.ArgumentParser(description="Windowing / spectral leakage demo.")
@@ -65,7 +63,6 @@ def main():
     fig.tight_layout()
     plt.show()
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

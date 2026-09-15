@@ -26,9 +26,7 @@ import os
 
 import numpy as np
 
-sys.path.insert(0, "src")
 from sdr_dsp.core import power_dbfs, compute_cal_offset, Calibration
-
 
 def main():
     p = argparse.ArgumentParser(description="Absolute power calibration demo.")
@@ -81,7 +79,6 @@ def main():
     print("\n[*] dBFS is always honest; dBm is only as good as your reference "
           "and only valid near the calibrated frequency.")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

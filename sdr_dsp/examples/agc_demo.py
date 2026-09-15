@@ -21,9 +21,7 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
 from sdr_dsp.core import agc
-
 
 def main():
     p = argparse.ArgumentParser(description="AGC demo on a fading signal.")
@@ -81,7 +79,6 @@ def main():
     fig.tight_layout()
     plt.show()
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

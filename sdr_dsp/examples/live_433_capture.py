@@ -16,10 +16,7 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
-sys.path.insert(0, "examples")
 from sdr_dsp.io import save_iq
-
 
 def main():
     p = argparse.ArgumentParser(description="Capture a 433 MHz burst to SigMF.")
@@ -58,7 +55,6 @@ def main():
     print(f"[*] saved -> {args.out}")
     print(f"    decode it: python examples/ook_decoder.py {args.out}")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -16,10 +16,8 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
 from sdr_dsp.io import load_iq
 from sdr_dsp.core import power_dbfs, occupied_bandwidth, snr_db
-
 
 def main():
     p = argparse.ArgumentParser(description="Survey power/bandwidth/SNR.")
@@ -52,7 +50,6 @@ def main():
         name = path.split("/")[-1].split("\\")[-1]
         print(f"{name:<30} {pwr:7.1f} dBFS {obw/1e3:8.1f} kHz {snr_str:>9}")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

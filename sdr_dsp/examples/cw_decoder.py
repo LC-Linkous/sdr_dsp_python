@@ -19,7 +19,6 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
 from sdr_dsp.core import ook_envelope, ook_slice, estimate_symbol_rate, cw_decode
 
 # encode side (for the synthetic demo only)
@@ -32,7 +31,6 @@ _MORSE_ENC = {
     "3": "...--", "4": "....-", "5": ".....", "6": "-....", "7": "--...",
     "8": "---..", "9": "----.",
 }
-
 
 def synth_cw(text, fs, dit_samples, tone_hz=800, noise=0.03):
     """Build a complex tone keyed with the Morse for `text`."""
@@ -59,7 +57,6 @@ def synth_cw(text, fs, dit_samples, tone_hz=800, noise=0.03):
     iq = np.concatenate(segs).astype(np.complex64)
     iq += noise * (np.random.randn(len(iq)) + 1j * np.random.randn(len(iq)))
     return iq
-
 
 def main():
     p = argparse.ArgumentParser(description="Decode Morse/CW from a capture.")
@@ -110,7 +107,6 @@ def main():
         if not match:
             print("    (CW timing is loose; try --smooth or check --wpm)")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

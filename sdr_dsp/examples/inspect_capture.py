@@ -16,10 +16,8 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
-from src.sdr_dsp.io import load_iq, read_meta
-from src.sdr_dsp.core import power_dbfs
-
+from sdr_dsp.io import load_iq, read_meta
+from sdr_dsp.core import power_dbfs
 
 def main():
     p = argparse.ArgumentParser(description="Inspect a SigMF IQ capture.")
@@ -73,7 +71,6 @@ def main():
         fpk = freqs[k] / 1e6 if fs else freqs[k]
         print(f"spectral peak     : {p_db[k]:.1f} dB @ {fpk:.3f} {units}")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

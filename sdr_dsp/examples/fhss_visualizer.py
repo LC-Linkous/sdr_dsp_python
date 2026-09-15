@@ -21,9 +21,7 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
 from sdr_dsp.core import spectrogram, fhss_detect_hops
-
 
 def synth_fhss(fs, n_hops=20, dwell=4000, seed=0):
     """A signal that hops among several channels on a random schedule."""
@@ -40,7 +38,6 @@ def synth_fhss(fs, n_hops=20, dwell=4000, seed=0):
     iq += 0.05 * (rng.standard_normal(len(iq))
                   + 1j * rng.standard_normal(len(iq)))
     return iq, np.array(hop_seq)
-
 
 def main():
     p = argparse.ArgumentParser(description="FHSS hop visualizer.")
@@ -84,7 +81,6 @@ def main():
     fig.tight_layout()
     plt.show()
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

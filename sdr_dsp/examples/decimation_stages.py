@@ -18,9 +18,7 @@ import time
 
 import numpy as np
 
-sys.path.insert(0, "src")
 from sdr_dsp.core import decimate, psd
-
 
 def factorize(n):
     """Break n into small factors for staged decimation (e.g. 64 -> 4,4,4)."""
@@ -32,7 +30,6 @@ def factorize(n):
     if n > 1:
         stages.append(n)
     return stages
-
 
 def main():
     p = argparse.ArgumentParser(description="Single vs multi-stage decimation.")
@@ -91,7 +88,6 @@ def main():
         fig.tight_layout()
         plt.show()
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())
