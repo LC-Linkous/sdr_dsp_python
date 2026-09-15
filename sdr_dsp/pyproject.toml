@@ -47,7 +47,24 @@ examples-hackrf = ["hackrfpy>=1.0.0"]
 examples = ["matplotlib", "sounddevice", "hackrfpy>=1.0.0"]
 
 [dependency-groups]
-dev = ["pytest", "pytest-cov", "ruff", "mypy"]
+# pytest/ruff/mypy are the usual tooling. The other two are there so parts of
+# the suite stop silently skipping:
+#   hackrfpy  the capture-collection scripts import it at module scope, so
+#             without it the gain-search tests (which use a mock radio and
+#             need no hardware) skip rather than run. Installing the package
+#             does not require a HackRF or the hackrf-tools binaries; only
+#             actually recording does.
+#   pyflakes  backs the undefined-name check over examples/ and tools/, which
+#             catches stale references that survive import because nothing
+#             calls main().
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "mypy",
+    "hackrfpy>=1.0.0",
+    "pyflakes",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sdr_dsp"]
