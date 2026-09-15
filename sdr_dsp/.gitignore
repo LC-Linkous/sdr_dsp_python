@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# outputs written by examples into the working directory
+*.wav
+*.sigmf-data
+*.sigmf-meta
+!sample_data/*.sigmf-meta
+dev_data/
