@@ -1,20 +1,19 @@
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
 [project]
 name = "sdr_dsp"
-version = "0.1.0"
+version = "0.2.0"
 description = "A personal, fully-functional DSP library for software-defined radio IQ."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "GPL-2.0-only"
+license-files = ["LICENSE*"]
 authors = [{ name = "LC-Linkous" }]
 keywords = ["sdr", "dsp", "iq", "radio", "signal-processing", "hackrf"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Communications :: Ham Radio",
     "Topic :: Scientific/Engineering",
     "Operating System :: OS Independent",
@@ -28,46 +27,55 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# These extras are for the EXAMPLE scripts, not the library core. The library
-# itself depends only on numpy + scipy and knows nothing about any device.
+# These extras are for DOWNSTREAM INSTALLS of the library (pip install
+# sdr_dsp[plotting]); they are not how the dev environment gets its
+# packages -- see [dependency-groups] below for why that distinction bit us.
 #
-# Quick start: `uv sync --extra examples` installs everything needed to run
-# ANY example (plotting + audio + hackrfpy). The granular extras below let you
-# install just what a specific example needs.
-
 # Plotting for the analyzer/spectrogram/teaching examples (matplotlib ONLY --
-# no PyQt5; its wheels don't resolve cleanly on Windows via uv).
+# it uses a native GUI backend, TkAgg on Windows, which ships with Python.
+# No PyQt5: its wheels don't resolve cleanly on Windows via uv and it isn't
+# required).
 plotting = ["matplotlib"]
 # Live audio playback (live_fm_listen.py); other audio examples write a WAV.
 audio = ["sounddevice"]
 # Live capture examples use hackrfpy (from PyPI). NOT a library dependency.
 # Live capture additionally needs the hackrf-tools binaries at the OS level.
-examples-hackrf = ["hackrfpy>=1.0.0"]
+examples-hackrf = ["hackrfpy>=1.1.0"]
 # Aggregate: everything the examples can use, in one install.
-examples = ["matplotlib", "sounddevice", "hackrfpy>=1.0.0"]
+examples = ["matplotlib", "sounddevice", "hackrfpy>=1.1.0"]
+
+[build-system]
+requires = ["uv_build>=0.8.11,<0.9.0"]
+build-backend = "uv_build"
 
 [dependency-groups]
-# pytest/ruff/mypy are the usual tooling. The other two are there so parts of
-# the suite stop silently skipping:
+# THE RULE THAT KEEPS THE DEV ENVIRONMENT STABLE: everything the checked-in
+# examples, tools, and tests can import belongs in this group, not only in an
+# extra. `uv sync` installs dependency-groups but REMOVES extras that weren't
+# asked for -- which is exactly how a plain `uv sync` once uninstalled
+# matplotlib and sounddevice out from under a working checkout. Extras remain
+# for downstream installers; this group is the one the repo itself relies on.
+#
+# Non-obvious members:
 #   hackrfpy  the capture-collection scripts import it at module scope, so
 #             without it the gain-search tests (which use a mock radio and
 #             need no hardware) skip rather than run. Installing the package
 #             does not require a HackRF or the hackrf-tools binaries; only
-#             actually recording does.
+#             actually recording does. >=1.1.0 for the by-ear-verified
+#             fm_reference captures and their reports.
 #   pyflakes  backs the undefined-name check over examples/ and tools/, which
 #             catches stale references that survive import because nothing
 #             calls main().
 dev = [
-    "pytest",
+    "pytest>=8",
     "pytest-cov",
     "ruff",
     "mypy",
-    "hackrfpy>=1.0.0",
+    "hackrfpy>=1.1.0",
     "pyflakes",
+    "matplotlib",
+    "sounddevice",
 ]
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/sdr_dsp"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -75,6 +83,21 @@ markers = [
     "hardware: requires a connected HackRF (auto-skipped otherwise)",
 ]
 
+[tool.mypy]
+python_version = "3.11"
+files = ["src/sdr_dsp"]
+# Unlike hackrfpy, sdr_dsp does not ship a py.typed marker yet and the core
+# is not annotated, so the strict disallow-untyped flags stay OFF until an
+# annotation pass happens. Turning them on before that would fail every
+# module; turning them on after is what makes py.typed honest.
+
 [tool.ruff]
-line-length = 88
-target-version = "py310"
+# Match hackrfpy's config so the two repos read the same.
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# Default ruleset (pyflakes + a pycodestyle subset). Kept deliberately small:
+# this gates CI, so every enabled rule should be one we actually want to
+# block a merge on.
+select = ["E", "F", "W"]
