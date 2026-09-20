@@ -371,14 +371,14 @@ wheels = [
 
 [[package]]
 name = "hackrfpy"
-version = "1.0.0"
+version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1e/49/58264f9a7e54de4e8d932252710ebd211715c7f3b68c467c89c4763c4c9a/hackrfpy-1.0.0.tar.gz", hash = "sha256:b9c2b6671250240664b32ab301ee479167111549a2f115df1152a481fee87129", size = 48508, upload-time = "2026-06-16T03:21:54.267Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/cb/53/f252eb521817446f8198ff9ab298d2417791ec9d78b30f09ed260205ad4e/hackrfpy-1.1.0.tar.gz", hash = "sha256:1abdf2ecd98a8d4b9f64b30064d7a15ef65e8bc39972215016ea9b293b97b3e3", size = 59030, upload-time = "2026-09-20T00:54:41.202Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/21/60/47b4677a448e7ed02714e986ffe87b50ce90db3a02b852d38071c96eb968/hackrfpy-1.0.0-py3-none-any.whl", hash = "sha256:6d48f6030b61b76203cfa78f044b7b9a2a0f2ebb1c7af54850dc0ab7bcb2f06c", size = 57145, upload-time = "2026-06-16T03:21:53.124Z" },
+    { url = "https://files.pythonhosted.org/packages/d5/99/f5516cb05ca4ac91d996a2af2a7fc0a330f6b530807fa720283ca3c45521/hackrfpy-1.1.0-py3-none-any.whl", hash = "sha256:8d239e6e3558b5809ef8effdda6309a2bccc09420ac4ef7eba0d9aa200029a87", size = 67845, upload-time = "2026-09-20T00:54:39.717Z" },
 ]
 
 [[package]]
@@ -896,6 +896,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pyflakes"
+version = "3.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/45/dc/fd034dc20b4b264b3d015808458391acbf9df40b1e54750ef175d39180b1/pyflakes-3.4.0.tar.gz", hash = "sha256:b24f96fafb7d2ab0ec5075b7350b3d2d2218eab42003821c06344973d3ea2f58", size = 64669, upload-time = "2025-06-20T18:45:27.834Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c2/2f/81d580a0fb83baeb066698975cb14a618bdbed7720678566f1b046a95fe8/pyflakes-3.4.0-py2.py3-none-any.whl", hash = "sha256:f742a7dbd0d9cb9ea41e9a24a918996e8170c799fa528688d40dd582c8265f4f", size = 63551, upload-time = "2025-06-20T18:45:26.937Z" },
+]
+
+[[package]]
 name = "pygments"
 version = "2.20.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1053,7 +1062,7 @@ wheels = [
 
 [[package]]
 name = "sdr-dsp"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "numpy" },
@@ -1078,16 +1087,20 @@ plotting = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "hackrfpy" },
+    { name = "matplotlib" },
     { name = "mypy" },
+    { name = "pyflakes" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "sounddevice" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "hackrfpy", marker = "extra == 'examples'", specifier = ">=1.0.0" },
-    { name = "hackrfpy", marker = "extra == 'examples-hackrf'", specifier = ">=1.0.0" },
+    { name = "hackrfpy", marker = "extra == 'examples'", specifier = ">=1.1.0" },
+    { name = "hackrfpy", marker = "extra == 'examples-hackrf'", specifier = ">=1.1.0" },
     { name = "matplotlib", marker = "extra == 'examples'" },
     { name = "matplotlib", marker = "extra == 'plotting'" },
     { name = "numpy", specifier = ">=1.26" },
@@ -1099,10 +1112,14 @@ provides-extras = ["plotting", "audio", "examples-hackrf", "examples"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "hackrfpy", specifier = ">=1.1.0" },
+    { name = "matplotlib" },
     { name = "mypy" },
-    { name = "pytest" },
+    { name = "pyflakes" },
+    { name = "pytest", specifier = ">=8" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "sounddevice" },
 ]
 
 [[package]]
