@@ -27,9 +27,11 @@ from pathlib import Path
 
 
 from sdr_dsp.sources import FileSource
+import numpy as np
+
 from sdr_dsp.core import (
     design_lowpass, fir_apply, fm_demod, resample_poly, frequency_shift,
-    deemphasis, capture_health, fm_pilot_excess_db,
+    deemphasis, capture_health, fm_pilot_excess_db, fm_stereo_decode,
 )
 from sdr_dsp.sinks import write_wav
 
@@ -38,6 +40,7 @@ FM_DEVIATION = 75_000          # max deviation of broadcast FM (Hz)
 AUDIO_RATE = 48_000            # output WAV rate
 DEEMPHASIS_US = 75             # de-emphasis time constant (US: 75 us)
 CHANNEL_TAPS = 201             # length of the channel-select lowpass
+FM_RATE = 250_000              # intermediate demod rate (divides 2/4/8/10/20 Msps)
 AUDIO_SETTLE_S = 0.005         # audio discarded while resampler/IIR settle
 
 def main():
@@ -50,6 +53,9 @@ def main():
                    help="post-demod channel bandwidth (Hz)")
     p.add_argument("--no-check", action="store_true",
                    help="skip the capture health check")
+    p.add_argument("--stereo", action="store_true",
+                   help="decode L/R stereo (pilot-locked) and write a stereo "
+                        "WAV; default is mono (L+R)")
     args = p.parse_args()
 
     # 1. load the recording
@@ -110,37 +116,84 @@ def main():
     #     click that used to dominate the WAV's peak normalization.
     iq = iq[CHANNEL_TAPS:]
 
-    # 4. FM demodulate (phase discriminator)
-    audio = fm_demod(iq, deviation_hz=FM_DEVIATION, sample_rate=fs)
-    print(f"[*] demodulated: {len(audio):,} samples")
+    # 3c. Decimate the channel to an intermediate rate BEFORE demodulating.
+    #     The signal is already bandlimited to the channel by step 3, so the
+    #     capture's full bandwidth is wasted work in the discriminator and the
+    #     downstream resampler (at 2 Msps the old path demodulated 2 M
+    #     samples then resampled 3/125). Bringing it to FM_RATE = 240 kHz
+    #     first means the discriminator and de-emphasis run on ~8x fewer
+    #     samples. 250 kHz divides every common HackRF capture rate (2/4/8/
+    #     10/20 Msps), so capture -> intermediate is pure decimation -- the
+    #     stage with the most samples pays the least. The final 250k -> 48k
+    #     is a small resample (24/125). This mirrors the live path
+    #     (live_fm_listen decimates before demod for the same reason).
+    #     250 kHz comfortably passes the ~200 kHz FM channel.
+    if fs > FM_RATE and int(fs) % int(FM_RATE) == 0:
+        decim = int(fs) // int(FM_RATE)
+        # channel filter above already removed everything past the channel,
+        # so plain decimation here does not alias the audio-band content
+        iq = iq[::decim]
+        demod_rate = FM_RATE
+        print(f"[*] decimated {fs/1e6:g} Msps -> {FM_RATE/1e3:g} kHz "
+              f"for demod (x{decim})")
+    else:
+        # non-integer ratio (e.g. odd capture rates): resample the channel
+        g0 = gcd(int(FM_RATE), int(fs))
+        iq = resample_poly(iq, int(FM_RATE) // g0, int(fs) // g0)
+        demod_rate = FM_RATE
+        print(f"[*] resampled {fs/1e6:g} Msps -> {FM_RATE/1e3:g} kHz for demod")
 
-    # 5. resample from capture rate down to audio rate.
-    #    fs is e.g. 2_000_000; reduce to 48_000. Use an integer-ish ratio.
-    g = gcd(int(AUDIO_RATE), int(fs))
-    up, down = int(AUDIO_RATE) // g, int(fs) // g
-    print(f"[*] resampling {fs/1e6:g} Msps -> {AUDIO_RATE/1e3:g} kHz "
+    # 4. FM demodulate (phase discriminator) at the intermediate rate.
+    #    The output is the COMPOSITE multiplex (L+R, pilot, L-R at 38 kHz).
+    composite = fm_demod(iq, deviation_hz=FM_DEVIATION, sample_rate=demod_rate)
+    print(f"[*] demodulated: {len(composite):,} samples")
+
+    # 4b. stereo: split the composite into L and R before resampling, using
+    #     the 19 kHz pilot to coherently detect the 38 kHz L-R subcarrier.
+    #     Mono just takes the composite as-is (its 0-15 kHz part is L+R).
+    if args.stereo:
+        pilot_db = fm_pilot_excess_db(iq, demod_rate)
+        if pilot_db is not None and pilot_db < 6.0:
+            print(f"[!] --stereo requested but no pilot ({pilot_db:+.1f} dB); "
+                  f"the station is likely mono. Falling back to mono.")
+            channels = [composite]
+        else:
+            left, right = fm_stereo_decode(composite, demod_rate)
+            print(f"[*] stereo decoded (pilot "
+                  f"{pilot_db:+.1f} dB)" if pilot_db is not None
+                  else "[*] stereo decoded")
+            channels = [left, right]
+    else:
+        channels = [composite]
+
+    # 5-6. per channel: resample to audio rate, de-emphasize, bandlimit to
+    #      15 kHz (drops the pilot/subcarrier remnants), trim settling.
+    g = gcd(int(AUDIO_RATE), int(demod_rate))
+    up, down = int(AUDIO_RATE) // g, int(demod_rate) // g
+    print(f"[*] resampling {demod_rate/1e3:g} kHz -> {AUDIO_RATE/1e3:g} kHz "
           f"(up={up}, down={down})")
-    audio = resample_poly(audio, up, down)
-
-    # 6. de-emphasis, then bandlimit to mono audio (0..15 kHz). The
-    #    demodulated composite still carries the 19 kHz stereo pilot, the
-    #    38 kHz L-R remnant, and RDS at 57 kHz; below 24 kHz Nyquist the
-    #    pilot would otherwise reach the WAV attenuated only by de-emphasis.
-    #    Then drop the settling region of the resampler, the one-pole IIR
-    #    (which starts from a zero accumulator), and this filter.
-    audio = deemphasis(audio, AUDIO_RATE, tau_us=DEEMPHASIS_US)
-    audio = fir_apply(audio, design_lowpass(15_000, AUDIO_RATE,
-                                            num_taps=101))
+    audio_lp = design_lowpass(15_000, AUDIO_RATE, num_taps=101)
     settle = int(AUDIO_SETTLE_S * AUDIO_RATE)
-    if len(audio) > 4 * settle:
-        audio = audio[settle:]
-    if audio.size == 0:
+    out_channels = []
+    for chan in channels:
+        a = resample_poly(chan, up, down)
+        a = deemphasis(a, AUDIO_RATE, tau_us=DEEMPHASIS_US)
+        a = fir_apply(a, audio_lp)
+        if len(a) > 4 * settle:
+            a = a[settle:]
+        out_channels.append(a)
+    if out_channels[0].size == 0:
         print("error: no audio left after filtering; capture too short",
               file=sys.stderr)
         return 1
 
-    # 7. write WAV. write_wav normalizes to a high percentile rather than the
-    #    raw peak, so any residual impulse can't crush the program material.
+    # 7. write WAV (mono = 1 channel, stereo = 2 columns with ONE shared
+    #    normalization so the L/R balance is preserved).
+    if len(out_channels) == 2:
+        n = min(len(out_channels[0]), len(out_channels[1]))
+        audio = np.column_stack([out_channels[0][:n], out_channels[1][:n]])
+    else:
+        audio = out_channels[0]
     write_wav(args.out, audio, AUDIO_RATE)
     dur = len(audio) / AUDIO_RATE
     print(f"[*] wrote {args.out}: {dur:.1f}s of audio at {AUDIO_RATE/1e3:g} kHz")

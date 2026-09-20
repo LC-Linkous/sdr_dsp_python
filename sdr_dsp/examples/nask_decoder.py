@@ -19,7 +19,7 @@ import sys
 
 import numpy as np
 
-from sdr_dsp.core import ook_envelope, nask_slice, estimate_symbol_rate
+from sdr_dsp.core import ook_envelope, nask_slice
 
 def make_demo(fs, levels, nsym, spb, snr_db, seed=0):
     rng = np.random.default_rng(seed)

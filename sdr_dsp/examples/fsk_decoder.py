@@ -64,27 +64,21 @@ def main():
     print(f"[*] frequency swing: {np.percentile(inst,2)/1e3:.0f} .. "
           f"{np.percentile(inst,98)/1e3:.0f} kHz")
 
-    # smooth the discriminator output before slicing -- real FSK decoders
-    # lowpass the instantaneous frequency to kill the per-sample transients at
-    # symbol boundaries that would otherwise create spurious 1-sample runs.
-    def smooth(x, w):
-        if w <= 1:
-            return x
-        k = np.ones(w) / w
-        return np.convolve(x, k, mode="same")
-
-    # smooth over a fraction of an estimated symbol. We don't know the symbol
-    # rate yet, so use a modest fixed window (tens of samples) -- enough to kill
-    # per-sample transients without blurring real symbol transitions.
+    # Demodulate with the LIBRARY, not a hand-rolled discriminator: fsk_demod
+    # smooths the instantaneous frequency over ~half a symbol (a cheap
+    # matched-filter stand-in) before slicing, which is what makes decoding
+    # work at moderate SNR. smooth_win is a modest fixed window -- we don't
+    # know the symbol rate yet, enough to kill per-sample transients without
+    # blurring real transitions.
     smooth_win = 20
 
     if args.levels == 2:
-        sm = smooth(inst, smooth_win)
-        bits = (sm > 0).astype(np.uint8)
+        # 'auto' threshold self-centers on a carrier offset (see fsk_demod);
+        # harmless here where the tones straddle 0 and correct for real radios
+        bits = fsk_demod(iq, fs, threshold_hz="auto", smooth_samples=smooth_win)
         spb, rate = estimate_symbol_rate(bits, fs, min_run=3)
         syms = slice_to_symbols(bits, spb) if spb > 0 else bits
     else:
-        sm = smooth(inst, smooth_win)
         # N-level timing is harder: a 2-level slice of a multi-level signal
         # doesn't align transitions with symbols, so blind rate estimation is
         # unreliable. Honest approach: use a provided --spb (you usually know
@@ -92,13 +86,17 @@ def main():
         # demo's rate.
         spb = args.spb if args.spb else 200.0
         rate = fs / spb
-        lo, hi = np.percentile(sm, 2), np.percentile(sm, 98)
-        centers = np.linspace(lo, hi, args.levels)
-        nsym = int(len(sm) / spb)
-        # classify each symbol at its CENTER (boundary samples misclassify)
-        syms = np.array([int(np.argmin(np.abs(
-            sm[int((i + 0.5) * spb)] - centers)))
-            for i in range(nsym) if int((i + 0.5) * spb) < len(sm)])
+        # Demodulate N-level with the LIBRARY: smooth_samples pre-smooths the
+        # instantaneous frequency (percentile band centers are then computed
+        # from the smoothed signal too), exactly what the 2-level path gets
+        # from fsk_demod. Read each symbol's level at its CENTER; boundary
+        # samples straddle bands and misclassify.
+        persample = fsk_demod_nlevel(iq, fs, n_levels=args.levels,
+                                     smooth_samples=smooth_win)
+        nsym = int(len(persample) / spb)
+        syms = np.array([int(persample[int((i + 0.5) * spb)])
+                         for i in range(nsym)
+                         if int((i + 0.5) * spb) < len(persample)])
 
     if spb > 0:
         print(f"[*] symbol rate ~ {rate/1e3:.2f} ksym/s ({spb:.0f} samples/sym)")

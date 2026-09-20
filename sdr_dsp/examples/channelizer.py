@@ -70,7 +70,7 @@ def main():
             pw = power_dbfs(c)
             mark = "  <-- signal" if pw > -20 else ""
             print(f"    {i:>3} {f/1e3:>14.1f} {pw:>7.1f} dB{mark}")
-        print(f"\n[*] each row is an IQ stream ready to demod or save")
+        print("\n[*] each row is an IQ stream ready to demod or save")
     else:
         # SINGLE CHANNEL: one specific channel
         ch, rate = channelize(iq, fs, args.offset, args.bw)
@@ -78,7 +78,7 @@ def main():
               f"{args.bw/1e3:g} kHz wide -> {rate/1e3:g} kHz rate, "
               f"{len(ch)} samples")
         print(f"[*] channel power: {power_dbfs(ch):.1f} dBFS")
-        print(f"[*] ready to demod or save (use --bank N to split the whole band)")
+        print("[*] ready to demod or save (use --bank N to split the whole band)")
     return 0
 
 if __name__ == "__main__":

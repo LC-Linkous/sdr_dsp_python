@@ -72,7 +72,7 @@ def main():
         if found and found[0]["crc_ok"] and found[0]["payload"] == payload:
             outcome = "recovered (ACK)"
         elif found:
-            outcome = f"CRC flagged corrupt -> retransmit"
+            outcome = "CRC flagged corrupt -> retransmit"
         else:
             outcome = "lost (no frame)"
         print(f"    {snr:>9}  {outcome}")

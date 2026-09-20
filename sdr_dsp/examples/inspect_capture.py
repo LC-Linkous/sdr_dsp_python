@@ -60,7 +60,7 @@ def main():
         print(f"CLIPPING          : {clip_frac*100:.1f}% of samples near full "
               f"scale -- reduce gain")
     else:
-        print(f"clipping          : none detected")
+        print("clipping          : none detected")
 
     # a quick spectral peek: where's the energy?
     if n >= 1024:
