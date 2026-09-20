@@ -91,6 +91,13 @@ files = ["src/sdr_dsp"]
 # annotation pass happens. Turning them on before that would fail every
 # module; turning them on after is what makes py.typed honest.
 
+[[tool.mypy.overrides]]
+# scipy ships no type stubs; we use it for filter design and as a test oracle.
+# Ignoring its missing imports keeps mypy focused on OUR types, not scipy's
+# absence.
+module = ["scipy.*"]
+ignore_missing_imports = true
+
 [tool.ruff]
 # Match hackrfpy's config so the two repos read the same.
 line-length = 100
@@ -101,3 +108,24 @@ target-version = "py311"
 # this gates CI, so every enabled rule should be one we actually want to
 # block a merge on.
 select = ["E", "F", "W"]
+
+[tool.ruff.lint.per-file-ignores]
+# Scripts and examples open with a docstring, then set up sys.path or read
+# a SKILL/preamble before importing -- E402 (import-not-at-top) is the
+# intended shape there, not a mistake.
+"tools/collect_dev_data.py" = ["E402"]
+"tools/promote_to_sample_data.py" = ["E402"]
+"examples/fm_band_explorer.py" = ["E402"]
+"examples/live_fm_listen.py" = ["E402"]
+"tests/conftest.py" = ["E402"]
+# `l` reads naturally as a filter-tap / branch index in these DSP loops and
+# tests; hackrfpy's config exempts the same E741 in its parser tests.
+"src/sdr_dsp/core/channelize.py" = ["E741"]
+"tests/test_stereo_decode.py" = ["E741"]
+"tests/test_tier1_demods.py" = ["E741"]
+# Teaching examples use compact `a; b` lines and inline lambdas on purpose,
+# to keep a demonstrated idea on one visual line.
+"examples/modulate_demo.py" = ["E702"]
+"tools/preflight_collection.py" = ["E731"]
+# One long assertion message; wrapping it would hurt readability.
+"tests/test_examples_smoke.py" = ["E501"]
