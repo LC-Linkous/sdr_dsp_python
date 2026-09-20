@@ -56,6 +56,7 @@ import numpy as np
 from sdr_dsp.core import (design_lowpass, fir_apply, fm_demod, resample_poly,
                           deemphasis, capture_health, fm_pilot_excess_db,
                           search_gain)
+from sdr_dsp.sources.probe import probe_capture
 
 SAMPLE_RATE = 2_000_000   # HackRF minimum, and plenty for one FM channel
 DECIMATION = 5            # 2 Msps -> 400 kHz before demodulating
@@ -204,8 +205,10 @@ def pick_gain(h, freq):
     call it done.
     """
     def probe(lna, vga, amp):
-        return h.capture_array(freq, SAMPLE_RATE, int(SAMPLE_RATE * 0.05),
-                               lna=lna, vga=vga, amp=amp)
+        # File-path capture, NOT capture_array: the stdout-pipe path drops
+        # samples on Windows and buries the pilot (sdr_dsp.sources.probe).
+        return probe_capture(h, freq, SAMPLE_RATE, int(SAMPLE_RATE * 0.05),
+                             lna=lna, vga=vga, amp=amp)
 
     r = search_gain(probe,
                     quality=lambda iq: fm_pilot_excess_db(iq, SAMPLE_RATE))
@@ -252,8 +255,8 @@ def main():
 
     # Is the station actually there? Cheaper to say so now than to let
     # someone listen to hiss and wonder whether the DSP is broken.
-    probe = h.capture_array(args.freq, SAMPLE_RATE, int(SAMPLE_RATE * 0.1),
-                            lna=lna, vga=vga, amp=amp)
+    probe = probe_capture(h, args.freq, SAMPLE_RATE, int(SAMPLE_RATE * 0.1),
+                          lna=lna, vga=vga, amp=amp)
     health = capture_health(probe, SAMPLE_RATE, channel_bw=CHANNEL_BW)
     pilot_db = fm_pilot_excess_db(probe, SAMPLE_RATE)
     if pilot_db is not None and pilot_db < 6.0:

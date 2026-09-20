@@ -50,6 +50,7 @@ from pathlib import Path
 import numpy as np
 
 from sdr_dsp.core import capture_health, fm_pilot_excess_db, search_gain
+from sdr_dsp.sources.probe import probe_capture
 
 try:
     from hackrfpy import HackRF, load_iq
@@ -167,8 +168,10 @@ def find_gain(h, band, args):
     probe_n = int(args.sample_rate * 0.05)      # 50 ms per probe
 
     def probe(lna, vga, amp):
-        return h.capture_array(band["center"], args.sample_rate, probe_n,
-                               lna=lna, vga=vga, amp=amp)
+        # File-path capture, NOT capture_array: the stdout-pipe path drops
+        # samples on Windows and buries the pilot (sdr_dsp.sources.probe).
+        return probe_capture(h, band["center"], args.sample_rate, probe_n,
+                             lna=lna, vga=vga, amp=amp)
 
     qkind = band.get("quality")
     if qkind == "pilot":
