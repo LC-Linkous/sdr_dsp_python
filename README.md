@@ -1,5 +1,9 @@
 # sdr_dsp_python
 
+
+> [!WARNING]  
+> Core library mechanics are getting an overhaul, tests are being setup properly, and docs are getting updated to match about 2 months of work. If you are interested in this work, give it a few more weeks to even out.
+
 A personal, fully-functional DSP library for software-defined radio, written in Python. 
 
 This library consumes IQ samples from a file or a live SDR and turns them into meaning: filtered channels, spectra, demodulated audio, decoded signals, etc.. This is designed to be a learning project that starts at "what can this data be used to do?". The intent is to have a functional DSP library that works with multiple SDRs at the end, but that might be some time away from now. This process also works the other way, so there is a full loop possible from RX, processing, to response and TX. 
