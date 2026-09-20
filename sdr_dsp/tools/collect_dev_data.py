@@ -25,6 +25,8 @@ SETUP -- edit the CONFIG block below before running. The station is a
 variable here on purpose: you'll run this a few times while tuning the
 corpus, and retyping a CLI flag each time invites mistakes.
 
+    python tools/preflight_collection.py             # FIRST: verify the setup
+    python tools/collect_dev_data.py --station 98.5e6 --quiet 91.3e6
     python tools/collect_dev_data.py                 # collect everything
     python tools/collect_dev_data.py --only 1 3      # just data_1 and data_3
     python tools/collect_dev_data.py --plan          # show the plan, record nothing
@@ -43,9 +45,12 @@ Legality: receive only. This never transmits and never writes firmware.
 STATION_HZ = 98_500_000
 STATION_NAME = "98.5 FM"
 
-# A quiet spot with nothing on it, used for the negative controls. Somewhere
-# in the FM band that your sweep shows empty is ideal -- the guard band just
-# below 88 MHz usually works. Check with a sweep first if unsure.
+# A quiet spot with nothing on it, used for the negative controls.
+# `tools/preflight_collection.py` finds and VERIFIES one from a band sweep;
+# prefer its suggestion (pass it as --quiet) over this default. Note the
+# default sits in the guard band below 88 MHz, which only exists in ITU
+# Region 2 (the Americas) -- in Region 1/3 the broadcast band starts at
+# 87.5 MHz and this frequency may have a station on it.
 QUIET_HZ = 87_700_000
 
 # Where the corpus goes. Relative to the sdr_dsp project directory.
@@ -74,7 +79,8 @@ from pathlib import Path
 
 import numpy as np
 
-from sdr_dsp.core import capture_health, frequency_shift
+from sdr_dsp.core import (capture_health, fm_pilot_excess_db,
+                          frequency_shift, search_gain)
 
 try:
     from hackrfpy import HackRF, load_iq
@@ -247,16 +253,6 @@ def build_plan():
 # ---------------------------------------------------------------------------
 # gain calibration
 # ---------------------------------------------------------------------------
-def _counts(iq):
-    # Per component: I and Q are separate 8-bit converters, and each clips
-    # on its own. The complex magnitude would overstate the level by up to
-    # 3 dB and can read above full scale, which would make the clipping
-    # threshold fire early and the target window sit too low.
-    if len(iq) == 0:
-        return 0.0
-    return float(max(np.max(np.abs(iq.real)), np.max(np.abs(iq.imag)))) * 127.0
-
-
 def _snap(lna, vga):
     lna = min(LNA_STEPS, key=lambda s: abs(s - lna))
     vga = min(VGA_STEPS, key=lambda s: abs(s - vga))
@@ -264,7 +260,14 @@ def _snap(lna, vga):
 
 
 def calibrate_gain(h, rate):
-    """Find a gain putting the station in the target window. Returns dict.
+    """Find a gain that captures the STATION, not just a level. Returns dict.
+
+    Uses sdr_dsp.core.search_gain with the 19 kHz stereo pilot as the
+    quality metric: the front end (RF amp + LNA) is chosen by how clearly
+    the pilot is measured, then the VGA sets the ADC level. The old
+    level-only walk could calibrate the whole corpus against an amplified
+    noise floor -- the level window would be met, every dataset would
+    inherit it, and nothing would notice until someone listened.
 
     One calibration for the whole corpus. Everything else is expressed as a
     dB offset from this, so "30 dB low" means 30 dB below a level actually
@@ -273,47 +276,26 @@ def calibrate_gain(h, rate):
     somewhere else.
     """
     probe_n = int(rate * 0.05)
-    lna, vga = 16, 20
-    tried = []
-    status = "ok"
 
-    for _ in range(14):
-        iq = h.capture_array(STATION_HZ, rate, probe_n, lna=lna, vga=vga,
-                             amp=False)
-        c = _counts(iq)
-        tried.append({"lna": lna, "vga": vga, "counts": round(c, 1)})
-        print(f"    probe lna={lna:2d} vga={vga:2d} -> peak {c:6.1f} counts")
+    def probe(lna, vga, amp):
+        return h.capture_array(STATION_HZ, rate, probe_n, lna=lna, vga=vga,
+                               amp=amp)
 
-        if TARGET_LO <= c <= TARGET_HI:
-            break
-        if c >= CLIP_COUNTS:
-            if vga > VGA_STEPS[0]:
-                vga = max(VGA_STEPS[0], vga - 6)
-            elif lna > LNA_STEPS[0]:
-                lna, vga = lna - 8, VGA_STEPS[0]
-            else:
-                status = "clipping"
-                break
-        elif c < TARGET_LO:
-            if vga < VGA_STEPS[-1]:
-                deficit = 20 * np.log10(TARGET_LO / max(c, 0.5))
-                vga = min(VGA_STEPS[-1], vga + max(2, int(deficit // 2) * 2))
-            elif lna < LNA_STEPS[-1]:
-                lna, vga = lna + 8, 20
-            else:
-                status = "too_weak"
-                break
-        else:
-            if vga > VGA_STEPS[0]:
-                vga = max(VGA_STEPS[0], vga - 2)
-            elif lna > LNA_STEPS[0]:
-                lna, vga = lna - 8, VGA_STEPS[0]
-            else:
-                status = "clipping"
-                break
-
-    return {"lna": lna, "vga": vga, "total_db": lna + vga,
-            "counts": tried[-1]["counts"], "status": status, "probes": tried}
+    r = search_gain(probe, lna_steps=LNA_STEPS, vga_steps=VGA_STEPS,
+                    quality=lambda iq: fm_pilot_excess_db(iq, rate),
+                    target=(TARGET_LO, TARGET_HI), clip=CLIP_COUNTS)
+    tried = [{"lna": p[0], "vga": p[1], "amp": p[2], "counts": p[3]}
+             for p in r["probes"]]
+    for p in r["probes"]:
+        print(f"    probe lna={p[0]:2d} vga={p[1]:2d} "
+              f"amp={'on ' if p[2] else 'off'} -> peak {p[3]:6.1f} counts")
+    if r["quality_db"] is not None:
+        print(f"    stereo pilot at best front end: {r['quality_db']:+.1f} dB "
+              f"above the demodulated noise floor")
+    return {"lna": r["lna"], "vga": r["vga"], "amp": r["amp"],
+            "total_db": r["lna"] + r["vga"], "counts": r["counts"],
+            "pilot_db": r["quality_db"], "status": r["status"],
+            "probes": tried}
 
 
 def gain_for(ref, offset_db):
@@ -325,7 +307,7 @@ def gain_for(ref, offset_db):
     clamping mean it rarely equals the request exactly.
     """
     if offset_db <= -99:
-        return 0, 0, -(ref["total_db"])
+        return 0, 0, False, -(ref["total_db"] + (14 if ref.get("amp") else 0))
     vga = ref["vga"] + offset_db
     lna = ref["lna"]
     while vga > VGA_STEPS[-1] and lna < LNA_STEPS[-1]:
@@ -335,7 +317,7 @@ def gain_for(ref, offset_db):
         vga += 8
         lna -= 8
     lna, vga = _snap(max(0, min(40, lna)), max(0, min(62, vga)))
-    return lna, vga, (lna + vga) - ref["total_db"]
+    return lna, vga, ref.get("amp", False), (lna + vga) - ref["total_db"]
 
 
 # ---------------------------------------------------------------------------
@@ -364,9 +346,9 @@ def record_one(h, folder, cap, ref, dataset_no):
         # happened to be; defined as ~3 counts it reproduces the original
         # bad capture regardless of how strong the station is today.
         want_db = 20 * np.log10(cap["target_counts"] / max(ref["counts"], 1.0))
-        lna, vga, applied_db = gain_for(ref, want_db)
+        lna, vga, amp, applied_db = gain_for(ref, want_db)
     else:
-        lna, vga, applied_db = gain_for(ref, cap.get("gain_db", 0))
+        lna, vga, amp, applied_db = gain_for(ref, cap.get("gain_db", 0))
 
     if cap.get("prompt"):
         if UNATTENDED:
@@ -377,10 +359,11 @@ def record_one(h, folder, cap, ref, dataset_no):
 
     path = folder / f"{cap['name']}.iq"
     print(f"   {cap['name']}: {freq/1e6:.3f} MHz, {rate/1e6:g} Msps, "
-          f"{secs:g}s, lna={lna} vga={vga} ({applied_db:+.0f} dB)")
+          f"{secs:g}s, lna={lna} vga={vga} amp={'on' if amp else 'off'} "
+          f"({applied_db:+.0f} dB)")
     try:
         h.capture(freq, rate, num_samples=int(rate * secs), out=str(path),
-                  lna=lna, vga=vga, amp=False, sigmf=True)
+                  lna=lna, vga=vga, amp=amp, sigmf=True)
     except HackRFError as e:
         print(f"      capture failed: {e}", file=sys.stderr)
         return None
@@ -395,8 +378,21 @@ def record_one(h, folder, cap, ref, dataset_no):
     probe = frequency_shift(iq, -offset, rate) if offset else iq
     health = capture_health(probe, rate, channel_bw=FM_CHANNEL_BW)
     excess = health["channel_excess_db"]
-    print(f"      peak {health['adc_counts']:6.1f}/127 counts"
-          + (f", channel {excess:+.1f} dB" if excess is not None else ""))
+    # For captures of the station itself, the decisive check is the 19 kHz
+    # stereo pilot in the demodulated signal -- amplified noise can fill the
+    # ADC window and even hump the channel, but it cannot manufacture a
+    # pilot. Quiet/empty captures skip it (no pilot expected).
+    pilot = (fm_pilot_excess_db(probe, rate)
+             if cap.get("expect", "signal") != "empty" else None)
+    if pilot is not None and cap.get("expect") == "signal" and pilot < 6.0:
+        health["ok"] = False
+        health["reasons"].append(
+            f"no 19 kHz stereo pilot in the demodulated signal "
+            f"({pilot:+.1f} dB): this is not a broadcast FM station, "
+            f"whatever the level says")
+    print(f"      peak {health['adc_counts']:6.1f}/128 counts"
+          + (f", channel {excess:+.1f} dB" if excess is not None else "")
+          + (f", pilot {pilot:+.1f} dB" if pilot is not None else ""))
 
     expect = cap.get("expect", "signal")
     at_min_gain = (lna, vga) == (LNA_STEPS[0], VGA_STEPS[0])
@@ -415,8 +411,16 @@ def record_one(h, folder, cap, ref, dataset_no):
         else:
             verdict = "UNEXPECTEDLY STRONG -- lower target_counts"
     else:
-        verdict = "ok (intentionally empty)" if not health["ok"] else \
-            "UNEXPECTEDLY HAS SIGNAL"
+        if not health["ok"]:
+            verdict = "ok (intentionally empty)"
+        elif at_min_gain:
+            # A very strong station can stay above the health threshold even
+            # at zero gain; that is a property of the station, not a mistake
+            # in the run.
+            verdict = ("ok (still above threshold at minimum gain -- "
+                       "strong station)")
+        else:
+            verdict = "UNEXPECTEDLY HAS SIGNAL"
     flag = "" if verdict.startswith("ok") or at_min_gain else \
         "   <-- CHECK THIS"
     print(f"      {verdict}{flag}")
@@ -433,7 +437,8 @@ def record_one(h, folder, cap, ref, dataset_no):
                               else -cap.get("freq_offset", 0)),
         "sample_rate": rate,
         "seconds": secs,
-        "lna_db": lna, "vga_db": vga,
+        "lna_db": lna, "vga_db": vga, "amp": bool(amp),
+        "pilot_excess_db": (None if pilot is None else round(pilot, 2)),
         "gain_offset_db_requested": cap.get("gain_db", 0),
         "gain_offset_db_applied": applied_db,
         "samples": int(len(iq)),
@@ -455,8 +460,9 @@ def write_dataset_readme(folder, n, ds, entries, ref):
         f"# data_{n} -- {ds['title']}", "",
         ds["why"], "",
         f"Station: **{STATION_NAME}** at {STATION_HZ/1e6:.3f} MHz.",
-        f"Reference gain: LNA {ref['lna']} dB, VGA {ref['vga']} dB "
-        f"(peak {ref['counts']:.0f}/127 counts at capture time).", "",
+        f"Reference gain: LNA {ref['lna']} dB, VGA {ref['vga']} dB, amp "
+        f"{'on' if ref.get('amp') else 'off'} "
+        f"(peak {ref['counts']:.0f}/128 counts at capture time).", "",
         "| file | purpose | freq | rate | gain | peak | verdict |",
         "|---|---|---|---|---|---|---|",
     ]
@@ -465,7 +471,7 @@ def write_dataset_readme(folder, n, ds, entries, ref):
             f"| `{e['file']}` | {e['purpose']} | "
             f"{e['frequency_hz']/1e6:.3f} MHz | {e['sample_rate']/1e6:g} Msps | "
             f"{e['gain_offset_db_applied']:+.0f} dB | "
-            f"{e['health']['adc_counts']:.0f}/127 | {e['verdict']} |")
+            f"{e['health']['adc_counts']:.0f}/128 | {e['verdict']} |")
     lines += ["", "Load any of these with:", "", "```python",
               "from sdr_dsp.sources import FileSource", "",
               f'src = FileSource("{OUT_ROOT}/data_{n}_{ds["slug"]}/'
@@ -495,8 +501,9 @@ def write_index(datasets, ref, det):
         f"- quiet reference frequency: {QUIET_HZ/1e6:.3f} MHz",
         f"- device firmware: {fw}",
         f"- tools: {det.get('tools_version')}",
-        f"- reference gain: LNA {ref['lna']} dB, VGA {ref['vga']} dB "
-        f"({ref['counts']:.0f}/127 counts)", "",
+        f"- reference gain: LNA {ref['lna']} dB, VGA {ref['vga']} dB, "
+        f"amp {'on' if ref.get('amp') else 'off'} "
+        f"({ref['counts']:.0f}/128 counts)", "",
         "Every dataset varies one axis against the same station, so a test "
         "failure points at a specific property of the capture rather than at "
         "the recording session as a whole. Gain figures are offsets from the "
@@ -540,7 +547,25 @@ def main():
                    help="run gain calibration and stop")
     p.add_argument("--clean", action="store_true",
                    help="delete existing dev_data/ first")
+    p.add_argument("--station", type=float, default=None,
+                   help="station Hz; overrides STATION_HZ in the CONFIG "
+                        "block (tools/preflight_collection.py suggests one)")
+    p.add_argument("--station-name", default=None,
+                   help="label for the station; defaults to e.g. '98.5 FM'")
+    p.add_argument("--quiet", type=float, default=None,
+                   help="quiet reference Hz; overrides QUIET_HZ (preflight "
+                        "verifies one)")
     args = p.parse_args()
+
+    global STATION_HZ, STATION_NAME, QUIET_HZ
+    if args.station is not None:
+        STATION_HZ = int(args.station)
+        STATION_NAME = (args.station_name
+                        or f"{STATION_HZ / 1e6:g} FM")
+    elif args.station_name is not None:
+        STATION_NAME = args.station_name
+    if args.quiet is not None:
+        QUIET_HZ = int(args.quiet)
 
     plan = build_plan()
     only = set(args.only) if args.only else None
@@ -578,9 +603,12 @@ def main():
     print(f"\n== calibrating gain on {STATION_NAME} ==")
     ref = calibrate_gain(h, 2e6)
     print(f"   reference: lna={ref['lna']} vga={ref['vga']} "
-          f"({ref['counts']:.0f}/127 counts, status={ref['status']})")
+          f"amp={'on' if ref['amp'] else 'off'} "
+          f"({ref['counts']:.0f}/128 counts, status={ref['status']})")
     if ref["status"] == "too_weak":
-        print("   ! the station never reached a usable level at maximum gain.")
+        print("   ! no station was measured: either the level never reached")
+        print("     the window at maximum gain, or the level converged but")
+        print("     no 19 kHz pilot was found (amplified noise, not signal).")
         print("     Check the antenna, or pick a stronger station -- the whole")
         print("     corpus is built from this signal.", file=sys.stderr)
         if input("   continue anyway? [y/N] ").strip().lower() != "y":
