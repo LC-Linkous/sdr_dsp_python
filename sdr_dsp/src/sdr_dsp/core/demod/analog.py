@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from scipy import signal as _sig
+
 from .phase import instantaneous_frequency
 
 
@@ -96,12 +98,13 @@ def deemphasis(audio, sample_rate, tau_us=75.0):
     tau = tau_us * 1e-6
     dt = 1.0 / float(sample_rate)
     a = dt / (tau + dt)
-    out = np.empty_like(audio)
-    acc = 0.0
-    for i, x in enumerate(audio):
-        acc = a * x + (1.0 - a) * acc
-        out[i] = acc
-    return out
+    # y[n] = a*x[n] + (1-a)*y[n-1] as an lfilter difference equation with
+    # b=[a], a=[1, -(1-a)] and zero initial state -- identical output to the
+    # previous per-sample Python loop, orders of magnitude faster on long
+    # audio. (Filter APPLICATION is normally our own code; a one-pole IIR
+    # recursion cannot be vectorized in numpy without changing the math, so
+    # this is the one place scipy applies a filter for us.)
+    return _sig.lfilter([a], [1.0, -(1.0 - a)], audio)
 
 
 def dsb_sc_demod(iq, sample_rate, bfo_hz=0.0):

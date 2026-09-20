@@ -76,7 +76,9 @@ def capture_health(iq, sample_rate, channel_bw=None, adc_bits=8,
         sample_rate: Hz, used to place the channel band.
         channel_bw:  half-width in Hz of the channel of interest. None skips
                      the spectral check.
-        adc_bits:    converter width; 8 for HackRF's ci8 (full scale 127).
+        adc_bits:    converter width; 8 for HackRF's ci8. Counts scale is
+                 2**(adc_bits-1) = 128, matching the loader's /128
+                 normalization, so a full-scale sample reads as +/-128.
         min_counts:  ADC counts below which the capture is called empty.
         min_excess_db: in-band excess below which no carrier is called.
         nfft:        FFT size for the averaged spectrum.
@@ -91,7 +93,7 @@ def capture_health(iq, sample_rate, channel_bw=None, adc_bits=8,
     this directly" and the wrong one for "is there anything here at all."
     """
     iq = np.asarray(iq)
-    full_scale = float(2 ** (adc_bits - 1) - 1)
+    full_scale = float(2 ** (adc_bits - 1))
     reasons = []
 
     if iq.size == 0:
@@ -115,23 +117,99 @@ def capture_health(iq, sample_rate, channel_bw=None, adc_bits=8,
             for k in range(nseg):
                 seg = iq[k * nfft:(k + 1) * nfft] * win
                 acc += np.abs(np.fft.fftshift(np.fft.fft(seg))) ** 2
-            psd_db = 10.0 * np.log10(acc / nseg + 1e-30)
+            psd_lin = acc / nseg
             freqs = np.fft.fftshift(np.fft.fftfreq(nfft, 1.0 / sample_rate))
+            # Noise reference: a MID-BAND annulus, not the outer band edges.
+            # The SDR's own baseband anti-alias filter (~0.75 * fs on a
+            # HackRF) rolls the edges off, so "in-band vs edges" reads tens
+            # of dB of excess on a capture containing nothing but receiver
+            # noise -- an empty capture at healthy gain would pass. The
+            # annulus between 1.5x the channel and 0.35 * fs sits inside the
+            # anti-alias passband, where noise is flat. The MEDIAN makes the
+            # reference robust to an adjacent station landing in the annulus,
+            # and averaging happens in linear power (a dB-domain mean is a
+            # geometric mean, biased low for spiky spectra).
             in_band = np.abs(freqs) <= channel_bw
-            out_band = np.abs(freqs) >= 0.4 * sample_rate
-            if in_band.any() and out_band.any():
-                excess = float(psd_db[in_band].mean()
-                               - psd_db[out_band].mean())
+            ref_band = ((np.abs(freqs) >= 1.5 * channel_bw)
+                        & (np.abs(freqs) <= 0.35 * sample_rate))
+            if in_band.any() and ref_band.any():
+                excess = float(
+                    10.0 * np.log10(psd_lin[in_band].mean() + 1e-30)
+                    - 10.0 * np.log10(np.median(psd_lin[ref_band]) + 1e-30))
                 if excess < min_excess_db:
                     reasons.append(
-                        f"channel is only {excess:+.1f} dB above the band "
-                        f"edges, so no carrier is present: demodulating this "
-                        f"yields noise, not signal")
+                        f"channel is only {excess:+.1f} dB above the "
+                        f"surrounding noise floor, so no carrier is present: "
+                        f"demodulating this yields noise, not signal")
 
     return {"ok": not reasons, "adc_counts": adc_counts,
             "channel_excess_db": excess,
             "peak_dbfs": 20.0 * np.log10(peak + 1e-20),
             "reasons": reasons}
+
+
+def fm_pilot_excess_db(iq, sample_rate, pilot_hz=19_000.0, nfft=16384):
+    """How far the 19 kHz stereo pilot stands above the demodulated noise
+    floor, in dB. The decisive "is this an FM broadcast station" check.
+
+    The channel-power test in ``capture_health`` answers "is there energy
+    here"; this answers the sharper question "is that energy a broadcast FM
+    station". Nearly every FM broadcast transmits a 19 kHz pilot at ~9% of
+    deviation, and the FM noise floor rises with frequency (the noise
+    triangle), so a pilot standing above its own neighborhood is essentially
+    impossible to produce from noise. Use it in gain searches and capture
+    validation when the target is known to be broadcast FM; skip it for
+    narrowband FM (NOAA weather etc.), which has no pilot.
+
+    Works directly on baseband IQ: channelizes to the FM channel first,
+    then demodulates (phase discriminator) and compares the PSD at pilot_hz
+    against the median PSD in the surrounding 15-23 kHz region, pilot bins
+    excluded. The channel filter is not optional: a discriminator fed the
+    full capture bandwidth is corrupted by out-of-channel noise and adjacent
+    stations, and on real wide captures (e.g. 8 Msps) the pilot all but
+    disappears from its output -- a real, by-ear-verified broadcast capture
+    measured +1.8 dB unfiltered and +20 dB channelized.
+
+    Returns dB (positive = pilot present; > ~6 dB is a confident yes), or
+    None when the capture is too short (< 4 * nfft demodulated samples) or
+    the rate is too low to see the pilot.
+
+    OUR code.
+    """
+    iq = np.asarray(iq)
+    if sample_rate <= 2.5 * pilot_hz or iq.size < 4 * nfft + 1:
+        return None
+    # Channelize: lowpass to the FM channel and decimate to ~500 kSps
+    # before discriminating. Taps scale with the decimation so the
+    # transition band stays proportionate at any input rate.
+    decim = max(1, int(sample_rate // 480_000))
+    if decim > 1:
+        from .filters import design_lowpass, fir_apply
+        taps = design_lowpass(120_000.0, sample_rate,
+                              num_taps=8 * decim + 1)
+        iq = fir_apply(iq, taps)[::decim]
+        sample_rate = sample_rate / decim
+        if iq.size < 4 * nfft + 1:
+            nfft = 1 << max(10, int(np.log2(max(16, iq.size // 4))))
+            if iq.size < 4 * nfft + 1:
+                return None
+    # phase discriminator: angle(x[n] * conj(x[n-1])), radians/sample
+    demod = np.angle(iq[1:] * np.conj(iq[:-1])).astype(np.float64)
+    nseg = min(32, demod.size // nfft)
+    win = np.hanning(nfft)
+    acc = np.zeros(nfft // 2 + 1)
+    for k in range(nseg):
+        seg = demod[k * nfft:(k + 1) * nfft] * win
+        acc += np.abs(np.fft.rfft(seg)) ** 2
+    freqs = np.fft.rfftfreq(nfft, 1.0 / sample_rate)
+    half_bin = sample_rate / nfft
+    pilot = np.abs(freqs - pilot_hz) <= max(200.0, 2 * half_bin)
+    hood = ((freqs >= pilot_hz - 4000.0) & (freqs <= pilot_hz + 4000.0)
+            & ~pilot)
+    if not pilot.any() or not hood.any():
+        return None
+    return float(10.0 * np.log10(acc[pilot].max() + 1e-30)
+                 - 10.0 * np.log10(np.median(acc[hood]) + 1e-30))
 
 
 def occupied_bandwidth(iq, sample_rate, fraction=0.99, nfft=1024):

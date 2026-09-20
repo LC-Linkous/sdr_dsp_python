@@ -13,7 +13,7 @@ so a recording larger than RAM streams fine. The full array is available via the
 
 from __future__ import annotations
 
-from typing import Iterator, Optional
+from typing import Iterator
 
 import numpy as np
 

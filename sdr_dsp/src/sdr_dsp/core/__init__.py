@@ -27,7 +27,9 @@ from .framing import build_frame, find_frames, crc16
 from .channelize import channelize, channelize_bank
 from .agc import agc, AGC
 from .calibrate import power_dbm, Calibration, compute_cal_offset
+from .gain_search import search_gain, peak_counts
 from .measure import (power_dbfs, snr_db, occupied_bandwidth, capture_health,
+                      fm_pilot_excess_db,
                      find_bursts, estimate_cfo)
 from .detect import matched_filter, detect_peak, correlate, convolve
 from .sync import carrier_recovery, symbol_sync, LoopDiagnostics
@@ -57,7 +59,7 @@ __all__ = [
     "evm_stats", "EVM_FEATURE_NAMES", "fingerprint_vector", "FEATURE_NAMES",
     "fm_modulate", "am_modulate", "ssb_modulate",
     "ook_modulate", "fsk_modulate", "bpsk_modulate", "qpsk_modulate",
-    "rrc_taps", "upsample", "pulse_shape", "snr_db", "occupied_bandwidth", "capture_health",
+    "rrc_taps", "upsample", "pulse_shape", "snr_db", "occupied_bandwidth", "capture_health", "fm_pilot_excess_db", "search_gain", "peak_counts",
     "find_bursts", "estimate_cfo",
     "fm_demod", "am_demod", "ook_envelope", "ook_slice",
     "instantaneous_phase", "instantaneous_frequency",
