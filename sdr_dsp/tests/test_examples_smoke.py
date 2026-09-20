@@ -236,7 +236,8 @@ def test_capture_health_measures_level_per_component():
     fire on signals that are merely loud.
     """
     from sdr_dsp.core import capture_health
-    clipped = np.full(4096, (127 + 127j) / 127.0, dtype=np.complex64)
+    # full-scale on the int8 grid after the loader's /128 normalization
+    clipped = np.full(4096, (127 + 127j) / 128.0, dtype=np.complex64)
     h = capture_health(clipped, 2e6)
     assert h["adc_counts"] == pytest.approx(127.0, abs=0.5), (
         f"clipped capture reported {h['adc_counts']:.1f} counts; the complex "
@@ -314,12 +315,16 @@ def test_dev_plan_offsets_fit_inside_the_captured_span():
 
 def test_dev_gain_offsets_snap_to_the_hardware_grid():
     dev = _load_dev_tool()
-    ref = {"lna": 16, "vga": 20, "total_db": 36, "counts": 90.0}
+    ref = {"lna": 16, "vga": 20, "amp": True, "total_db": 36,
+           "counts": 90.0}
     for offset in (-99, -30, -12, 0, 6, 12, 24):
-        lna, vga, applied = dev.gain_for(ref, offset)
+        lna, vga, amp, applied = dev.gain_for(ref, offset)
         assert lna in dev.LNA_STEPS and vga in dev.VGA_STEPS, (
             f"offset {offset} gave lna={lna} vga={vga}, off grid")
         assert 0 <= lna <= 40 and 0 <= vga <= 62
+        # minimum gain means the amp comes off too; otherwise the amp
+        # setting is part of the calibrated reference and must not drift
+        assert amp is (False if offset <= -99 else True)
 
 
 @pytest.mark.parametrize("path", EXAMPLES, ids=lambda p: p.name)

@@ -54,7 +54,7 @@ class FakeRadio:
 
     def capture_array(self, freq, sample_rate, num_samples, *, lna=16, vga=20,
                       amp=False, **k):
-        self.calls.append((lna, vga))
+        self.calls.append((lna, vga, amp))
         gain_lin = 10.0 ** ((lna + vga) / 20.0)
         peak = min(127.0, (self.antenna_counts + self.noise_counts) * gain_lin)
         n = max(16, int(num_samples))
@@ -67,7 +67,7 @@ def _run(antenna_counts):
     radio = FakeRadio(antenna_counts)
     band = {"center": 98e6}
     args = type("A", (), {"sample_rate": 2e6})()
-    lna, vga, tried, status = collect.find_gain(radio, band, args)
+    lna, vga, amp, tried, status = collect.find_gain(radio, band, args)
     gain_lin = 10.0 ** ((lna + vga) / 20.0)
     final = min(127.0, (antenna_counts + 0.5) * gain_lin)
     return lna, vga, final, tried, status
@@ -108,7 +108,7 @@ def test_dead_antenna_is_reported_as_too_weak():
     radio = FakeRadio(0.0, noise_counts=0.0)
     band = {"center": 98e6}
     args = type("A", (), {"sample_rate": 2e6})()
-    lna, vga, tried, status = collect.find_gain(radio, band, args)
+    lna, vga, _amp, tried, status = collect.find_gain(radio, band, args)
     assert status == "too_weak", f"expected too_weak, got {status}"
     assert (lna, vga) == (collect.LNA_STEPS[-1], collect.VGA_STEPS[-1]), (
         "should have wound gain all the way up before giving up")
@@ -120,7 +120,7 @@ def test_gain_search_stays_on_the_hardware_grid():
         lna, vga, _, tried, _s = _run(antenna_counts)
         assert lna in collect.LNA_STEPS, f"lna={lna} off grid"
         assert vga in collect.VGA_STEPS, f"vga={vga} off grid"
-        for probed_lna, probed_vga in tried and [(t[0], t[1]) for t in tried]:
+        for probed_lna, probed_vga in [(t[0], t[1]) for t in tried]:
             assert probed_lna in collect.LNA_STEPS
             assert probed_vga in collect.VGA_STEPS
 
