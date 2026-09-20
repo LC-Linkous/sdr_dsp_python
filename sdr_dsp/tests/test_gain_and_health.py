@@ -37,7 +37,6 @@ def _shaped_noise(n, level=60 / 128, seed=0):
 def _fm_station(n, fs=FS, dev=75_000, pilot=0.09, amp=0.5, snr_db=35,
                 seed=1):
     """A minimal broadcast-FM signal: one audio tone + the 19 kHz pilot."""
-    rng = np.random.default_rng(seed)
     t = np.arange(n) / fs
     msg = 0.7 * np.sin(2 * np.pi * 700 * t) + pilot * np.sin(
         2 * np.pi * 19_000 * t)

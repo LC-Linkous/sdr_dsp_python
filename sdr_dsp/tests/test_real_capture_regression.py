@@ -122,3 +122,15 @@ def test_shipped_sample_declares_its_provenance():
     assert g.get("core:description"), "sidecar has no description"
     freq = meta["captures"][0].get("core:frequency", 0)
     assert 87e6 <= freq <= 108e6, f"frequency {freq} is not in the FM band"
+
+
+# ---------------------------------------------------------------------------
+# public get_window (cleanup pass): examples no longer import the _ alias
+# ---------------------------------------------------------------------------
+def test_public_get_window_matches_numpy_conventions():
+    from sdr_dsp.core import get_window
+    assert np.allclose(get_window("hann", 32), np.hanning(32))
+    assert np.allclose(get_window("hamming", 16), np.hamming(16))
+    assert np.allclose(get_window(None, 8), np.ones(8))
+    passed = np.array([1.0, 2.0, 3.0])
+    assert get_window(passed, 3) is passed        # arrays pass through

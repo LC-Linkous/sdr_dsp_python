@@ -367,3 +367,75 @@ def test_example_has_no_undefined_names(path):
            if "undefined name" in ln or "local variable" in ln
            and "referenced before assignment" in ln]
     assert not bad, f"{path.name}:\n" + "\n".join(bad)
+
+def test_fm_receiver_decimates_before_demod(tmp_path):
+    """fm_receiver decimates the channel to FM_RATE before the discriminator
+    (mirrors the live path). Verify the WAV comes out at 48 kHz with real
+    program audio and the 19 kHz pilot suppressed by the audio lowpass --
+    i.e. the faster path did not change the output's character."""
+    import json
+    import wave
+
+    fs = 2_000_000
+    n = int(fs * 1.0)
+    t = np.arange(n) / fs
+    # 440 Hz tone + the 19 kHz stereo pilot in the composite
+    msg = 0.6 * np.sin(2 * np.pi * 440 * t) + 0.09 * np.sin(2 * np.pi * 19_000 * t)
+    z = 0.4 * np.exp(1j * 2 * np.pi * 75e3 * np.cumsum(msg) / fs)
+    i8 = np.empty(2 * n, dtype=np.int8)
+    i8[0::2] = np.clip(np.round(z.real * 128), -128, 127).astype(np.int8)
+    i8[1::2] = np.clip(np.round(z.imag * 128), -128, 127).astype(np.int8)
+    iqp = tmp_path / "fm.iq"
+    i8.tofile(iqp)
+    (tmp_path / "fm.sigmf-meta").write_text(json.dumps({
+        "global": {"core:datatype": "ci8", "core:sample_rate": fs},
+        "captures": [{"core:sample_start": 0, "core:frequency": 98e6}],
+        "annotations": []}))
+
+    out = tmp_path / "out.wav"
+    example = (Path(__file__).resolve().parent.parent / "examples") / "fm_receiver.py"
+    r = subprocess.run([sys.executable, str(example), str(iqp),
+                        "--out", str(out)],
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    assert "for demod" in r.stdout, "decimate/resample-before-demod step missing"
+
+    w = wave.open(str(out))
+    assert w.getframerate() == 48_000
+    pcm = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16) / 32768
+    spec = np.abs(np.fft.rfft(pcm * np.hanning(len(pcm))))
+    f = np.fft.rfftfreq(len(pcm), 1 / 48_000)
+
+    def band(lo, hi):
+        m = (f > lo) & (f < hi)
+        return 10 * np.log10(np.mean(spec[m] ** 2) + 1e-20)
+
+    # 440 Hz program present; 19 kHz pilot cut well below it by the 15 kHz LPF
+    assert band(300, 600) > band(17_000, 21_000) + 30, "pilot not suppressed"
+
+
+def test_fm_receiver_integer_decimation_on_common_rate(tmp_path):
+    """At 2 Msps the intermediate 250 kHz rate divides evenly, so the log
+    should say 'decimated' (pure stride), not 'resampled'."""
+    import json
+
+    fs = 2_000_000
+    n = int(fs * 0.5)
+    t = np.arange(n) / fs
+    msg = 0.6 * np.sin(2 * np.pi * 440 * t) + 0.09 * np.sin(2 * np.pi * 19_000 * t)
+    z = 0.4 * np.exp(1j * 2 * np.pi * 75e3 * np.cumsum(msg) / fs)
+    i8 = np.empty(2 * n, dtype=np.int8)
+    i8[0::2] = np.clip(np.round(z.real * 128), -128, 127).astype(np.int8)
+    i8[1::2] = np.clip(np.round(z.imag * 128), -128, 127).astype(np.int8)
+    iqp = tmp_path / "fm.iq"
+    i8.tofile(iqp)
+    (tmp_path / "fm.sigmf-meta").write_text(json.dumps({
+        "global": {"core:datatype": "ci8", "core:sample_rate": fs},
+        "captures": [{"core:sample_start": 0, "core:frequency": 98e6}],
+        "annotations": []}))
+    out = tmp_path / "out.wav"
+    r = subprocess.run([sys.executable, str((Path(__file__).resolve().parent.parent / "examples") / "fm_receiver.py"),
+                        str(iqp), "--out", str(out)],
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    assert "decimated 2 Msps -> 250 kHz" in r.stdout, r.stdout

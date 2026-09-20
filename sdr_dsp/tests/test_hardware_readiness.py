@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 from sdr_dsp.core import (build_frame, find_frames, fsk_modulate, fsk_demod,
-                          ook_modulate, ook_envelope, ook_slice,
+                          ook_modulate,
                           sample_symbols, apply_channel, find_bursts)
 from sdr_dsp.link import ARQ, LiveLink
 from sdr_dsp.sinks import LoopbackSink

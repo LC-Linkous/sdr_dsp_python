@@ -92,7 +92,6 @@ def test_fsk_decoder_synth():
 
 
 def test_dsb_sc_recovers_tones():
-    import numpy as np
     from sdr_dsp.core import dsb_sc_demod
     fs = 192000
     t = np.arange(200000) / fs
@@ -106,7 +105,6 @@ def test_dsb_sc_recovers_tones():
 
 def test_nask_decoder_synth():
     import nask_decoder as nd
-    import numpy as np
     from sdr_dsp.core import ook_envelope, nask_slice
     fs = 1e6
     spb = 200
@@ -129,7 +127,6 @@ def test_burst_detector_finds_three():
 
 
 def test_cfo_measures_without_changing_signal():
-    import numpy as np
     from sdr_dsp.core import estimate_cfo
     fs = 1e6
     iq = np.exp(2j * np.pi * 27000 * np.arange(100000) / fs).astype(
@@ -141,7 +138,6 @@ def test_cfo_measures_without_changing_signal():
 
 
 def test_cfo_correction_centers_signal():
-    import numpy as np
     from sdr_dsp.core import estimate_cfo, frequency_shift
     fs = 1e6
     iq = np.exp(2j * np.pi * 35000 * np.arange(100000) / fs).astype(
@@ -168,7 +164,8 @@ def test_differential_psk_demo_ignores_offset():
 
 def test_annotate_bursts_workflow():
     import annotate_bursts as ab
-    import tempfile, os
+    import tempfile
+    import os
     from sdr_dsp.io import read_annotations
     fs = 2e6
     iq = ab.make_capture(fs)
@@ -183,9 +180,9 @@ def test_annotate_bursts_workflow():
 
 
 def test_power_calibration_workflow():
-    import numpy as np
-    from sdr_dsp.core import compute_cal_offset, Calibration, power_dbfs
-    import tempfile, os
+    from sdr_dsp.core import compute_cal_offset, Calibration
+    import tempfile
+    import os
     ref = (0.1 * np.exp(2j * np.pi * 0.05 * np.arange(20000))).astype(
         np.complex64)
     cal = compute_cal_offset(ref, known_dbm=-30.0, frequency_hz=433.92e6)
@@ -198,7 +195,6 @@ def test_power_calibration_workflow():
 
 
 def test_agc_demo_recoverable():
-    import numpy as np
     from sdr_dsp.core import agc
     n = 60000
     t = np.arange(n)
@@ -213,7 +209,6 @@ def test_agc_demo_recoverable():
 
 def test_channelizer_example_both_modes():
     import channelizer as ch
-    import numpy as np
     from sdr_dsp.core import channelize, channelize_bank
     fs = 2e6
     iq = ch.synth_band(fs)
@@ -226,7 +221,6 @@ def test_channelizer_example_both_modes():
 
 
 def test_modulate_demo_closes_loop():
-    import numpy as np
     from sdr_dsp.core import (ook_modulate, ook_envelope, ook_slice,
                               qpsk_modulate, qpsk_demod)
     bits = np.random.default_rng(0).integers(0, 2, 100)
@@ -239,7 +233,6 @@ def test_modulate_demo_closes_loop():
 
 
 def test_packet_loopback_example():
-    import numpy as np
     from sdr_dsp.core import (build_frame, find_frames,
                               ook_modulate, ook_envelope, ook_slice)
     frame_bits = build_frame(b"ACK 42")
@@ -252,7 +245,6 @@ def test_packet_loopback_example():
 
 
 def test_channel_sweep_example():
-    import numpy as np
     from sdr_dsp.core import (build_frame, find_frames, apply_channel,
                               fsk_modulate, fsk_demod)
     frame = build_frame(b"CQ DE SDR")

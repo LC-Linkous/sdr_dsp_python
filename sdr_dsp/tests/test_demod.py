@@ -5,7 +5,7 @@ so correctness is checked against ground truth we control.
 import numpy as np
 
 from sdr_dsp.core import demod
-from helpers.signals import fm_signal, ook_burst, tone
+from helpers.signals import fm_signal, ook_burst
 
 
 def test_fm_demod_recovers_message_frequency():

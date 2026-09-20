@@ -12,7 +12,7 @@ import pytest
 from sdr_dsp.core import (
     fm_modulate, am_modulate, ssb_modulate,
     ook_modulate, fsk_modulate, bpsk_modulate, qpsk_modulate,
-    rrc_taps, upsample, pulse_shape,
+    rrc_taps, upsample,
     fm_demod, am_demod, ssb_demod, ook_envelope, ook_slice,
     fsk_demod, bpsk_demod, qpsk_demod,
 )

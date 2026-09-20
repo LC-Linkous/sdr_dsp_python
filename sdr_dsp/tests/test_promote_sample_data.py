@@ -9,6 +9,8 @@ noise-floor recording came to ship in the first place.
 
 from __future__ import annotations
 
+import hashlib
+
 import importlib.util
 import json
 import sys
@@ -38,11 +40,24 @@ def _write_capture(path, kind, rate=2e6, secs=0.25, offset_hz=0):
     """Write a ci8 capture: a real FM signal, a weak one, or pure noise."""
     n = int(rate * secs)
     t = np.arange(n) / rate
-    rng = np.random.default_rng(abs(hash(str(path))) % 2**32)
+    # STABLE seed from the capture's DEFINING inputs (kind, offset, rate),
+    # not from `path`: the path is a per-run pytest tmp dir, so seeding on it
+    # -- or on the per-process-randomized builtin hash() -- reseeds the noise
+    # every run and occasionally pushes a weak/noise fixture across the
+    # health threshold, flipping its verdict (~1 run in 6). hashlib.sha256
+    # gives a process-independent seed; the same fixture is byte-identical
+    # every run.
+    key = f"{kind}|{offset_hz}|{rate}|{secs}".encode()
+    seed = int.from_bytes(hashlib.sha256(key).digest()[:4], "big")
+    rng = np.random.default_rng(seed)
     if kind == "noise":
         z = (rng.standard_normal(n) + 1j * rng.standard_normal(n)) * 1.2
     else:
-        amp = 100.0 if kind == "signal" else 1.5
+        # "weak" must land BELOW the health floor (min_counts=4) so it is
+        # correctly a "genuinely bad capture" that fails re-validation --
+        # that is the fixture's whole purpose. amp=1.5 sat right at counts=4
+        # and flipped with the noise draw; 0.7 gives counts~3 with margin.
+        amp = 100.0 if kind == "signal" else 0.7
         msg = np.sin(2 * np.pi * 440 * t)
         z = np.exp(1j * 2 * np.pi * 75e3 * np.cumsum(msg) / rate)
         z = z * np.exp(2j * np.pi * offset_hz * t) * amp

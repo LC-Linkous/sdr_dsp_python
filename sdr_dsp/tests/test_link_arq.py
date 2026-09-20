@@ -15,7 +15,7 @@ import pytest
 
 from sdr_dsp.link import (ARQ, run_link, run_sim, replay, EventLog,
                                make_channel_transport, unpack_payload,
-                               TYPE_ACK, TYPE_DATA)
+                               TYPE_ACK)
 from sdr_dsp.core import (build_frame, find_frames, apply_channel,
                           fsk_modulate, fsk_demod)
 
