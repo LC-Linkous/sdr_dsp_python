@@ -16,16 +16,14 @@ Usage:
 """
 import argparse
 import sys
-import wave
 from math import gcd
 
 import numpy as np
 
-sys.path.insert(0, "src")
-from sdr_dsp.core import dsb_sc_demod, resample_poly, normalize, psd
+from sdr_dsp.core import dsb_sc_demod, resample_poly, psd
+from sdr_dsp.sinks import write_wav
 
 AUDIO_RATE = 48000
-
 
 def main():
     p = argparse.ArgumentParser(description="DSB-SC demodulation demo.")
@@ -64,17 +62,12 @@ def main():
     print(f"    -> DSB-SC suppresses the carrier by ~{am_dc - db_dc:.0f} dB")
 
     g = gcd(AUDIO_RATE, int(fs))
-    audio = normalize(resample_poly(audio, AUDIO_RATE // g, int(fs) // g),
-                      mode="peak", target=0.9)
-    pcm = np.int16(np.clip(audio, -1, 1) * 32767)
-    with wave.open(args.out, "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(AUDIO_RATE)
-        w.writeframes(pcm.tobytes())
+    audio = resample_poly(audio, AUDIO_RATE // g, int(fs) // g)
+    # write_wav scales to a high percentile rather than the raw peak,
+    # so a settling transient cannot bury the program material
+    write_wav(args.out, audio, AUDIO_RATE)
     print(f"[*] wrote {args.out}")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

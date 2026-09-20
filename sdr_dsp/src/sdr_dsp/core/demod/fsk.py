@@ -55,7 +55,8 @@ def fsk_demod(iq, sample_rate, threshold_hz=0.0, smooth_samples=0):
 
 
 
-def fsk_demod_nlevel(iq, sample_rate, n_levels=4, thresholds=None):
+def fsk_demod_nlevel(iq, sample_rate, n_levels=4, thresholds=None,
+                     smooth_samples=0):
     """Demodulate N-level FSK (4-FSK, etc.) and CPFSK. OUR code.
 
     Generalizes 2-FSK: instead of a single 0-threshold on instantaneous
@@ -65,13 +66,26 @@ def fsk_demod_nlevel(iq, sample_rate, n_levels=4, thresholds=None):
     frequency.
 
     thresholds: explicit frequency band centers (Hz). If None, the levels are
-    spread uniformly across the observed frequency range -- fine for a clean
-    capture; pass measured centers for real signals. Returns per-sample symbol
-    indices 0..n_levels-1.
+        spread uniformly across the observed frequency range -- fine for a
+        clean capture; pass measured centers for real signals.
+    smooth_samples: if > 1, moving-average the instantaneous frequency over
+        this many samples before slicing -- the same cheap matched-filter
+        stand-in fsk_demod offers for the 2-level case, and it matters MORE
+        here: N-level slicing packs the decision bands closer together, so the
+        per-sample discriminator noise that a 2-level sign test shrugs off
+        will scatter symbols across adjacent bands. ~samples_per_symbol/2 is a
+        good value. When None thresholds are used, the percentile band centers
+        are computed from the SMOOTHED frequency too, so the bands match what
+        is being sliced. Off by default -- the per-sample output stays exact.
+
+    Returns per-sample symbol indices 0..n_levels-1.
     """
     inst = instantaneous_frequency(iq, sample_rate=sample_rate)
     if len(inst) == 0:
         return np.zeros(0, dtype=np.uint8)
+    k = int(smooth_samples)
+    if k > 1:
+        inst = np.convolve(inst, np.ones(k) / k, mode="same")
     if thresholds is None:
         lo, hi = float(np.percentile(inst, 2)), float(np.percentile(inst, 98))
         centers = np.linspace(lo, hi, n_levels)

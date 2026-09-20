@@ -77,7 +77,6 @@ def test_decimation_rejects_aliasing():
     # decimate by 4 -> new Nyquist is 125 kHz. Put a tone at 300 kHz (above it).
     x = tone(300_000, fs, 40_000)
     out = resample.decimate(x, 4)
-    new_fs = fs / 4
     # the aliased tone, if anti-aliasing failed, would appear strongly. Measure
     # residual power: it should be heavily suppressed vs the input power.
     in_power = float(np.mean(np.abs(x) ** 2))

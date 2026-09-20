@@ -21,16 +21,13 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
 from sdr_dsp.core import dsss_despread, to_db
-
 
 def pn_code(length, seed=1):
     """A simple +/-1 pseudo-noise code (random for the demo; real systems use
     structured sequences like Gold codes)."""
     rng = np.random.default_rng(seed)
     return (2 * rng.integers(0, 2, length) - 1).astype(np.complex64)
-
 
 def main():
     p = argparse.ArgumentParser(description="DSSS despreading demo.")
@@ -76,7 +73,6 @@ def main():
         print("[*] perfect recovery -- the code pulled the signal out of the "
               "noise")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -18,16 +18,14 @@ Usage:
 """
 import argparse
 import sys
-import wave
 from math import gcd
 
 import numpy as np
 
-sys.path.insert(0, "src")
-from sdr_dsp.core import ssb_demod, resample_poly, frequency_shift, normalize
+from sdr_dsp.core import ssb_demod, resample_poly, frequency_shift
+from sdr_dsp.sinks import write_wav
 
 AUDIO_RATE = 48000
-
 
 def synth_ssb(fs, sideband="usb"):
     """A simple USB/LSB test signal: a couple of audio tones on one sideband.
@@ -48,7 +46,6 @@ def synth_ssb(fs, sideband="usb"):
         iq = np.conj(iq)        # flip to the lower sideband
     iq += 0.02 * (np.random.randn(n) + 1j * np.random.randn(n))
     return iq.astype(np.complex64)
-
 
 def main():
     p = argparse.ArgumentParser(description="SSB receiver -> WAV.")
@@ -81,18 +78,13 @@ def main():
     # resample to audio rate
     g = gcd(AUDIO_RATE, int(fs))
     audio = resample_poly(audio, AUDIO_RATE // g, int(fs) // g)
-    audio = normalize(audio, mode="peak", target=0.9)
 
-    pcm = np.int16(np.clip(audio, -1, 1) * 32767)
-    with wave.open(args.out, "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(AUDIO_RATE)
-        w.writeframes(pcm.tobytes())
-    print(f"[*] wrote {args.out}: {len(pcm)/AUDIO_RATE:.1f}s")
+    # write_wav scales to a high percentile rather than the raw peak,
+    # so a settling transient cannot bury the program material
+    write_wav(args.out, audio, AUDIO_RATE)
+    print(f"[*] wrote {args.out}: {len(audio)/AUDIO_RATE:.1f}s")
     print("    (try the wrong --sideband to hear why it matters)")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -23,9 +23,7 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
 from sdr_dsp.core import carrier_recovery, symbol_sync
-
 
 def make_signal(mod, sps, nsym, seed=0):
     rng = np.random.default_rng(seed)
@@ -45,7 +43,6 @@ def make_signal(mod, sps, nsym, seed=0):
     imp += 0.06 * (rng.standard_normal(len(imp))
                    + 1j * rng.standard_normal(len(imp)))
     return imp, order
-
 
 def main():
     p = argparse.ArgumentParser(description="Constellation recovery demo.")
@@ -108,7 +105,6 @@ def main():
     fig.tight_layout()
     plt.show()
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

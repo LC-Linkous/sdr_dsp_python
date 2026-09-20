@@ -28,7 +28,9 @@ def test_normalize_peak():
 
 
 def test_normalize_rms():
-    x = (np.random.randn(1000) + 1j * np.random.randn(1000)).astype(np.complex64)
+    rng = np.random.default_rng(0)
+    x = (rng.standard_normal(1000)
+         + 1j * rng.standard_normal(1000)).astype(np.complex64)
     out = normalize(x, mode="rms", target=1.0)
     rms = np.sqrt(np.mean(np.abs(out) ** 2))
     assert abs(rms - 1.0) < 1e-6

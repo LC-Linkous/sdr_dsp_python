@@ -1,12 +1,18 @@
 # sdr_dsp_python
 
-A personal, fully-functional DSP library for software-defined radio, written in Python. It consumes IQ samples from a file or a live SDR and turns them into meaning: filtered channels, spectra, demodulated audio, decoded signals. It can also go the other way — framing a message, modulating it into IQ, and handing it to a transmit sink — so a message can make the whole round trip in software.
+A personal, fully-functional DSP library for software-defined radio, written in Python. 
 
-This is part of a personal ecosystem of libraries for experimental and educational purposes, so there are already tools out there that do some of this.
+This library consumes IQ samples from a file or a live SDR and turns them into meaning: filtered channels, spectra, demodulated audio, decoded signals, etc.. This is designed to be a learning project that starts at "what can this data be used to do?". The intent is to have a functional DSP library that works with multiple SDRs at the end, but that might be some time away from now. This process also works the other way, so there is a full loop possible from RX, processing, to response and TX. 
+
+This is part of a personal ecosystem of libraries for experimental and educational purposes, so there are already tools out there that do some of this. This is not meant to replace `GNU Radio`. 
 
 `sdr_dsp` is a library, not a framework. When using, you have to import functions and classes and orchestrate the pipeline yourself in plain Python. There is no runtime, scheduler, flowgraph engine, or GUI. It is not a GNU Radio competitor or replacement. GNU Radio remains the right tool for large real-time flowgraphs; `sdr_dsp` is for direct, scriptable DSP in Python.
 
-NOTE: to make the documentation cover all parts of this library, AI is being used to summarize the codebase and the development notes. The largest improvement has been the spelling correction, and format updates to make the development easier to follow. All mistakes are human, and will likely take a revision or two to fix experimentally.
+
+> [!NOTE]  
+> To make the documentation cover all parts of this library, AI is being used to summarize the codebase and the development notes. The largest improvement has been the spelling correction, and format updates to make the development easier to follow. All mistakes are human, and will likely take a revision or two to fix experimentally.
+
+
 
 ## Design
 
@@ -56,12 +62,13 @@ sdr_dsp_python/
     │   ├── link/                # framed link protocol with ARQ + drivers
     │   └── io/
     │       └── sigmf.py         # read ci8 captures, write cf32_le output, annotations
-    ├── examples/                # 40 runnable scripts — see docs/EXAMPLES.md
+    ├── examples/                # 43 runnable scripts — see docs/EXAMPLES.md
     ├── tests/
     │   ├── conftest.py
     │   ├── helpers/signals.py   # synthetic signal generators (ground truth)
-    │   └── test_*.py            # 356 tests; scipy-oracle + synthetic verification
-    └── sample_data/             # SigMF recordings for the examples
+    │   └── test_*.py            # 641 tests; scipy-oracle + synthetic verification
+    ├── tools/                   # capture collection + promotion (dev; needs hackrfpy)
+    └── sample_data/             # SigMF recordings the examples default to
 ```
 
 ## Getting started
@@ -71,7 +78,7 @@ This project uses [uv](https://docs.astral.sh/uv/). From the **`sdr_dsp/` projec
 ```bash
 cd sdr_dsp
 uv sync                  # create the venv, install numpy + scipy + dev tools
-uv run pytest -q         # run the test suite (expect: 355 passed, 1 skipped)
+uv run pytest -q         # run the test suite (expect: 641 passed, 1 skipped)
 uv build                 # build the wheel + sdist into dist/
 ```
 
@@ -135,7 +142,7 @@ uv sync --extra examples-hackrf # hackrfpy, for live capture/transmit
 uv sync --extra examples        # everything above in one install
 ```
 
-There are 40 examples, from single-concept teaching demos (aliasing, windowing, matched filtering) through full receivers (FM, AM, SSB, CW), digital decoders (OOK, ASK, FSK, DPSK, DSSS, FHSS), the transmit arc (modulate → packet → channel sweep → two-station ARQ link), and live-hardware scripts. See [`docs/EXAMPLES.md`](docs/EXAMPLES.md) for the full catalog with per-example requirements.
+There are 43 examples currently sketched out, from single-concept teaching demos (aliasing, windowing, matched filtering) through full receivers (FM, AM, SSB, CW), digital decoders (OOK, ASK, FSK, DPSK, DSSS, FHSS), the transmit arc (modulate → packet → channel sweep → two-station ARQ link), and live-hardware scripts. See [`docs/EXAMPLES.md`](docs/EXAMPLES.md) for the full catalog with per-example requirements. These are slowly being tested and shared when they're stable. 
 
 Live capture and transmit also need the `hackrf-tools` binaries at the OS level (see the hackrfpy docs); file-based examples need none of that.
 
@@ -146,7 +153,7 @@ Two disciplines, both carried over from the sibling `hackrfpy` project:
 - **scipy as oracle** — the library's own implementations (FIR application, resampler) are asserted equal to scipy's within numerical tolerance.
 - **synthetic ground truth** — signals are generated with known properties (a tone at a known frequency, an FM-modulated message, an OOK bit pattern, a framed packet through a known channel) and the DSP is checked against what it should recover.
 
-The suite is currently 356 tests. Most tests need no hardware. Hardware-dependent tests (live capture) are marked `@pytest.mark.hardware` and skip automatically when no board is present.
+The suite is currently 641 tests. Most tests need no hardware. Hardware-dependent tests (live capture) are marked `@pytest.mark.hardware` and skip automatically when no board is present.
 
 ## Documentation
 
@@ -157,3 +164,21 @@ The suite is currently 356 tests. Most tests need no hardware. Hardware-dependen
 ## Status/Updates
 
 The receive path is complete and tested: filtering, resampling, spectral analysis, measurement, and demodulators from analog (FM/AM/SSB/CW) through coherent digital (PSK/QAM with carrier and timing recovery) and spread spectrum (DSSS/FHSS). The transmit path is complete **in software**: modulators mirror the demodulators, framing and CRC round-trip through a simulated channel, and the ARQ link protocol runs station-to-station in loopback. Some more hardware testing needs to happen before moving on to experimental functions — wired one-way bench tests to characterize fractional delay, drift, and gain staging that the simulated channel can't capture.
+
+## Contributing
+
+Bug reports, reproductions, and documentation fixes are genuinely welcome — see
+[`CONTRIBUTING.md`](CONTRIBUTING.md) and the issue templates. Testing against a
+capture I've never seen is the kind of coverage I can't generate on my own, so
+those reports are the most useful thing anyone can send.
+
+**One note, kindly meant: I'm not accepting pull requests right now.** This is a
+personal project and the structure is still moving, so merging outside changes
+creates more coordination than I can keep up with at the moment. If you open
+one I'll read it and I'll appreciate the effort, but I'll most likely close it
+and fold the idea in myself if it fits (or leave a note to come back later). 
+That may change once the API settles and (IF) the library goes to PyPI. 
+In the meantime please fork freely — the GPL-2.0 license permits it and you don't need my permission.
+
+Participation in the project's spaces is governed by the
+[Code of Conduct](CODE_OF_CONDUCT.md).

@@ -21,12 +21,8 @@ driver to run the ARQ protocol over real radio.
 This file is a template/seam: the transmit() body is the one piece that calls
 the device, and it is left guarded so it cannot transmit by accident.
 """
-import sys
 
 import numpy as np
-
-sys.path.insert(0, "src")
-
 
 class HackRFSink:
     """A TXSink that transmits complex64 IQ through a HackRF.
@@ -87,7 +83,6 @@ class HackRFSink:
             "attenuated setup. Left unimplemented so software can't pretend to "
             "transmit.")
 
-
 def demo():
     """Show that the sink wires into the protocol (without transmitting)."""
     from sdr_dsp.sinks import TXSink
@@ -98,7 +93,6 @@ def demo():
           "and the device call is left for bench enablement.")
     print("[*] for the full software-provable exchange, use LoopbackSink "
           "(see examples/two_station_link.py).")
-
 
 if __name__ == "__main__":
     demo()

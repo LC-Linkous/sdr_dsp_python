@@ -1,0 +1,144 @@
+name: Bug report
+description: Something isn't working as documented
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report.
+
+        **Please try the capture check first.** Most "it ran fine but the output
+        is silent / empty / noise" reports turn out to be the recording, not the
+        DSP — an antenna that wasn't connected, gain set too low, or a capture
+        tuned somewhere with nothing on it. Before filing, run:
+
+        ```bash
+        uv run python examples/inspect_capture.py your_capture.iq
+        ```
+
+        If it reports the capture sitting at the noise floor, or only a few ADC
+        counts of range in use, that's your answer. If it looks healthy and the
+        problem persists, please file — and include that output below.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: |
+        The exact command or minimal script. If it's an example, the full
+        command line including flags.
+      render: shell
+    validations:
+      required: true
+
+  - type: dropdown
+    id: reproduces-with-sample-data
+    attributes:
+      label: Does it reproduce with the shipped sample data?
+      description: |
+        `sample_data/` ships recordings specifically so problems can be
+        reproduced without your hardware. This is the single most useful field
+        in the form — it separates "the library is broken" from "this capture
+        is unusual."
+      options:
+        - "Yes — reproduces with sample_data"
+        - "No — only with my own capture"
+        - "Not applicable (no capture involved)"
+        - "Haven't tried"
+    validations:
+      required: true
+
+  - type: textarea
+    id: capture-details
+    attributes:
+      label: Capture details
+      description: |
+        If your own recording is involved. The SigMF sidecar has most of this —
+        pasting the `.sigmf-meta` is the easiest way. Otherwise fill in what you
+        know.
+      value: |
+        - sample rate:
+        - datatype (ci8 / cf32_le / other):
+        - center frequency:
+        - capture length (samples or seconds):
+        - recorded with (HackRF via hackrfpy / other SDR / synthetic):
+        - has a matching .sigmf-meta sidecar: yes / no
+      render: markdown
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - "core: filters / resampling"
+        - "core: spectral (PSD, spectrogram)"
+        - "core: demod (FM/AM/SSB/OOK/ASK/FSK/PSK/QAM/spread)"
+        - "core: modulate / pulse shaping"
+        - "core: measure / detect / sync"
+        - "core: AGC / calibration / channel / channelize"
+        - "framing / link protocol / ARQ"
+        - "sources (FileSource, ArraySource)"
+        - "sinks (WAV, IQ, plot, TX)"
+        - "io / SigMF reading and writing"
+        - "stream / Pipeline"
+        - "examples"
+        - "docs"
+        - "Other / not sure"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "e.g. Windows 11 23H2 / Ubuntu 24.04 / macOS 14"
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "output of: uv run python --version"
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: sdr_dsp version
+      description: |
+        Not on PyPI yet, so this is a commit — `git rev-parse --short HEAD`.
+      placeholder: "e.g. local checkout at a1b2c3d"
+    validations:
+      required: true
+
+  - type: input
+    id: numpy-scipy
+    attributes:
+      label: numpy / scipy versions
+      description: |
+        scipy designs filter coefficients and acts as the test oracle, so
+        version differences can matter for numerical reports.
+      placeholder: "output of: uv run python -c \"import numpy,scipy;print(numpy.__version__,scipy.__version__)\""
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output / traceback
+      description: The full terminal output, including any traceback.
+      render: shell
+    validations:
+      required: false

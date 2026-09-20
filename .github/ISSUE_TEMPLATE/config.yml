@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Example catalog
+    url: https://github.com/LC-Linkous/sdr_dsp_python/blob/main/docs/EXAMPLES.md
+    about: Every example script and what it demonstrates. Check here first — there are 40+, and one is usually close to what you want.
+  - name: Technical reference
+    url: https://github.com/LC-Linkous/sdr_dsp_python/blob/main/docs/sdr_dsp_REFERENCE.md
+    about: The deep reference for the DSP itself — what each operation does and how it's verified.
+  - name: SigMF specification
+    url: https://github.com/sigmf/SigMF
+    about: Captures and their .sigmf-meta sidecars follow SigMF. Questions about the format itself belong upstream.

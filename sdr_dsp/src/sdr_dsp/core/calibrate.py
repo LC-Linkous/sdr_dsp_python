@@ -34,8 +34,6 @@ import warnings
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 
-import numpy as np
-
 from .measure import power_dbfs
 
 # default: warn when applying a calibration more than this far from where it was

@@ -12,11 +12,13 @@ wins; when they disagree on intent or architecture, this document wins.
 This document has been AI created based on existing documentation and a sweep of
 all functions. It's being human validated as development continues. 
 
-> **Status at time of writing:** RX path complete; TX path complete in software
-> through Phase E's seam (real radiation pending bench). 355 tests passing, 1
-> skipped (hardware). Windowed (N>1) ARQ and cumulative ACK are now validated
-> correct under the loss-stress suites (§11.1); the honest remaining gaps are
-> the model-vs-reality limits in §11.2–11.7 and the bench work in §12.
+> **Status at time of writing:** RX path complete and, for **FM**, validated on
+> real over-the-air captures (§12, §14); TX path complete in software through
+> Phase E's seam (real radiation pending bench). 725 tests passing, 1 skipped
+> (hardware). Windowed (N>1) ARQ and cumulative ACK are validated correct under
+> the loss-stress suites (§11.1); the honest remaining gaps are the
+> model-vs-reality limits in §11.2–11.7, the non-FM demods on real captures,
+> and the bench work in §12.
 
 ---
 
@@ -571,8 +573,13 @@ latency bounds.
 
 ## 12. What needs real hardware to validate
 
-Everything below is proven in software but **unproven on a radio**. This is the
-bench checklist.
+Most of the list below is proven in software but **unproven on a radio** — the
+bench checklist. The exception, as of September 2026, is the **FM receive
+chain**, which is now validated against real ear-verified captures (see §14 and
+the LOG): capture → channel filter → FM demod → audio is confirmed on-air, and
+the capture-quality metrics (`capture_health`, the 19 kHz pilot check) are
+calibrated against real captures, not just synthesis. The digital demods, the
+transmit path, and everything protocol-level remain software-only.
 
 **Transmit path:**
 - [ ] The actual `transmit()` device call (currently a guarded, unimplemented
@@ -590,8 +597,11 @@ bench checklist.
   before the sync word.
 
 **Receive path:**
-- [ ] Every demodulator against a real off-air capture, not just synthetic IQ.
-  Each has a verified synthetic path; discrepancies isolate to signal/params.
+- [x] **FM** against real off-air captures — done (ear-verified, pilot-checked;
+  §14). The other demodulators remain to be run on real captures.
+- [ ] Every *other* demodulator against a real off-air capture, not just
+  synthetic IQ. Each has a verified synthetic path; discrepancies isolate to
+  signal/params.
 - [ ] Carrier and symbol recovery convergence on real signals with real CFO,
   phase noise, and drift.
 - [ ] AGC behavior on real signals with real dynamic range.
@@ -728,13 +738,30 @@ project. See §12 for the hardware-validation checklist this feeds into.
 ## 14. Sample data: what exists, what's needed
 
 **Exists** (`sample_data/`):
-- `fm_2Msps.iq` + `.sigmf-meta` — an FM capture at 2 Msps.
+- `fm_2Msps.iq` + `.sigmf-meta` — a **real, ear-verified** FM broadcast
+  capture (103.7 MHz), imported from an 8 Msps HackRF One recording and
+  decimated to 2 Msps by `tools/import_reference_capture.py`. The sidecar
+  carries full provenance (source file + sha256, original rate, gains,
+  measured 19 kHz stereo pilot +27.3 dB, channel +20.9 dB) and the import
+  validates the capture before and after decimation. A synthetic companion
+  with every parameter known (`tools/make_synthetic_sample.py` →
+  `fm_synthetic_2Msps.iq`) is available as a fully-specified fixture.
 - `fm_sweep.csv` — a frequency sweep reference.
 
-**Needed for fuller coverage** (collect on the bench / off-air):
-- **Real captures per modulation** — at least one off-air or wired capture of
-  each digital scheme (OOK, FSK, the PSK family) with known ground-truth bits, so
-  demod tests can run against reality, not just synthesis.
+**Development corpus** (`dev_data/`, collected by `tools/collect_dev_data.py`;
+not shipped, regenerable): a structured FM set from one station — clean
+reference, tuning offsets, a 2→10 Msps rate ladder, a gain ladder from buried
+to clipping, and negative controls (antenna disconnected, minimum gain). Every
+capture is validated on write by the 19 kHz-pilot check and its measured pilot
+recorded in the manifest. See `tools/preflight_collection.py` for the
+board→antenna→station→quiet preflight that precedes a collection session.
+
+**Still needed for fuller coverage** (collect on the bench / off-air):
+- **Real captures per digital modulation** — at least one off-air or wired
+  capture of each digital scheme (OOK, FSK, the PSK family) with known
+  ground-truth bits, so demod tests can run against reality, not just
+  synthesis. (FM is now covered by the real sample above; the digital
+  schemes are not yet.)
 - **A captured ARQ exchange** — a real two-station EventLog + the corresponding
   SigMF IQ, so the protocol can be replayed and the pcap converter exercised.
 - **A calibration reference capture** — a signal of known absolute power, to
@@ -742,12 +769,23 @@ project. See §12 for the hardware-validation checklist this feeds into.
 - **A multipath / fading capture** — to expose where the AWGN-only channel model
   diverges from reality.
 - **Low-SNR captures** — real signals near the demod threshold, to compare the
-  measured vs simulated SNR cliff.
+  measured vs simulated SNR cliff. (The gain ladder in `dev_data/` is a first
+  synthetic-to-real step: its buried captures sit near the pilot-detection
+  threshold.)
 - **A frequency-drifting source** — to test CFO estimation and carrier recovery
   against real oscillator drift.
 
 Each new sample should ship with a SigMF sidecar documenting capture conditions
-(device, rate, center freq, gain, antenna, known signal content).
+(device, rate, center freq, gain, antenna, known signal content). The
+`import_reference_capture.py` path is the model: validate on import, refuse
+anything without a stereo pilot, and stamp provenance into the sidecar so a
+sample capture is never again a file nobody can vouch for.
+
+> **History.** The original `fm_2Msps.iq` shipped as a placeholder that turned
+> out to contain **no signal at all** (it peaked at ~2 of 128 ADC counts). The
+> whole capture-validation layer — `capture_health`, the pilot check, the
+> SNR-aware gain search, the preflight — grew out of finding and fixing that.
+> See the September 2026 LOG entries.
 
 ---
 
@@ -760,7 +798,9 @@ data the simulation can't provide. Ordered roughly easiest → hardest.
 1. **Noise floor & SNR mapping.** Capture with no signal, measure the noise floor
    (`power_dbfs`). Then capture a known signal at varying generator output levels;
    plot measured SNR (`snr_db`) vs generator level. Establishes the real SNR
-   scale vs the simulated one.
+   scale vs the simulated one. *(The gain ladder in `dev_data/` and
+   `tools/preflight_collection.py` already do a first version of this against a
+   live broadcast station; a signal generator makes it quantitative.)*
 2. **CFO reality.** Capture a known-frequency CW tone; run `estimate_cfo`. Repeat
    over time to measure oscillator drift. Compares real CFO/drift to the constant-
    CFO channel model.

@@ -20,9 +20,7 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
 from sdr_dsp.core import find_bursts, power_dbfs
-
 
 def make_capture(fs, seed=0):
     """Silence with a few bursts of activity at random spots."""
@@ -34,7 +32,6 @@ def make_capture(fs, seed=0):
         t = np.arange(length) / fs
         sig[start:start + length] += np.exp(2j * np.pi * 50e3 * t)
     return sig.astype(np.complex64)
-
 
 def main():
     p = argparse.ArgumentParser(description="Detect bursts in a capture.")
@@ -72,7 +69,6 @@ def main():
         print(f"\n[*] extract burst 0 for decoding: iq[{bursts[0][0]}:"
               f"{bursts[0][1]}]")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

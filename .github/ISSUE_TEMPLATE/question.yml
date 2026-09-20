@@ -1,0 +1,46 @@
+name: Question / usage help
+description: How do I use this library to do something?
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For questions about **this library**. Two pointers that may be faster
+        than waiting for a reply:
+
+        - `docs/EXAMPLES.md` catalogs every example script and what it
+          demonstrates. There are 40+, and one is usually close to what you want.
+        - `docs/sdr_dsp_REFERENCE.md` is the deep technical reference for the
+          DSP itself.
+
+        For questions about **radio or DSP in general** — how FM stereo works,
+        what deviation to expect, why a constellation looks the way it does —
+        those are welcome here, but you'll get better answers faster from a
+        dedicated SDR community. This is a personal project with one maintainer.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: What are you trying to do?
+      description: The goal, plus what you've tried so far. Code welcome.
+    validations:
+      required: true
+
+  - type: textarea
+    id: signal
+    attributes:
+      label: What signal are you working with?
+      description: |
+        If relevant — modulation, roughly what bandwidth, sample rate, and
+        whether it's a live capture, a file, or synthetic. Signal-processing
+        questions are usually unanswerable without this.
+    validations:
+      required: false
+
+  - type: input
+    id: setup
+    attributes:
+      label: Setup
+      placeholder: "e.g. Ubuntu 24.04, Python 3.12, sdr_dsp at commit a1b2c3d, HackRF One"
+    validations:
+      required: false

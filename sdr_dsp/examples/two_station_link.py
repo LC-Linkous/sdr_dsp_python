@@ -21,15 +21,13 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
 from sdr_dsp.core import (build_frame, find_frames, apply_channel,
                           fsk_modulate, fsk_demod, sample_symbols)
-from sdr_dsp.link import (ARQ, run_sim, run_link, replay, EventLog,
+from sdr_dsp.link import (ARQ, run_link, replay, EventLog,
                                make_channel_transport)
 
 FS = 1e6
 SPS = 20
-
 
 def build_transport(snr_db, drop_first=False):
     state = {"used": False}
@@ -63,7 +61,6 @@ def build_transport(snr_db, drop_first=False):
     return make_channel_transport(modulate, demodulate, channel,
                                   drop_predicate=maybe_drop)
 
-
 def main():
     p = argparse.ArgumentParser(description="Two-station acked message exchange.")
     p.add_argument("--window", type=int, default=1,
@@ -90,12 +87,14 @@ def main():
     mode = "stop-and-wait" if args.window == 1 else f"sliding window N={args.window}"
     print(f"[*] {mode}, FSK over a {args.snr:g} dB channel, one forced drop\n")
 
-    A = ARQ(window_size=args.window, timeout_ticks=3, max_retries=10)
-    B = ARQ(window_size=args.window, timeout_ticks=3, max_retries=10)
-    for m in messages:
-        A.send(m)
+    # run_link is the library's readable entry point: it builds the two ARQ
+    # engines, queues the messages, and drives run_sim -- exactly what this
+    # example used to hand-wire. (replay mode above still uses ARQ directly,
+    # since it reconstructs one station from a saved log rather than sending.)
     transport = build_transport(args.snr, drop_first=True)
-    _, received, log = run_sim(A, B, transport=transport, max_ticks=500)
+    received, log = run_link(messages, window_size=args.window,
+                             transport=transport, timeout_ticks=3,
+                             max_retries=10, max_ticks=500)
 
     print(f"[A] sent:     {messages}")
     print(f"[B] received: {received}")
@@ -115,7 +114,6 @@ def main():
     print("\n[*] this is the software-provable two-SDR exchange; the live "
           "driver (real radio) is Phase E")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

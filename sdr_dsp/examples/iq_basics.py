@@ -22,9 +22,6 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
-
-
 def main():
     p = argparse.ArgumentParser(description="Visualize IQ basics.")
     p.add_argument("iq_file", nargs="?", default=None)
@@ -40,7 +37,7 @@ def main():
         return 1
 
     if args.iq_file:
-        from src.sdr_dsp.io import load_iq
+        from sdr_dsp.io import load_iq
         iq, meta = load_iq(args.iq_file, count=args.samples)
         fs = float(meta.get("global", {}).get("core:sample_rate", args.rate))
         title = args.iq_file
@@ -82,7 +79,6 @@ def main():
     fig.tight_layout()
     plt.show()
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

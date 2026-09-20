@@ -16,10 +16,8 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
-from src.sdr_dsp.io import load_iq, read_meta
-from src.sdr_dsp.core import power_dbfs
-
+from sdr_dsp.io import load_iq, read_meta
+from sdr_dsp.core import power_dbfs
 
 def main():
     p = argparse.ArgumentParser(description="Inspect a SigMF IQ capture.")
@@ -62,7 +60,7 @@ def main():
         print(f"CLIPPING          : {clip_frac*100:.1f}% of samples near full "
               f"scale -- reduce gain")
     else:
-        print(f"clipping          : none detected")
+        print("clipping          : none detected")
 
     # a quick spectral peek: where's the energy?
     if n >= 1024:
@@ -73,7 +71,6 @@ def main():
         fpk = freqs[k] / 1e6 if fs else freqs[k]
         print(f"spectral peak     : {p_db[k]:.1f} dB @ {fpk:.3f} {units}")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

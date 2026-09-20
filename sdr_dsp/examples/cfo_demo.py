@@ -22,9 +22,7 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
 from sdr_dsp.core import estimate_cfo, frequency_shift
-
 
 def main():
     p = argparse.ArgumentParser(description="Measure/correct carrier offset.")
@@ -69,7 +67,6 @@ def main():
           f"{residual/1e3:+.2f} kHz")
     print("[*] signal is now centered (residual ~ one FFT bin)")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

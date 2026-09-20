@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 
 import numpy as np
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 
 from .arq import ARQ
 from .protocol import unpack_payload, type_name
@@ -156,7 +156,6 @@ def run_sim(station_a, station_b, max_ticks=200, transport=None, log=None):
                 # a deliver at station X means X RECEIVED a message
                 delivered[station].append(intent[1])
 
-    engines = {"A": station_a, "B": station_b}
     for tick in range(max_ticks):
         # route A's intentions to B, and B's to A
         collect(_deliver(station_a.poll(), "A", station_b, tick, log, transport))

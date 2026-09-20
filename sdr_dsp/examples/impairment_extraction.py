@@ -27,34 +27,27 @@ Usage:
     python examples/impairment_extraction.py --plot
 """
 import argparse
-import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
 from sdr_dsp.core import (
     add_iq_imbalance,
     add_pa_nonlinearity,
     add_phase_noise,
     make_device_impairments,
-    apply_device_impairments,
     iq_image_ratio,
     estimate_iq_imbalance,
     estimate_cfo_ppm,
-    estimate_phase_noise_variance,
-    decide_symbols,
     error_vector,
     evm_stats,
     EVM_FEATURE_NAMES,
 )
-
 
 def _qam16(n, rng):
     lv = np.array([-3, -1, 1, 3])
     const = (lv[:, None] + 1j * lv[None, :]).ravel() / np.sqrt(10)
     ref = const[rng.integers(0, 16, n)]
     return const, ref
-
 
 def main():
     p = argparse.ArgumentParser(
@@ -145,7 +138,6 @@ def main():
         plt.show()
 
     print("[*] done. Forward model and estimators agree -- the loop closes.")
-
 
 if __name__ == "__main__":
     main()

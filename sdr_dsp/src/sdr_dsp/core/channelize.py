@@ -120,11 +120,11 @@ def channelize_bank(iq, sample_rate, n_channels, decim=None, taps_per_channel=12
     # branch n output[m] = sum_l pb[l, n] * xb[m - l, n]
     out_len = n_blocks
     filtered = np.zeros((out_len, N), dtype=np.complex64)
-    for l in range(L):
-        if l == 0:
+    for tap in range(L):
+        if tap == 0:
             filtered += xb * pb[0, :][None, :]
         else:
-            filtered[l:] += xb[:-l] * pb[l, :][None, :]
+            filtered[tap:] += xb[:-tap] * pb[tap, :][None, :]
 
     # FFT across the N branches gives the N channels (one column per channel).
     # Use the inverse transform so branch index k maps to ascending positive

@@ -1,0 +1,21 @@
+{
+  "station_hz": 98100000.0,
+  "sample_rate": 8000000.0,
+  "requested_samples": 40000000,
+  "captured_samples": 40000000,
+  "lna_gain_db": 32,
+  "vga_gain_db": 20,
+  "firmware": "2024.02.1 (API:1.08)",
+  "tools_version": "git-b1dbb47",
+  "collected": "2026-09-17T20:29:38",
+  "iq": {
+    "mean_power_dbfs": -16.58,
+    "peak_amplitude": 0.6992,
+    "clip_fraction": 0.0,
+    "dc_offset": 0.01242
+  },
+  "fm": {
+    "pilot_detected": true,
+    "pilot_snr_db": 23.1
+  }
+}

@@ -4,16 +4,22 @@
     "core:sample_rate": 2000000.0,
     "core:hw": "HackRF One",
     "core:version": "1.0.0",
-    "core:recorder": "hackrfpy",
-    "hackrf:lna_gain_db": 16,
+    "core:recorder": "sdr_dsp tools/import_reference_capture.py",
+    "core:description": "Over-the-air broadcast FM, imported from fm_103.7MHz_8Msps.iq (8 Msps, decimated x4, 1s-3s slice). Validated on import: pilot +27.3 dB, channel +20.9 dB, 96/128 counts. verified by ear (hackrfpy fm_reference)",
+    "sdr_dsp:source_file": "fm_103.7MHz_8Msps.iq",
+    "sdr_dsp:source_sha256": "23f22c37b4a450a7c18eb271801edc8f1550c384d3b46a02a1011d002b3c0b1f",
+    "sdr_dsp:source_sample_rate": 8000000.0,
+    "sdr_dsp:pilot_excess_db": 27.3,
+    "sdr_dsp:level_rescale_db": 12.29,
+    "hackrf:lna_gain_db": 32,
     "hackrf:vga_gain_db": 20,
     "hackrf:amp_enabled": false
   },
   "captures": [
     {
       "core:sample_start": 0,
-      "core:frequency": 98000000.0,
-      "core:datetime": "2026-06-15T17:48:13.436516+00:00"
+      "core:frequency": 103700000.0,
+      "core:datetime": "2026-09-18T00:20:52.790627+00:00"
     }
   ],
   "annotations": []

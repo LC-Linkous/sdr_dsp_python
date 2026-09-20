@@ -1,0 +1,86 @@
+name: Feature request
+description: Suggest a new capability or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, two scope notes that decide most requests:
+
+        **This is a library, not a framework.** There is no runtime, scheduler,
+        flowgraph engine, or GUI, and there won't be — you import functions and
+        orchestrate the pipeline yourself in plain Python. GNU Radio is the
+        right tool for large real-time flowgraphs; `sdr_dsp` is for direct,
+        scriptable DSP. Requests for a flowgraph layer or a GUI are out of
+        scope.
+
+        **The core is device-agnostic by structure.** Core DSP operates on
+        `complex64` arrays and knows nothing about any radio. Device adapters
+        belong in user code — see `examples/hackrf_capture.py` and
+        `examples/hackrf_sink.py` as references for each side. A request to add
+        a device dependency to the core is out of scope; a request for a new
+        *example* adapter is welcome.
+
+        In scope: new DSP operations, new demodulators/modulators, measurement
+        and detection, better examples, and documentation.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / use case
+      description: What are you trying to do that the library doesn't currently support?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: |
+        What would the function or class look like? A sketch of the signature
+        helps — including what goes in and what comes out (array shapes and
+        dtypes, units of any scalar).
+      render: python
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - "core: filters / resampling"
+        - "core: spectral (PSD, spectrogram)"
+        - "core: demod"
+        - "core: modulate / pulse shaping"
+        - "core: measure / detect / sync"
+        - "core: AGC / calibration / channel / channelize"
+        - "framing / link protocol / ARQ"
+        - "sources / sinks / io"
+        - "stream / Pipeline"
+        - "examples"
+        - "docs"
+        - "Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: verification
+    attributes:
+      label: How would it be verified?
+      description: |
+        Everything in the core is tested against either a scipy oracle or a
+        synthetic signal with known ground truth. If you know how the proposed
+        operation could be checked — a scipy equivalent to compare against, or
+        a signal whose correct answer is known in advance — say so here. If you
+        don't, that's fine; leave it blank.
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Existing workarounds, or how you're doing it today.
+    validations:
+      required: false

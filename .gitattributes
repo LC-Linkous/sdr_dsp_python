@@ -1,0 +1,30 @@
+# Line-ending policy. Committing this does NOT rewrite existing files -- the
+# tree is currently mixed (mostly CRLF, some LF). A dedicated normalization
+# commit (`git add --renormalize .`) should follow, on its own, so its large
+# whitespace-only diff never mixes with a logic change.
+#
+# After renormalization: text files are LF in the repo, checked out native on
+# each platform, so a Linux checkout gets working `#!` shebangs (CRLF shebangs
+# fail to exec) and Windows still sees CRLF in the editor.
+
+* text=auto eol=lf
+
+# Explicit text types (belt and suspenders; text=auto covers most)
+*.py    text eol=lf
+*.md    text eol=lf
+*.toml  text eol=lf
+*.cfg   text eol=lf
+*.txt   text eol=lf
+*.json  text eol=lf
+*.csv   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.sigmf-meta text eol=lf
+
+# Binary: never touched, never diffed as text
+*.iq            binary
+*.sigmf-data    binary
+*.wav           binary
+*.npy           binary
+*.png           binary
+*.svg           text eol=lf

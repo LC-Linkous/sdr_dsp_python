@@ -142,7 +142,7 @@ def test_phase_noise_variance_monotonic(proper_signal):
 # ---------------------------------------------------------------------------
 def test_decide_symbols_qpsk():
     const = np.array([1 + 1j, 1 - 1j, -1 + 1j, -1 - 1j]) / np.sqrt(2)
-    rx = np.array([0.6 + 0.6j, -0.5 - 0.4j]) 
+    rx = np.array([0.6 + 0.6j, -0.5 - 0.4j])
     decided = decide_symbols(rx, const)
     assert np.isclose(decided[0], (1 + 1j) / np.sqrt(2))
     assert np.isclose(decided[1], (-1 - 1j) / np.sqrt(2))
@@ -312,4 +312,7 @@ def test_flattened_core_api():
         fingerprint_vector, FEATURE_NAMES, iq_image_ratio,
         make_device_impairments, apply_device_impairments,
     )
-    assert callable(fingerprint_vector) and len(FEATURE_NAMES) == 14
+    assert len(FEATURE_NAMES) == 14
+    for fn in (fingerprint_vector, iq_image_ratio,
+               make_device_impairments, apply_device_impairments):
+        assert callable(fn)

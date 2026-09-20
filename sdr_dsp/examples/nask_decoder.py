@@ -19,9 +19,7 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
-from sdr_dsp.core import ook_envelope, nask_slice, estimate_symbol_rate
-
+from sdr_dsp.core import ook_envelope, nask_slice
 
 def make_demo(fs, levels, nsym, spb, snr_db, seed=0):
     rng = np.random.default_rng(seed)
@@ -34,7 +32,6 @@ def make_demo(fs, levels, nsym, spb, snr_db, seed=0):
     sig += np.sqrt(npow / 2) * (rng.standard_normal(len(sig))
                                 + 1j * rng.standard_normal(len(sig)))
     return sig.astype(np.complex64), syms, amps
-
 
 def main():
     p = argparse.ArgumentParser(description="Decode N-ASK.")
@@ -74,7 +71,6 @@ def main():
         print("    (more levels = tighter spacing = more noise-sensitive; "
               "raise --snr-db)")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

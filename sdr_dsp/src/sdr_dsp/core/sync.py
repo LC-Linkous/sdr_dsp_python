@@ -18,7 +18,7 @@ in how these loops behave; they are not hidden.
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 

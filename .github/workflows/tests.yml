@@ -1,0 +1,83 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref (saves CI minutes on rapid pushes).
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    # The installable project lives in the sdr_dsp/ subdirectory (the one with
+    # pyproject.toml, the pytest config, and the `hardware` marker). The git
+    # root is one level up.
+    working-directory: sdr_dsp
+
+# Pin the hash seed for the whole workflow. A real flake was traced to a
+# fixture seeded from the builtin hash(), which is per-process randomized:
+# some seeds pushed a marginal capture across the health threshold and
+# flipped its verdict ~1 run in 6. The fixture is fixed (it seeds from
+# hashlib now), and this makes any future hash-order dependence deterministic
+# in CI too.
+env:
+  PYTHONHASHSEED: "0"
+
+jobs:
+  test:
+    name: pytest (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # windows-latest is the platform this library's hardware workflow
+        # targets (the HackRF capture path was debugged there); ubuntu and
+        # macos keep the pure-DSP core honest cross-platform. No board is
+        # needed -- every hardware test self-skips without one.
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+
+      - name: Sync environment (numpy + scipy + dev group, editable install)
+        run: uv sync
+
+      - name: Run test suite (hardware tests deselected)
+        run: uv run pytest -m "not hardware" --cov=sdr_dsp --cov-report=xml --cov-report=term-missing
+
+  lint:
+    name: ruff + mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Sync environment
+        run: uv sync
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Mypy
+        # Blocking. Not the py.typed-strict gate hackrfpy runs (sdr_dsp is not
+        # fully annotated yet and ships no py.typed marker), but mypy's default
+        # checks -- real type errors, incompatible assignments, wrong argument
+        # types. The tree is clean at that level; a regression fails the build.
+        # The path to strict + py.typed is tracked in TODO.
+        run: uv run mypy

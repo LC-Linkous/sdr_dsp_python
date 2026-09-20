@@ -16,14 +16,10 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
-
-
 def apparent_freq(true_hz, fs):
     """Where a tone at true_hz appears after sampling at fs (folding)."""
     f = true_hz % fs
     return f if f <= fs / 2 else f - fs
-
 
 def main():
     p = argparse.ArgumentParser(description="Nyquist / aliasing demo.")
@@ -69,7 +65,6 @@ def main():
     fig.tight_layout()
     plt.show()
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

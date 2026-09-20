@@ -5,12 +5,14 @@ the FileSource adapter exposing rate/freq from the sidecar.
 import json
 import numpy as np
 
-from sdr_dsp.io.sigmf import save_iq, load_iq, read_meta
+from sdr_dsp.io.sigmf import save_iq, load_iq
 from sdr_dsp.sources import FileSource, ArraySource
 
 
 def test_cf32_roundtrip_lossless(tmp_path):
-    x = (np.random.randn(2000) + 1j * np.random.randn(2000)).astype(np.complex64)
+    rng = np.random.default_rng(0)
+    x = (rng.standard_normal(2000)
+         + 1j * rng.standard_normal(2000)).astype(np.complex64)
     save_iq(tmp_path / "p.sigmf-data", x, sample_rate=2e6, center_freq=100e6)
     back, meta = load_iq(tmp_path / "p.sigmf-meta")
     assert np.max(np.abs(x - back)) == 0.0
@@ -21,7 +23,8 @@ def test_cf32_roundtrip_lossless(tmp_path):
 
 def test_load_ci8_capture(tmp_path):
     # simulate a hackrfpy ci8 recording
-    ci8 = np.random.randint(-128, 128, 4000, dtype=np.int8)
+    rng = np.random.default_rng(0)
+    ci8 = rng.integers(-128, 128, 4000, dtype=np.int8)
     ci8.tofile(tmp_path / "cap.iq")
     json.dump(
         {"global": {"core:datatype": "ci8", "core:sample_rate": 2_000_000.0},

@@ -23,13 +23,11 @@ from math import gcd
 
 import numpy as np
 
-sys.path.insert(0, "src")
 from sdr_dsp import Pipeline
 from sdr_dsp.sources import ArraySource, FileSource
 from sdr_dsp.core import design_lowpass, fir_apply, fm_demod, resample_poly, to_db
 
 AUDIO_RATE = 48_000
-
 
 def make_synth_fm(fs, seconds=2.0):
     n = int(fs * seconds)
@@ -39,12 +37,10 @@ def make_synth_fm(fs, seconds=2.0):
     return np.exp(1j * 2 * np.pi * 75000 * np.cumsum(msg) / fs).astype(
         np.complex64)
 
-
 def meter_bar(level_db, lo=-60, hi=0, width=40):
     frac = max(0.0, min(1.0, (level_db - lo) / (hi - lo)))
     filled = int(frac * width)
     return "[" + "#" * filled + "-" * (width - filled) + f"] {level_db:6.1f} dB"
-
 
 def main():
     p = argparse.ArgumentParser(description="Streaming FM with a live tap.")
@@ -88,7 +84,6 @@ def main():
     print("[*] per-stage timing:")
     print(stats)
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

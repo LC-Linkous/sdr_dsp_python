@@ -105,3 +105,46 @@ def test_dqpsk_ignores_phase_offset():
     bits, _ = dqpsk_demod(syms)
     expected = [bit for pair in sym_bits for bit in pair]
     assert list(bits) == expected
+
+
+def test_fsk_nlevel_smoothing_recovers_noisy_symbols():
+    """smooth_samples must rescue 4-FSK at moderate SNR: N-level slicing packs
+    the bands close, so per-sample discriminator noise scatters symbols across
+    adjacent bands. Smoothing over ~half a symbol is the fix (the same one
+    fsk_demod gives the 2-level path). Added when the fsk_decoder example
+    stopped hand-rolling this and called the library instead."""
+    rng = np.random.default_rng(0)
+    fs = 2e6
+    nsym, spb, levels = 40, 200, 4
+    syms_in = rng.integers(0, levels, nsym)
+    freqs = np.linspace(-75e3, 75e3, levels)
+    iq = np.concatenate([np.exp(2j * np.pi * freqs[s] * np.arange(spb) / fs)
+                         for s in syms_in]).astype(np.complex64)
+    iq += 0.05 * (rng.standard_normal(len(iq))
+                  + 1j * rng.standard_normal(len(iq)))
+
+    def recover(smooth):
+        ps = fsk_demod_nlevel(iq, fs, n_levels=levels, smooth_samples=smooth)
+        return np.array([int(ps[int((i + 0.5) * spb)]) for i in range(nsym)])
+
+    raw_ok = int(np.sum(recover(0) == syms_in))
+    sm_ok = int(np.sum(recover(spb // 2) == syms_in))
+    assert sm_ok == nsym, f"smoothed recovered only {sm_ok}/{nsym}"
+    assert sm_ok > raw_ok, (
+        f"smoothing did not help (raw {raw_ok}, smoothed {sm_ok})")
+
+
+def test_fsk_nlevel_smoothing_default_is_exact_passthrough():
+    """Default smooth_samples=0 must leave the per-sample output byte-for-byte
+    what it was before the parameter existed."""
+    fs = 1e6
+    freqs = [-75e3, -25e3, 25e3, 75e3]
+    syms_in = [0, 1, 2, 3, 2, 0, 3, 1]
+    spb = 200
+    iq = np.concatenate([np.exp(2j * np.pi * freqs[s] * np.arange(spb) / fs)
+                         for s in syms_in]).astype(np.complex64)
+    a = fsk_demod_nlevel(iq, fs, n_levels=4)
+    b = fsk_demod_nlevel(iq, fs, n_levels=4, smooth_samples=0)
+    c = fsk_demod_nlevel(iq, fs, n_levels=4, smooth_samples=1)  # <=1 = off
+    np.testing.assert_array_equal(a, b)
+    np.testing.assert_array_equal(a, c)

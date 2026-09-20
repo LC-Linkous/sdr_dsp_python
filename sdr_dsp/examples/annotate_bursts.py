@@ -19,11 +19,9 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
 from sdr_dsp.core import find_bursts, power_dbfs
 from sdr_dsp.io import (save_iq, load_iq, read_annotations,
                         bursts_to_annotations)
-
 
 def make_capture(fs):
     rng = np.random.default_rng(0)
@@ -33,7 +31,6 @@ def make_capture(fs):
         t = np.arange(length) / fs
         sig[start:start + length] += np.exp(2j * np.pi * 50e3 * t)
     return sig.astype(np.complex64)
-
 
 def main():
     p = argparse.ArgumentParser(description="Detect, label, and save bursts.")
@@ -83,7 +80,6 @@ def main():
               f"{pw:>6} dB")
     print("\n[*] the annotated file is portable to any SigMF-aware tool")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

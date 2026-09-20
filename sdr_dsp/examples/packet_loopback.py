@@ -22,12 +22,10 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
 from sdr_dsp.core import (build_frame, find_frames,
                           ook_modulate, ook_envelope, ook_slice,
                           fsk_modulate, fsk_demod,
                           bpsk_modulate, bpsk_demod)
-
 
 def modulate(bits, scheme, sps, fs):
     if scheme == "ook":
@@ -36,7 +34,6 @@ def modulate(bits, scheme, sps, fs):
         return fsk_modulate(bits, sps, 50e3, fs)
     return bpsk_modulate(bits, 1)
 
-
 def demodulate(iq, scheme, sps, fs, nbits):
     if scheme == "ook":
         return ook_slice(ook_envelope(iq))[::sps][:nbits]
@@ -44,7 +41,6 @@ def demodulate(iq, scheme, sps, fs, nbits):
         return fsk_demod(iq, fs)[sps // 2::sps][:nbits]
     rec, _ = bpsk_demod(iq)
     return rec[:nbits]
-
 
 def main():
     p = argparse.ArgumentParser(description="Packet loopback through the chain.")
@@ -89,7 +85,6 @@ def main():
     print("\n[*] the CRC is what an ACK keys off: ACK a good frame, "
           "retransmit a bad one (Phase D)")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

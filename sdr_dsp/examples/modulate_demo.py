@@ -20,14 +20,12 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
 from sdr_dsp.core import (
     fm_modulate, am_modulate, ook_modulate, fsk_modulate,
     bpsk_modulate, qpsk_modulate,
     fm_demod, am_demod, ook_envelope, ook_slice, fsk_demod,
     bpsk_demod, qpsk_demod,
 )
-
 
 def main():
     p = argparse.ArgumentParser(description="Modulate then demodulate (loopback).")
@@ -92,7 +90,6 @@ def main():
         fig.tight_layout()
         plt.show()
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

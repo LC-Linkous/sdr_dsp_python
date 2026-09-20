@@ -17,10 +17,8 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
-from src.sdr_dsp.io import load_iq
-from src.sdr_dsp.core import psd
-
+from sdr_dsp.io import load_iq
+from sdr_dsp.core import psd
 
 def find_peaks(freqs, psd_db, n_peaks, min_separation_bins=10):
     """Crude peak picker: the n strongest bins, kept apart by a separation."""
@@ -33,14 +31,12 @@ def find_peaks(freqs, psd_db, n_peaks, min_separation_bins=10):
             break
     return [(freqs[i], psd_db[i]) for i in sorted(picked)]
 
-
 def run_analyzer(iq, sample_rate, center_freq=0.0, nfft=2048, n_peaks=5):
     freqs, psd_db = psd(iq, sample_rate, nfft=nfft, window="hann",
                         center_freq=center_freq)
     noise_floor = float(np.median(psd_db))
     peaks = find_peaks(freqs, psd_db, n_peaks)
     return freqs, psd_db, noise_floor, peaks
-
 
 def main():
     p = argparse.ArgumentParser(description="Spectrum analyzer for a capture.")
@@ -92,7 +88,6 @@ def main():
     fig.tight_layout()
     plt.show()
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -24,11 +24,9 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "src")
 from sdr_dsp.core import (
     design_lowpass, design_bandpass, design_highpass, fir_apply, psd,
 )
-
 
 def main():
     p = argparse.ArgumentParser(description="Explore filter design and effect.")
@@ -108,7 +106,6 @@ def main():
     fig.tight_layout()
     plt.show()
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())
