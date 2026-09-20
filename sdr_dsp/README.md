@@ -17,7 +17,7 @@ The library depends only on **numpy + scipy**. From this directory:
 
 ```
 uv sync                  # create the venv, install numpy + scipy + dev tools
-uv run pytest -q         # expect: 355 passed, 1 skipped (hardware)
+uv run pytest -q         # expect: 641 passed, 1 skipped (hardware)
 ```
 
 Optional extras for the example scripts (not the library core): `--extra plotting` (matplotlib), `--extra audio` (sounddevice), `--extra examples-hackrf` (hackrfpy), or `--extra examples` for all three.
@@ -35,4 +35,4 @@ audio = fm_demod(iq, deviation_hz=75_000, sample_rate=src.sample_rate)
 audio = resample_poly(audio, 48_000 // 16, int(src.sample_rate) // 16)
 ```
 
-See `examples/` for 40 runnable scripts — receivers, decoders, teaching demos, the transmit/link arc, and live-hardware helpers — cataloged in `docs/EXAMPLES.md` at the repository root.
+See `examples/` for several runnable scripts — receivers, decoders, teaching demos, the transmit/link arc, and live-hardware helpers — cataloged in `docs/EXAMPLES.md` at the repository root.

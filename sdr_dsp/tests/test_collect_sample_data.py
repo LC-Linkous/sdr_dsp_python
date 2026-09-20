@@ -52,6 +52,21 @@ class FakeRadio:
         self.noise_counts = float(noise_counts)
         self.calls = []
 
+    def capture(self, freq, sample_rate, *, num_samples=None, out=None,
+                lna=16, vga=20, amp=False, sigmf=False, **k):
+        """The file-path contract the probes now require (the pipe-based
+        capture_array path was convicted of dropping samples on Windows;
+        see sdr_dsp.sources.probe). Writes ci8 like hackrf_transfer."""
+        import numpy as np
+        iq = self.capture_array(freq, sample_rate, int(num_samples),
+                                lna=lna, vga=vga, amp=amp)
+        i8 = np.empty(2 * iq.size, dtype=np.int8)
+        i8[0::2] = np.clip(np.round(iq.real * 128), -128,
+                           127).astype(np.int8)
+        i8[1::2] = np.clip(np.round(iq.imag * 128), -128,
+                           127).astype(np.int8)
+        i8.tofile(out)
+
     def capture_array(self, freq, sample_rate, num_samples, *, lna=16, vga=20,
                       amp=False, **k):
         self.calls.append((lna, vga, amp))
@@ -59,7 +74,11 @@ class FakeRadio:
         peak = min(127.0, (self.antenna_counts + self.noise_counts) * gain_lin)
         n = max(16, int(num_samples))
         phase = np.linspace(0, 40 * np.pi, n)
-        iq = (peak / 127.0) * np.exp(1j * phase)
+        # /128 matches the loader normalization (a peak of N counts is
+        # N/128 in normalized units); /127 here used to overshoot by 0.8%,
+        # which masked window-edge behavior until the file-path round trip
+        # quantized it honestly.
+        iq = (peak / 128.0) * np.exp(1j * phase)
         return iq.astype(np.complex64)
 
 

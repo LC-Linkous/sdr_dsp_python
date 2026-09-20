@@ -81,6 +81,7 @@ import numpy as np
 
 from sdr_dsp.core import (capture_health, fm_pilot_excess_db,
                           frequency_shift, search_gain)
+from sdr_dsp.sources.probe import probe_capture
 
 try:
     from hackrfpy import HackRF, load_iq
@@ -278,8 +279,10 @@ def calibrate_gain(h, rate):
     probe_n = int(rate * 0.05)
 
     def probe(lna, vga, amp):
-        return h.capture_array(STATION_HZ, rate, probe_n, lna=lna, vga=vga,
-                               amp=amp)
+        # File-path capture, NOT capture_array: the stdout-pipe path drops
+        # samples on Windows and buries the pilot (sdr_dsp.sources.probe).
+        return probe_capture(h, STATION_HZ, rate, probe_n, lna=lna, vga=vga,
+                             amp=amp)
 
     r = search_gain(probe, lna_steps=LNA_STEPS, vga_steps=VGA_STEPS,
                     quality=lambda iq: fm_pilot_excess_db(iq, rate),

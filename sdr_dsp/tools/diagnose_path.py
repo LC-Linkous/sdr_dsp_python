@@ -109,6 +109,10 @@ def main():
                          "station (control measurement)")
     ap.add_argument("--tools-dir", default=None)
     ap.add_argument("--seconds", type=float, default=SECONDS)
+    ap.add_argument("--skip-array", action="store_true",
+                    help="skip row B (capture_array): use after B has hung "
+                         "or corrupted the device state, so row C runs from "
+                         "a clean claim")
     args = ap.parse_args()
 
     here = Path(__file__).resolve().parent
@@ -126,13 +130,16 @@ def main():
     from hackrfpy import HackRF
     h = HackRF(tools_dir=args.tools_dir, verbose=False)
 
-    # B. live, via capture_array (the path the tools use); measured in full
-    # AND with the first 0.5 s dropped, to expose a settle transient
-    iq_b = h.capture_array(args.freq, RATE, n, lna=LNA, vga=VGA, amp=False)
-    measure("B. live capture_array", iq_b, RATE)
-    if len(iq_b) > int(RATE * 0.75):
-        measure("B'. same, first 0.5s skipped", iq_b[int(RATE * 0.5):], RATE)
-    demod_to_wav(iq_b, RATE, here / "diag_B_capture_array.wav")
+    if not args.skip_array:
+        # B. live, via capture_array (the path the tools use); measured in
+        # full AND with the first 0.5 s dropped, to expose a settle transient
+        iq_b = h.capture_array(args.freq, RATE, n, lna=LNA, vga=VGA,
+                               amp=False)
+        measure("B. live capture_array", iq_b, RATE)
+        if len(iq_b) > int(RATE * 0.75):
+            measure("B'. same, first 0.5s skipped", iq_b[int(RATE * 0.5):],
+                    RATE)
+        demod_to_wav(iq_b, RATE, here / "diag_B_capture_array.wav")
 
     # C. live, to file + reload (the path that made the references)
     with tempfile.TemporaryDirectory() as td:

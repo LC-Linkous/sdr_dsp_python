@@ -43,6 +43,7 @@ import sys
 import numpy as np
 
 from sdr_dsp.core import capture_health, fm_pilot_excess_db, search_gain
+from sdr_dsp.sources.probe import probe_capture
 
 SAMPLE_RATE = 2_000_000
 CHANNEL_BW = 100_000          # half-width used for the carrier check
@@ -150,14 +151,14 @@ def score_station(h, freq_hz):
     the pilot excess -- the number that decides. None on capture failure.
     """
     def probe(lna, vga, amp):
-        return h.capture_array(freq_hz, SAMPLE_RATE,
-                               int(SAMPLE_RATE * 0.05),
-                               lna=lna, vga=vga, amp=amp)
+        return probe_capture(h, freq_hz, SAMPLE_RATE,
+                             int(SAMPLE_RATE * 0.05),
+                             lna=lna, vga=vga, amp=amp)
 
     r = search_gain(probe,
                     quality=lambda iq: fm_pilot_excess_db(iq, SAMPLE_RATE))
-    iq = h.capture_array(freq_hz, SAMPLE_RATE, int(SAMPLE_RATE * 0.2),
-                         lna=r["lna"], vga=r["vga"], amp=r["amp"])
+    iq = probe_capture(h, freq_hz, SAMPLE_RATE, int(SAMPLE_RATE * 0.2),
+                       lna=r["lna"], vga=r["vga"], amp=r["amp"])
     health = capture_health(iq, SAMPLE_RATE, channel_bw=CHANNEL_BW)
     pilot = fm_pilot_excess_db(iq, SAMPLE_RATE)
     # Refine the frequency from the capture itself: sweep bins rarely sit on
@@ -184,8 +185,8 @@ def score_station(h, freq_hz):
 
 def verify_quiet(h, freq_hz):
     """A quiet frequency must FAIL the health check at moderate gain."""
-    iq = h.capture_array(freq_hz, SAMPLE_RATE, int(SAMPLE_RATE * 0.2),
-                         lna=24, vga=30, amp=False)
+    iq = probe_capture(h, freq_hz, SAMPLE_RATE, int(SAMPLE_RATE * 0.2),
+                       lna=24, vga=30, amp=False)
     health = capture_health(iq, SAMPLE_RATE, channel_bw=CHANNEL_BW)
     pilot = fm_pilot_excess_db(iq, SAMPLE_RATE)
     quiet = (not health["ok"]) and (pilot is None or pilot < PILOT_OK_DB)
@@ -196,8 +197,10 @@ def run_preflight(h, band, candidates=3, out=sys.stdout):
     """The whole flow against a radio-like object. Returns (ok, report).
 
     ``h`` needs detect(), sweep_collect(lo, hi, num_sweeps=), and
-    capture_array(freq, rate, n, lna=, vga=, amp=) -- hackrfpy's HackRF, or
-    a simulator. Separated from main() so tests can drive it directly.
+    capture(freq, rate, num_samples=, out=, lna=, vga=, amp=, sigmf=) --
+    hackrfpy's HackRF, or a simulator. Every capture goes through the FILE
+    path (see sdr_dsp.sources.probe for the Windows pipe-corruption story).
+    Separated from main() so tests can drive it directly.
     """
     p = lambda *a: print(*a, file=out)
     report = {"board": False, "band_alive": False, "stations": [],
@@ -346,6 +349,17 @@ class SimulatedRadio:
                          "num_samples": 8192, "date": "", "time": "",
                          "db": db.tolist()})
         return rows
+
+    def capture(self, freq, rate, num_samples=None, out=None, lna=16,
+                vga=20, amp=False, sigmf=False, **k):
+        """File-path capture, same contract as hackrfpy's: the simulator has
+        to speak it now that the real tools refuse the pipe path."""
+        iq = self.capture_array(freq, rate, int(num_samples),
+                                lna=lna, vga=vga, amp=amp)
+        i8 = np.empty(2 * iq.size, dtype=np.int8)
+        i8[0::2] = np.clip(np.round(iq.real * 128), -128, 127).astype(np.int8)
+        i8[1::2] = np.clip(np.round(iq.imag * 128), -128, 127).astype(np.int8)
+        i8.tofile(out)
 
     def capture_array(self, freq, rate, n, lna=16, vga=20, amp=False, **k):
         rng = np.random.default_rng(self.seed + int(freq) % 100003)
