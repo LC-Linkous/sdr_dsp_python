@@ -12,7 +12,16 @@ from __future__ import annotations
 import numpy as np
 
 
-def _get_window(window, n):
+def get_window(window, n):
+    """Window vector of length n by name. sdr_dsp's own small set (hann,
+    hamming, blackman, boxcar/rect), matching what psd()/spectrogram() use.
+    Public so examples and callers don't reach for the underscore alias.
+
+    Deliberately numpy-based rather than scipy.signal.get_window: these use
+    the symmetric np.* windows the spectral functions are calibrated against,
+    not scipy's periodic default, so a window pulled from here matches the
+    one psd() applies internally.
+    """
     if window is None:
         return np.ones(n)
     if isinstance(window, np.ndarray):
@@ -25,6 +34,10 @@ def _get_window(window, n):
         "rect": lambda m: np.ones(m),
         "boxcar": lambda m: np.ones(m),
     }[window](n)
+
+
+# internal callers predate the public name; keep the alias
+_get_window = get_window
 
 
 def psd(iq, sample_rate, nfft=1024, window="hann", center_freq=0.0):

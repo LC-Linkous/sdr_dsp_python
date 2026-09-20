@@ -46,7 +46,22 @@ def write_wav(path, audio, sample_rate, normalize=True, headroom=0.9,
     if int(sample_rate) <= 0:
         raise ValueError(f"sample_rate must be positive, got {sample_rate}")
 
+    # Mono is a 1-D array; stereo is (N, 2) -- e.g. from fm_stereo_decode
+    # stacked as np.column_stack([left, right]). More than 2 columns is not a
+    # WAV this writer makes.
+    if audio.ndim == 1:
+        channels = 1
+    elif audio.ndim == 2 and audio.shape[1] == 2:
+        channels = 2
+    else:
+        raise ValueError(
+            f"audio must be 1-D (mono) or (N, 2) (stereo), got shape "
+            f"{audio.shape}")
+
     if normalize:
+        # ONE shared scale across all channels, not per-channel: normalizing
+        # left and right independently would change their relative level and
+        # collapse the stereo image (a hard-left sound would drift center).
         mag = np.abs(audio)
         ref = float(np.percentile(mag, percentile))
         if ref <= 0.0:                      # near-silent or heavily sparse
@@ -57,8 +72,10 @@ def write_wav(path, audio, sample_rate, normalize=True, headroom=0.9,
 
     pcm = np.int16(np.clip(audio, -1.0, 1.0) * 32767)
     with wave.open(str(path), "wb") as w:
-        w.setnchannels(1)
+        w.setnchannels(channels)
         w.setsampwidth(2)
         w.setframerate(int(sample_rate))
+        # wave expects interleaved frames; a (N, 2) array is already
+        # L,R,L,R... in row-major order, so ravel gives the right layout.
         w.writeframes(pcm.tobytes())
     return str(path)

@@ -22,6 +22,7 @@ everything it sends). A full synthetic capture is
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -78,7 +79,8 @@ def add_iq_imbalance(iq: np.ndarray, gain_db: float, phase_deg: float) -> np.nda
     return out.astype(np.complex64)
 
 
-def add_pa_nonlinearity(iq: np.ndarray, coeffs: np.ndarray | list[complex]) -> np.ndarray:
+def add_pa_nonlinearity(iq: np.ndarray,
+                        coeffs: np.ndarray | Sequence[complex]) -> np.ndarray:
     """Apply a memoryless power-amplifier nonlinearity (odd-order polynomial).
 
     Models AM/AM and AM/PM distortion as::

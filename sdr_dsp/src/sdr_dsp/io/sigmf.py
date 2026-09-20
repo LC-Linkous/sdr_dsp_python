@@ -52,7 +52,9 @@ class Annotation:
 
     def to_sigmf(self) -> dict:
         """Serialize to a SigMF annotation dict (core:-namespaced keys)."""
-        d = {
+        # values are heterogeneous (ints, floats, strs, and passthrough
+        # extras), so the dict is str->object, not str->int
+        d: dict[str, object] = {
             "core:sample_start": int(self.sample_start),
             "core:sample_count": int(self.sample_count),
         }

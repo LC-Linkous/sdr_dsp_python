@@ -27,10 +27,56 @@ imports hackrfpy, so the library core stays device-free.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import os
+import sys
 import tempfile
 
 import numpy as np
+
+# Warning lines hackrfpy has already printed once this process. A gain
+# search makes ~16 probes, and identical "[!] sample_rate=... below the
+# recommended..." lines on every one of them bury the actual probe results
+# (a real preflight printed it 50+ times). First occurrence passes through;
+# repeats are dropped. Only lines starting with "[!]" are ever filtered --
+# everything else streams through untouched.
+_seen_warnings: set = set()
+
+
+class _DedupWarnings(io.TextIOBase):
+    def __init__(self, real):
+        self._real = real
+        self._buf = ""
+
+    def write(self, text):
+        self._buf += text
+        while "\n" in self._buf:
+            line, self._buf = self._buf.split("\n", 1)
+            if line.startswith("[!]"):
+                if line in _seen_warnings:
+                    continue
+                _seen_warnings.add(line)
+            self._real.write(line + "\n")
+        return len(text)
+
+    def flush(self):
+        if self._buf:
+            self._real.write(self._buf)
+            self._buf = ""
+        self._real.flush()
+
+
+@contextlib.contextmanager
+def dedup_warnings():
+    """Suppress repeated "[!] ..." warning lines on stdout/stderr."""
+    out, err = _DedupWarnings(sys.stdout), _DedupWarnings(sys.stderr)
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            yield
+        finally:
+            out.flush()
+            err.flush()
 
 
 def load_ci8(path, max_samples=None):
@@ -55,8 +101,9 @@ def probe_capture(h, freq, sample_rate, num_samples, *, lna=16, vga=20,
     fd, path = tempfile.mkstemp(suffix=".iq", dir=tmp_dir)
     os.close(fd)
     try:
-        h.capture(freq, sample_rate, num_samples=num_samples, out=path,
-                  lna=lna, vga=vga, amp=amp, sigmf=False)
+        with dedup_warnings():
+            h.capture(freq, sample_rate, num_samples=num_samples, out=path,
+                      lna=lna, vga=vga, amp=amp, sigmf=False)
         return load_ci8(path, max_samples=num_samples)
     finally:
         try:

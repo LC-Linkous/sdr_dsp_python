@@ -107,6 +107,102 @@ def deemphasis(audio, sample_rate, tau_us=75.0):
     return _sig.lfilter([a], [1.0, -(1.0 - a)], audio)
 
 
+def _analytic_phase(x):
+    """Instantaneous phase of a real signal via its analytic signal. OUR code.
+
+    The analytic signal is x + j*H(x) (H = Hilbert transform); its angle is
+    the instantaneous phase. We build it with the FFT the standard way --
+    zero the negative-frequency half, double the positive half -- rather than
+    call scipy, keeping the radio operation ours (numpy.fft only, house
+    style). Returns the unwrapped-free per-sample angle in radians.
+    """
+    n = len(x)
+    X = np.fft.fft(x)
+    h = np.zeros(n)
+    if n % 2 == 0:
+        h[0] = h[n // 2] = 1.0
+        h[1:n // 2] = 2.0
+    else:
+        h[0] = 1.0
+        h[1:(n + 1) // 2] = 2.0
+    analytic = np.fft.ifft(X * h)
+    return np.angle(analytic)
+
+
+def fm_stereo_decode(composite, sample_rate, pilot_hz=19_000.0,
+                     audio_bw=15_000.0, pilot_bw=1_000.0):
+    """Recover left/right audio from a demodulated FM stereo composite. OUR code.
+
+    The input is the MPX baseband -- the real output of ``fm_demod`` at the
+    composite rate (>= ~120 kHz so the 38 kHz subcarrier survives), BEFORE
+    de-emphasis and audio resampling. Broadcast FM stereo carries:
+
+        composite = (L+R)  +  (L-R)*cos(2*w_p*t)  +  pilot*cos(w_p*t)  [+ RDS]
+
+    where w_p is the 19 kHz pilot. (L+R) is the mono sum at baseband (0-15
+    kHz); (L-R) is a DSB-SC subcarrier centered at 38 kHz -- exactly twice the
+    pilot, and phase-locked to it, which is the whole point of transmitting
+    the pilot. Decoding:
+
+      1. Bandpass the pilot at 19 kHz.
+      2. Double its phase to synthesize a UNIT-amplitude 38 kHz reference
+         locked to the subcarrier -- from the pilot's analytic phase, not by
+         squaring (squaring leaves the amplitude and a DC term to clean up).
+         Phase-locking is what makes the coherent detection below work; a
+         free-running 38 kHz oscillator would drift and scramble L-R.
+      3. Coherent-detect the subcarrier: multiply the composite by the 38 kHz
+         reference and lowpass to the audio band. 2 * <mpx * cos(2wt)>
+         recovers (L-R).
+      4. Lowpass the composite directly for (L+R).
+      5. Matrix: L = ((L+R) + (L-R)) / 2, R = ((L+R) - (L-R)) / 2.
+
+    Returns (left, right), each real, same length and rate as ``composite``.
+    The absolute scale matches ``fm_demod``'s (both are unnormalized); feed
+    each channel through ``deemphasis`` and resample to the WAV rate exactly
+    as the mono path does, then normalize on write.
+
+    De-emphasis is deliberately NOT applied here: it is a separate, opt-in
+    stage (like everywhere else in this library), and applying it before the
+    matrix would be wrong -- the subcarrier must be detected first.
+
+    If the pilot is weak or absent (a mono broadcast, NBFM, or noise), the
+    recovered (L-R) is just noise and L ~ R ~ mono; check
+    ``fm_pilot_excess_db`` first when you need to know whether stereo is
+    actually present rather than decoding unconditionally.
+    """
+    composite = np.asarray(composite, dtype=np.float64)
+    if composite.size < 4:
+        z = np.zeros(composite.size, dtype=np.float64)
+        return z, z.copy()
+
+    from ..filters import (design_bandpass, design_lowpass,
+                           fir_apply_centered)
+
+    # CENTERED (zero-delay) filtering throughout, which is essential here:
+    # the 38 kHz reference is derived from the pilot, and it must stay time-
+    # aligned with the composite it coherently detects. A causal FIR's group
+    # delay ((taps-1)/2 samples) would shift the reference relative to the
+    # composite and scramble -- even invert -- the recovered L-R. Centered
+    # convolution keeps the pilot path, the sum path, and the difference path
+    # on one common time base.
+    #
+    # tap counts scale with rate so the transition bands stay proportionate
+    pilot_taps = int(sample_rate / 400) | 1          # ~odd, generous skirts
+    audio_taps = int(sample_rate / 800) | 1
+    pilot = fir_apply_centered(
+        composite, design_bandpass(pilot_hz - pilot_bw / 2,
+                                   pilot_hz + pilot_bw / 2,
+                                   sample_rate, num_taps=pilot_taps))
+    ref38 = np.cos(2.0 * _analytic_phase(pilot))     # unit-amp, phase-locked
+
+    lp = design_lowpass(audio_bw, sample_rate, num_taps=audio_taps)
+    sum_lr = fir_apply_centered(composite, lp)                # (L+R)
+    dif_lr = 2.0 * fir_apply_centered(composite * ref38, lp)  # (L-R)
+    left = (sum_lr + dif_lr) / 2.0
+    right = (sum_lr - dif_lr) / 2.0
+    return left, right
+
+
 def dsb_sc_demod(iq, sample_rate, bfo_hz=0.0):
     """Demodulate double-sideband suppressed-carrier (DSB-SC). OUR code.
 
