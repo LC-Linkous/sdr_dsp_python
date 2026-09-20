@@ -23,13 +23,15 @@ SAFETY: receive-only; short captures at fixed gain.
 
 import argparse
 
-import numpy as np
-
 from sdr_dsp.core import (capture_health, design_lowpass, fir_apply,
                           fm_pilot_excess_db)
 
 RATES = (2e6, 4e6, 8e6, 10e6, 20e6)
 SECONDS = 0.4
+
+
+def _fmt(v):
+    return "   n/a " if v is None else f"{v:+6.1f}"
 
 
 def to_2msps(iq, rate):
@@ -71,10 +73,9 @@ def main():
         p_native = fm_pilot_excess_db(iq, rate)
         dec, dec_rate = to_2msps(iq, rate)
         p_dec = fm_pilot_excess_db(dec, dec_rate)
-        fmt = lambda v: "   n/a " if v is None else f"{v:+6.1f}"
         print(f"{rate / 1e6:9.0f} M | {health['adc_counts']:5.1f}  | "
-              f"{fmt(health['channel_excess_db'])} dB | {fmt(p_native)} dB     "
-              f"| {fmt(p_dec)} dB")
+              f"{_fmt(health['channel_excess_db'])} dB | {_fmt(p_native)} dB     "
+              f"| {_fmt(p_dec)} dB")
     print("\nIf 8 M+ rows show a clear pilot and the 2 M row does not, the "
           "fix is to\ncapture at >= 8 Msps and decimate in software -- "
           "say so and it will be patched\ninto the preflight and "

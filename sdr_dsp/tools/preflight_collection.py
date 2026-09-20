@@ -218,8 +218,14 @@ def run_preflight(h, band, candidates=3, out=sys.stdout):
     report["board"] = True
 
     lo, hi = band
-    p(f"\n== 2. band sweep {lo / 1e6:g}-{hi / 1e6:g} MHz ==")
-    rows = h.sweep_collect(lo, hi, num_sweeps=4)
+    # Sweep 2 MHz below the band as well: the guard band / old TV channel 6
+    # territory is prime quiet-reference real estate, and a real session
+    # found the in-band "empty" spots occupied (91.5 and even 87.7 had
+    # carriers). Stations are still only ranked inside the band.
+    sweep_lo = lo - 2e6
+    p(f"\n== 2. band sweep {sweep_lo / 1e6:g}-{hi / 1e6:g} MHz "
+      f"(stations ranked within {lo / 1e6:g}-{hi / 1e6:g}) ==")
+    rows = h.sweep_collect(sweep_lo, hi, num_sweeps=4)
     freqs, power = spectrum_from_sweep(rows)
     if len(freqs) == 0:
         p("   FAIL: sweep returned nothing")
@@ -238,7 +244,8 @@ def run_preflight(h, band, candidates=3, out=sys.stdout):
         return False, report
     report["band_alive"] = True
 
-    stations = find_stations(freqs, power)
+    stations = [(f, prom) for f, prom in find_stations(freqs, power)
+                if f >= lo]
     p(f"   {len(stations)} station candidate(s) above "
       f"+{DETECT_THRESHOLD_DB:g} dB")
 
@@ -272,7 +279,11 @@ def run_preflight(h, band, candidates=3, out=sys.stdout):
         good = near + [s for s in good if s not in near]
 
     p("\n== 4. quiet reference ==")
-    quiet_hz = find_quiet(freqs, power, stations)
+    # quiet may sit anywhere in the sweep, including below the band --
+    # but keep it away from EVERY peak, ranked or not, so a below-band
+    # carrier can't be blessed just because it wasn't a ranking candidate
+    all_peaks = find_stations(freqs, power)
+    quiet_hz = find_quiet(freqs, power, all_peaks)
     if quiet_hz is None:
         p("   ! no sufficiently empty spot inside the sweep span; the "
           "negative-control")

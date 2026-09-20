@@ -338,6 +338,48 @@ def plan_bytes(plan, only):
     return rows, total
 
 
+def judge_capture(expect, health, at_min_gain, target_counts=None):
+    """Verdict for one capture against its expectation. Pure; unit-tested.
+
+    expect: "signal" | "weak" | "empty".
+    The "weak" branch carries a tolerance lesson from the first real corpus
+    run: a capture targeted at 3.0 counts measured 5.0 and was flagged
+    UNEXPECTEDLY STRONG -- but at single-digit counts the ~2-count
+    quantization/noise floor adds to everything, so a ratio test is wrong
+    there. Tolerance is therefore max(2.5x target, target + 3 counts): the
+    ratio governs comfortable levels, the absolute floor governs the
+    quantization regime.
+    """
+    if expect == "signal":
+        return "ok" if health["ok"] else "UNEXPECTEDLY EMPTY"
+    if expect == "weak":
+        if not health["ok"]:
+            return "ok (intentionally weak)"
+        counts = health["adc_counts"]
+        if target_counts is not None and counts <= max(
+                2.5 * target_counts, target_counts + 3.0):
+            return (f"ok (weak: {counts:.0f} counts vs target "
+                    f"{target_counts:g} -- within quantization tolerance)")
+        if at_min_gain:
+            # Nothing left to attenuate with. On a very strong station the
+            # radio simply cannot be turned down far enough to manufacture a
+            # noise-floor capture; that needs external attenuation or a
+            # disconnected antenna, which data_5 already covers.
+            return ("still above the health threshold at minimum gain "
+                    "-- use the data_5 controls for a true empty fixture")
+        return "UNEXPECTEDLY STRONG -- lower target_counts"
+    # expect == "empty"
+    if not health["ok"]:
+        return "ok (intentionally empty)"
+    if at_min_gain:
+        # A very strong station can stay above the health threshold even
+        # at zero gain; that is a property of the station, not a mistake in
+        # the run.
+        return ("ok (still above threshold at minimum gain -- "
+                "strong station)")
+    return "UNEXPECTEDLY HAS SIGNAL"
+
+
 def record_one(h, folder, cap, ref, dataset_no):
     """Record one capture, validate it, and return its manifest entry."""
     freq = cap.get("freq", STATION_HZ + cap.get("freq_offset", 0))
@@ -399,31 +441,8 @@ def record_one(h, folder, cap, ref, dataset_no):
 
     expect = cap.get("expect", "signal")
     at_min_gain = (lna, vga) == (LNA_STEPS[0], VGA_STEPS[0])
-    if expect == "signal":
-        verdict = "ok" if health["ok"] else "UNEXPECTEDLY EMPTY"
-    elif expect == "weak":
-        if not health["ok"]:
-            verdict = "ok (intentionally weak)"
-        elif at_min_gain:
-            # Nothing left to attenuate with. On a very strong station the
-            # radio simply cannot be turned down far enough to manufacture a
-            # noise-floor capture; that needs external attenuation or a
-            # disconnected antenna, which data_5 already covers.
-            verdict = ("still above the health threshold at minimum gain "
-                       "-- use the data_5 controls for a true empty fixture")
-        else:
-            verdict = "UNEXPECTEDLY STRONG -- lower target_counts"
-    else:
-        if not health["ok"]:
-            verdict = "ok (intentionally empty)"
-        elif at_min_gain:
-            # A very strong station can stay above the health threshold even
-            # at zero gain; that is a property of the station, not a mistake
-            # in the run.
-            verdict = ("ok (still above threshold at minimum gain -- "
-                       "strong station)")
-        else:
-            verdict = "UNEXPECTEDLY HAS SIGNAL"
+    verdict = judge_capture(expect, health, at_min_gain,
+                            target_counts=cap.get("target_counts"))
     flag = "" if verdict.startswith("ok") or at_min_gain else \
         "   <-- CHECK THIS"
     print(f"      {verdict}{flag}")
