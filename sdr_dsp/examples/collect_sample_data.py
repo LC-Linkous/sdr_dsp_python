@@ -49,7 +49,7 @@ from pathlib import Path
 
 import numpy as np
 
-from sdr_dsp.core import capture_health
+from sdr_dsp.core import capture_health, fm_pilot_excess_db, search_gain
 
 try:
     from hackrfpy import HackRF, load_iq
@@ -85,6 +85,7 @@ BANDS = {
         "center": 98_000_000, "sweep": (88_000_000, 108_000_000),
         "channel_bw": 100_000, "sample_rate": 2e6, "seconds": 0.5,
         "desc": "FM broadcast -- wideband FM, exercises fm_receiver.py",
+        "quality": "pilot",
         "expect_signal": True,
         "note": "Pick a strong local station; 98.0 MHz is only a placeholder.",
     },
@@ -92,6 +93,7 @@ BANDS = {
         "center": 162_450_000, "sweep": (162_375_000, 162_575_000),
         "channel_bw": 12_500, "sample_rate": 2e6, "seconds": 1.0,
         "desc": "NOAA weather radio -- narrowband FM voice, always on",
+        "quality": "channel",
         "expect_signal": True,
         "note": ("Continuous broadcast, so unlike airband it is reliably "
                  "present. Good narrowband-FM counterpart to the wideband "
@@ -145,68 +147,50 @@ def _counts(iq):
 
 
 def find_gain(h, band, args):
-    """Search LNA/VGA for a level in the target window.
+    """Search LNA/VGA/amp for a usable capture, via sdr_dsp.core.search_gain.
 
-    Returns (lna, vga, tried, status). status is one of:
-        "ok"        -- landed inside the target window
-        "too_weak"  -- still below the window at maximum gain; the signal
-                       isn't reaching the radio (antenna, cabling, or there
-                       is genuinely nothing on this frequency)
-        "clipping"  -- still at or above the clipping point at minimum gain;
-                       the signal is too strong and needs external attenuation
+    Returns (lna, vga, amp, tried, status). status is one of:
+        "ok"        -- converged on a usable setting
+        "too_weak"  -- either the level never reached the window at maximum
+                       gain, or (for bands with a quality metric) the level
+                       converged but no SIGNAL was ever measured: the window
+                       is filled with amplified receiver noise. Both mean
+                       the signal isn't reaching the radio.
+        "clipping"  -- still clipping at minimum gain; needs external
+                       attenuation
 
-    Walks from a conservative starting point using short in-RAM captures.
-    VGA moves first because its 2 dB steps are finer than the LNA's 8 dB, so
-    it lands inside the window more often without overshooting into clipping.
+    The front end (RF amp + LNA) is chosen by a measured quality metric when
+    the band defines one -- the 19 kHz stereo pilot for broadcast FM, channel
+    excess for narrowband carriers -- because only the front end improves
+    SNR; the VGA merely sets the ADC level. See sdr_dsp.core.gain_search.
     """
-    probe_n = int(args.sample_rate * 0.05)      # 50 ms is plenty to judge level
-    lna, vga = 16, 20
-    tried = []
+    probe_n = int(args.sample_rate * 0.05)      # 50 ms per probe
 
-    for _ in range(14):
-        iq = h.capture_array(band["center"], args.sample_rate, probe_n,
-                             lna=lna, vga=vga, amp=False)
-        c = _counts(iq)
-        tried.append((lna, vga, c))
-        print(f"    probe lna={lna:2d} vga={vga:2d} -> peak {c:6.1f} counts")
+    def probe(lna, vga, amp):
+        return h.capture_array(band["center"], args.sample_rate, probe_n,
+                               lna=lna, vga=vga, amp=amp)
 
-        if TARGET_LO <= c <= TARGET_HI:
-            return lna, vga, tried, "ok"
+    qkind = band.get("quality")
+    if qkind == "pilot":
+        def quality(iq):
+            return fm_pilot_excess_db(iq, args.sample_rate)
+    elif qkind == "channel":
+        def quality(iq):
+            hres = capture_health(iq, args.sample_rate,
+                                  channel_bw=band["channel_bw"])
+            return hres["channel_excess_db"]
+    else:
+        quality = None
 
-        if c >= CLIP_COUNTS:                     # clipping: back off hard
-            if vga > VGA_STEPS[0]:
-                vga = max(VGA_STEPS[0], vga - 6)
-            elif lna > LNA_STEPS[0]:
-                lna -= 8
-                vga = VGA_STEPS[0]
-            else:
-                return lna, vga, tried, "clipping"   # already at minimum
-            continue
-
-        if c < TARGET_LO:                        # too quiet: add gain
-            if vga < VGA_STEPS[-1]:
-                # step proportionally to how far below target we are
-                deficit_db = 20 * np.log10(max(TARGET_LO, 1.0) / max(c, 0.5))
-                vga = min(VGA_STEPS[-1], vga + max(2, int(deficit_db // 2) * 2))
-            elif lna < LNA_STEPS[-1]:
-                lna += 8
-                vga = 20
-            else:
-                return lna, vga, tried, "too_weak"  # already at maximum
-        else:                                    # above window, below clipping
-            if vga > VGA_STEPS[0]:
-                vga = max(VGA_STEPS[0], vga - 2)
-            elif lna > LNA_STEPS[0]:
-                lna -= 8
-                vga = VGA_STEPS[0]
-            else:
-                return lna, vga, tried, "clipping"
-
-    # ran out of probes: fall back to the best non-clipping level seen
-    usable = [t for t in tried if t[2] < CLIP_COUNTS]
-    best = max(usable, key=lambda t: t[2]) if usable else min(
-        tried, key=lambda t: t[2])
-    return best[0], best[1], tried, "ok" if usable else "clipping"
+    r = search_gain(probe, lna_steps=LNA_STEPS, vga_steps=VGA_STEPS,
+                    quality=quality, target=(TARGET_LO, TARGET_HI),
+                    clip=CLIP_COUNTS)
+    for lna, vga, amp, c in r["probes"]:
+        print(f"    probe lna={lna:2d} vga={vga:2d} amp={'on ' if amp else 'off'}"
+              f" -> peak {c:6.1f} counts")
+    if r["quality_db"] is not None:
+        print(f"    best front-end signal quality: {r['quality_db']:+.1f} dB")
+    return r["lna"], r["vga"], r["amp"], r["probes"], r["status"]
 
 
 def collect_band(h, name, args):
@@ -223,17 +207,17 @@ def collect_band(h, name, args):
 
     # ---- gain search ----
     if band.get("skip_gain_search"):
-        lna, vga, tried = 16, 20, []
+        lna, vga, amp, tried = 16, 20, False, []
         print("   fixed gain (noise reference): lna=16 vga=20")
     else:
         print("   searching for working gain ...")
         try:
-            lna, vga, tried, status = find_gain(h, band, argparse.Namespace(
+            lna, vga, amp, tried, status = find_gain(h, band, argparse.Namespace(
                 sample_rate=sr))
         except HackRFError as e:
             print(f"   gain search failed: {e}", file=sys.stderr)
             return None
-        print(f"   chose lna={lna} vga={vga}")
+        print(f"   chose lna={lna} vga={vga} amp={'on' if amp else 'off'}")
         if status == "too_weak":
             print("   ! still below the target level at maximum gain. Either")
             print("     nothing is transmitting here, or the signal isn't")
@@ -243,14 +227,15 @@ def collect_band(h, name, args):
             print("     strong; add external attenuation, or the capture will")
             print("     be distorted and the phase information destroyed.")
         if args.tune_only:
-            return {"name": name, "tuned_only": True, "lna": lna, "vga": vga}
+            return {"name": name, "tuned_only": True, "lna": lna,
+                    "vga": vga, "amp": amp}
 
     # ---- the real capture ----
     iq_path = OUT_DIR / f"{name}_{int(sr/1e6)}Msps.iq"
     n = int(sr * secs)
     try:
         h.capture(band["center"], sr, num_samples=n, out=str(iq_path),
-                  lna=lna, vga=vga, amp=False, sigmf=True)
+                  lna=lna, vga=vga, amp=amp, sigmf=True)
     except HackRFError as e:
         print(f"   capture failed: {e}", file=sys.stderr)
         return None
@@ -289,6 +274,7 @@ def collect_band(h, name, args):
             return None
 
     result = {"name": name, "path": iq_path, "lna": lna, "vga": vga,
+              "amp": amp,
               "sample_rate": sr, "seconds": secs, "health": health,
               "center": band["center"], "desc": band["desc"],
               "expected": expected, "probes": tried}
@@ -356,7 +342,8 @@ def write_readme(results, det):
             f"- {r['desc']}",
             f"- {r['center']/1e6:g} MHz, {r['sample_rate']/1e6:g} Msps, "
             f"{r['seconds']:g}s",
-            f"- gain: LNA {r['lna']} dB, VGA {r['vga']} dB, amp off",
+            f"- gain: LNA {r['lna']} dB, VGA {r['vga']} dB, amp "
+            f"{'on' if r.get('amp') else 'off'}",
             f"- peak level: {h['adc_counts']:.1f} of 127 ADC counts",
             f"- channel vs band edges: {excess}",
             f"- **{verdict}**", "",

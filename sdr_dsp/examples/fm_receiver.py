@@ -29,7 +29,7 @@ from pathlib import Path
 from sdr_dsp.sources import FileSource
 from sdr_dsp.core import (
     design_lowpass, fir_apply, fm_demod, resample_poly, frequency_shift,
-    deemphasis, capture_health,
+    deemphasis, capture_health, fm_pilot_excess_db,
 )
 from sdr_dsp.sinks import write_wav
 
@@ -80,10 +80,17 @@ def main():
     # health check runs after tuning, so it inspects the channel we'll demod
     if not args.no_check:
         health = capture_health(iq, fs, channel_bw=args.audio_bw)
+        pilot_db = fm_pilot_excess_db(iq, fs)
         if health["ok"]:
-            print(f"[*] capture peaks at ~{health['adc_counts']:.0f} of 127 "
+            print(f"[*] capture peaks at ~{health['adc_counts']:.0f} of 128 "
                   f"ADC counts, channel "
-                  f"{health['channel_excess_db']:+.1f} dB above the band edges")
+                  f"{health['channel_excess_db']:+.1f} dB above the "
+                  f"surrounding noise floor"
+                  + (f", 19 kHz pilot {pilot_db:+.1f} dB"
+                     if pilot_db is not None else ""))
+            if pilot_db is not None and pilot_db < 6.0:
+                print("[!] but no stereo pilot was found -- if this is meant "
+                      "to be broadcast FM, expect noise")
         else:
             for reason in health["reasons"]:
                 print(f"[!] {reason}")
@@ -115,9 +122,15 @@ def main():
           f"(up={up}, down={down})")
     audio = resample_poly(audio, up, down)
 
-    # 6. de-emphasis, then drop the settling region of the resampler and of
-    #    the one-pole IIR (which starts from a zero accumulator).
+    # 6. de-emphasis, then bandlimit to mono audio (0..15 kHz). The
+    #    demodulated composite still carries the 19 kHz stereo pilot, the
+    #    38 kHz L-R remnant, and RDS at 57 kHz; below 24 kHz Nyquist the
+    #    pilot would otherwise reach the WAV attenuated only by de-emphasis.
+    #    Then drop the settling region of the resampler, the one-pole IIR
+    #    (which starts from a zero accumulator), and this filter.
     audio = deemphasis(audio, AUDIO_RATE, tau_us=DEEMPHASIS_US)
+    audio = fir_apply(audio, design_lowpass(15_000, AUDIO_RATE,
+                                            num_taps=101))
     settle = int(AUDIO_SETTLE_S * AUDIO_RATE)
     if len(audio) > 4 * settle:
         audio = audio[settle:]

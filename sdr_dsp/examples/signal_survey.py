@@ -14,7 +14,6 @@ Usage:
 import argparse
 import sys
 
-import numpy as np
 
 from sdr_dsp.io import load_iq
 from sdr_dsp.core import power_dbfs, occupied_bandwidth, snr_db

@@ -54,7 +54,8 @@ from math import gcd
 import numpy as np
 
 from sdr_dsp.core import (design_lowpass, fir_apply, fm_demod, resample_poly,
-                          deemphasis, capture_health)
+                          deemphasis, capture_health, fm_pilot_excess_db,
+                          search_gain)
 
 SAMPLE_RATE = 2_000_000   # HackRF minimum, and plenty for one FM channel
 DECIMATION = 5            # 2 Msps -> 400 kHz before demodulating
@@ -106,11 +107,20 @@ class FMStream:
         self.rs_hist = ((need + self.down - 1) // self.down) * self.down
         self.rs_ahead = self.rs_hist
 
+        # mono audio is 30 Hz..15 kHz of the composite; everything above
+        # (19 kHz pilot, 38 kHz L-R, 57 kHz RDS) is machinery, not program.
+        # Without this the pilot reaches the output attenuated only by
+        # de-emphasis.
+        self.audio_taps = design_lowpass(15_000, self.audio_rate,
+                                         num_taps=101)
+
         # carried state
         self._iq_tail = np.zeros(len(self.taps) - 1, dtype=np.complex64)
         self._demod_tail = np.zeros(1, dtype=np.complex64)
         self._rs_buf = np.zeros(self.rs_hist, dtype=np.float64)
         self._deemph_tail = np.zeros(DEEMPH_WARMUP, dtype=np.float64)
+        self._audio_tail = np.zeros(len(self.audio_taps) - 1,
+                                    dtype=np.float64)
 
     @staticmethod
     def _roll_tail(tail, new):
@@ -173,36 +183,33 @@ class FMStream:
         shaped = deemphasis(primed, self.audio_rate,
                             tau_us=self.deemph_us)[len(self._deemph_tail):]
         self._deemph_tail = self._roll_tail(self._deemph_tail, out)
-        return shaped
+
+        # 6. audio lowpass (overlap-save, same pattern as the channel
+        #    filter): keep 0..15 kHz, drop the pilot and everything above.
+        m = len(self._audio_tail)
+        final = fir_apply(np.concatenate([self._audio_tail, shaped]),
+                          self.audio_taps)[m:]
+        self._audio_tail = self._roll_tail(self._audio_tail, shaped)
+        return final
 
 
 def pick_gain(h, freq):
-    """Short probe captures to find a gain that uses the ADC sensibly."""
-    lna, vga = 16, 20
-    counts = 0.0
-    for _ in range(10):
-        iq = h.capture_array(freq, SAMPLE_RATE, int(SAMPLE_RATE * 0.05),
-                             lna=lna, vga=vga, amp=False)
-        counts = float(max(np.max(np.abs(iq.real)),
-                           np.max(np.abs(iq.imag)))) * 127.0
-        if 45.0 <= counts <= 110.0:
-            return lna, vga, counts
-        if counts > 110.0:
-            if vga > 0:
-                vga = max(0, vga - 6)
-            elif lna > 0:
-                lna -= 8
-            else:
-                return lna, vga, counts
-        else:
-            if vga < 62:
-                deficit = 20 * np.log10(45.0 / max(counts, 0.5))
-                vga = min(62, vga + max(2, int(deficit // 2) * 2))
-            elif lna < 40:
-                lna, vga = lna + 8, 20
-            else:
-                return lna, vga, counts
-    return lna, vga, counts
+    """Find (lna, vga, amp) that captures the STATION, not just a level.
+
+    Uses sdr_dsp.core.search_gain with the 19 kHz stereo pilot as the
+    quality metric: the front end (RF amp + LNA) is chosen by how clearly
+    the pilot is measured -- the part of the chain that decides what you can
+    hear -- and only then does the VGA set the ADC level. The old level-only
+    walk would happily amplify the noise floor into the target window and
+    call it done.
+    """
+    def probe(lna, vga, amp):
+        return h.capture_array(freq, SAMPLE_RATE, int(SAMPLE_RATE * 0.05),
+                               lna=lna, vga=vga, amp=amp)
+
+    r = search_gain(probe,
+                    quality=lambda iq: fm_pilot_excess_db(iq, SAMPLE_RATE))
+    return r["lna"], r["vga"], r["amp"], r["counts"], r["quality_db"]
 
 
 def main():
@@ -234,20 +241,32 @@ def main():
         print(f"no usable HackRF: {det['problem']}", file=sys.stderr)
         return 1
 
-    lna, vga = args.lna, args.vga
+    lna, vga, amp = args.lna, args.vga, False
     if AUTO_GAIN and not args.no_auto_gain:
         print("[*] probing for a working gain ...")
-        lna, vga, counts = pick_gain(h, args.freq)
-        print(f"    lna={lna} vga={vga}  ({counts:.0f}/127 ADC counts)")
+        lna, vga, amp, counts, pilot_db = pick_gain(h, args.freq)
+        print(f"    lna={lna} vga={vga} amp={'on' if amp else 'off'}  "
+              f"({counts:.0f}/128 ADC counts"
+              + (f", pilot {pilot_db:+.1f} dB)" if pilot_db is not None
+                 else ")"))
 
     # Is the station actually there? Cheaper to say so now than to let
     # someone listen to hiss and wonder whether the DSP is broken.
     probe = h.capture_array(args.freq, SAMPLE_RATE, int(SAMPLE_RATE * 0.1),
-                            lna=lna, vga=vga, amp=False)
+                            lna=lna, vga=vga, amp=amp)
     health = capture_health(probe, SAMPLE_RATE, channel_bw=CHANNEL_BW)
+    pilot_db = fm_pilot_excess_db(probe, SAMPLE_RATE)
+    if pilot_db is not None and pilot_db < 6.0:
+        health["ok"] = False
+        health["reasons"].append(
+            f"no 19 kHz stereo pilot in the demodulated signal "
+            f"({pilot_db:+.1f} dB): whatever the level is, it is not a "
+            f"broadcast FM station")
     if health["ok"]:
         print(f"[*] station present: channel "
-              f"{health['channel_excess_db']:+.1f} dB above the band edges")
+              f"{health['channel_excess_db']:+.1f} dB above the noise floor"
+              + (f", pilot {pilot_db:+.1f} dB" if pilot_db is not None
+                 else ""))
     else:
         for r in health["reasons"]:
             print(f"[!] {r}")
@@ -266,7 +285,7 @@ def main():
     blocks = 0
     try:
         with HackRFCapture(args.freq, SAMPLE_RATE, lna=lna, vga=vga,
-                           block_size=BLOCK_SAMPLES,
+                           amp=amp, block_size=BLOCK_SAMPLES,
                            tools_dir=TOOLS_DIR) as src:
             for iq in src.blocks():
                 audio = chain.process(iq)
