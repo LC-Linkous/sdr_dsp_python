@@ -1,38 +1,57 @@
 # sdr_dsp
 
-A personal, fully-functional DSP library for software-defined radio IQ, written in Python. It consumes IQ samples from a file or a live SDR and turns them into meaning — filtered channels, spectra, demodulated audio, decoded signals — and it can go the other way, framing and modulating messages into IQ for transmit. The full receive/transmit loop closes in software.
+A device-agnostic digital signal processing library for software-defined
+radio. It operates on complex baseband IQ (`numpy.complex64`) and provides the
+building blocks to receive, analyze, demodulate, modulate, frame, and exchange
+data over a radio link. It is a **library, not a framework** — no GUI, no
+flowgraph runtime; you call functions and compose them. The DSP core imports no
+specific radio; device adapters (HackRF, files) live at the edges.
 
-This is the installable project directory; the full README, example catalog, and technical reference live one level up in the repository:
-https://github.com/LC-Linkous/sdr_dsp_python
+Developed and tested against a **HackRF One**, but the core processes IQ
+regardless of source. See `docs/HARDWARE.md` for what that hardware can and
+can't do, and why it's a good development platform.
 
-## What it is (and isn't)
+## Status
 
-`sdr_dsp` is a library, not a framework: you import functions and classes and orchestrate the pipeline yourself in plain Python. There is no runtime, scheduler, flowgraph engine, or GUI — GNU Radio remains the right tool for large real-time flowgraphs.
+Pre-release; there is no Version 1 yet, and it is heavily under development.
+Some features have hooks that aren't implemented. What is proven where:
 
-The radio DSP is the library's own code. scipy only *designs* filter coefficients and serves as a test oracle; numpy provides the FFT. The core operates on `complex64` arrays and knows nothing about any device — IQ arrives through the `IQSource` protocol and leaves through sinks, and device adapters live in your own code.
+- **FM receive** — validated on real, ear-verified over-the-air captures.
+- **Other demodulators (AM/SSB/CW, OOK/ASK, FSK, the PSK family, QAM-16)** —
+  verified against synthetic ground truth; see `docs/MODULATIONS.md` for the
+  honest per-scheme status (Supported / Demonstrable / Visualize-only).
+- **Transmit and the ARQ link protocol** — proven in software (closed-loop
+  simulation); the real-radio transmit path is not yet validated. See §12 of
+  `docs/sdr_dsp_REFERENCE.md`.
 
-## Install & test
+## Start here
 
-The library depends only on **numpy + scipy**. From this directory:
+- `docs/sdr_dsp_REFERENCE.md` — the comprehensive technical reference
+  (architecture, module map, usage, extension guide, limitations).
+- `docs/EXAMPLES.md` — a catalog of every runnable script in `examples/`.
+- `docs/MODULATIONS.md` — what's supported and what "supported" means.
+- `docs/HARDWARE.md`, `docs/DC_SPIKE.md` — device behavior and the offset-tuning
+  recipe every direct-conversion capture needs.
+- `docs/LOG.md` — dated development log of major changes and fixes.
 
-```
-uv sync                  # create the venv, install numpy + scipy + dev tools
-uv run pytest -q         # expect: 641 passed, 1 skipped (hardware)
-```
-
-Optional extras for the example scripts (not the library core): `--extra plotting` (matplotlib), `--extra audio` (sounddevice), `--extra examples-hackrf` (hackrfpy), or `--extra examples` for all three.
-
-## Quick start
+Quick example:
 
 ```python
-from sdr_dsp.sources import FileSource
-from sdr_dsp.core import design_lowpass, fir_apply, fm_demod, resample_poly
+from sdr_dsp import tune_to_baseband, design_lowpass, fir_apply, fm_demod
+from sdr_dsp.io import load_iq
 
-src = FileSource("sample_data/fm_2Msps.iq")      # reads rate/freq from SigMF
-taps = design_lowpass(100_000, src.sample_rate)
-iq = fir_apply(src.iq, taps)
-audio = fm_demod(iq, deviation_hz=75_000, sample_rate=src.sample_rate)
-audio = resample_poly(audio, 48_000 // 16, int(src.sample_rate) // 16)
+iq, meta = load_iq("sample_data/fm_2Msps.iq")
+fs = meta["global"]["core:sample_rate"]
+# (already at baseband here; tune_to_baseband handles off-center captures)
+audio = fm_demod(fir_apply(iq, design_lowpass(100e3, fs)),
+                 deviation_hz=75e3, sample_rate=fs)
 ```
 
-See `examples/` for several runnable scripts — receivers, decoders, teaching demos, the transmit/link arc, and live-hardware helpers — cataloged in `docs/EXAMPLES.md` at the repository root.
+Setup uses [uv](https://docs.astral.sh/uv/): `uv sync` for the library and
+tests, `uv sync --extra examples` for everything the examples can use.
+
+---
+
+*The documentation is being AI-summarized to fix spelling and make the
+development easier to follow. All mistakes are human, and will likely take a
+revision or two to fix experimentally.*
