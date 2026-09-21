@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import logging
 import os
 import sys
 import tempfile
@@ -67,16 +68,64 @@ class _DedupWarnings(io.TextIOBase):
         self._real.flush()
 
 
+class _WarnDedupFilter(logging.Filter):
+    """Drop repeated WARNING+ records from a logger, once per process.
+
+    Attached to hackrfpy's logger by ``dedup_warnings``. Runs at record-
+    dispatch time, before handlers, so it collapses duplicates regardless of
+    how the record eventually reaches stderr. Keeps its own memory (separate
+    from the stream wrapper's ``_seen_warnings``) so the first, legitimate
+    occurrence is never mistaken for a repeat by the other layer.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._seen: set = set()
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno < logging.WARNING:
+            return True  # leave INFO/progress chatter untouched
+        msg = record.getMessage()
+        if msg in self._seen:
+            return False
+        self._seen.add(msg)
+        return True
+
+
+_HACKRFPY_LOG = logging.getLogger("hackrfpy")
+_hackrfpy_warn_dedup = _WarnDedupFilter()
+
+
 @contextlib.contextmanager
 def dedup_warnings():
-    """Suppress repeated "[!] ..." warning lines on stdout/stderr."""
+    """Suppress repeated "[!] ..." warning lines on stdout/stderr.
+
+    Warnings reach the console two different ways, so this collapses both:
+
+    * hackrfpy emits its "[!] ..." notices through
+      ``logging.getLogger("hackrfpy").warning(...)``. A logging ``Filter`` on
+      that logger drops repeat records *before they reach any handler*, so it
+      works whether the record is written by a ``StreamHandler`` bound to the
+      real ``sys.stderr`` or by logging's last-resort handler. The stream
+      redirect below only ever caught the last-resort case -- once anything
+      installs a bound handler (a plain ``logging.basicConfig`` in a tool is
+      enough), ``redirect_stderr`` no longer sees the record and the same
+      sub-8-Msps line printed once per probe (~16x per station in preflight).
+      The filter is scoped to WARNING+ so INFO progress chatter on the same
+      logger (which legitimately repeats per probe) is left alone.
+    * Anything written straight to stdout/stderr (direct ``print`` of a
+      "[!] " line) is line-filtered by the stream wrapper, preserving that
+      contract for callers that don't go through logging.
+    """
     out, err = _DedupWarnings(sys.stdout), _DedupWarnings(sys.stderr)
+    _HACKRFPY_LOG.addFilter(_hackrfpy_warn_dedup)
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
         try:
             yield
         finally:
             out.flush()
             err.flush()
+            _HACKRFPY_LOG.removeFilter(_hackrfpy_warn_dedup)
 
 
 def load_ci8(path, max_samples=None):

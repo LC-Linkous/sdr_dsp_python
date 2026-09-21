@@ -320,3 +320,95 @@ def estimate_cfo(iq, sample_rate, nfft=None):
     spec = np.abs(np.fft.fftshift(np.fft.fft(iq[:nfft], nfft)))
     freqs = np.fft.fftshift(np.fft.fftfreq(nfft, 1.0 / sample_rate))
     return float(freqs[int(np.argmax(spec))])
+
+
+def estimate_fm_cfo(iq, sample_rate, *, channel_bw=100_000.0, trim_hz=None):
+    """Estimate a broadcast-FM capture's carrier frequency offset, in Hz.
+
+    Method: the phase discriminator's DC term. Under a constant carrier
+    offset df, ``angle(x[n] * conj(x[n-1]))`` picks up that same df at every
+    sample, while the program audio (the wanted FM message) averages to zero
+    over a long window. So the MEAN of the demodulated instantaneous frequency
+    IS the carrier offset. This is the fine, accurate estimator for FM, and is
+    distinct from ``estimate_cfo``: that one finds where energy sits in the
+    passband (a coarse, spread-out measurement for a wideband FM signal),
+    whereas this recovers the sub-kHz crystal offset a real receiver must
+    correct.
+
+    The capture is channelized (lowpass + decimate to the FM channel) before
+    discriminating, for exactly the reason ``fm_pilot_excess_db`` documents: a
+    discriminator fed the full capture bandwidth is dominated by out-of-channel
+    noise and adjacent stations, and the mean of that is meaningless. On the
+    channelized signal the mean is the offset.
+
+    Why NOT the 19 kHz pilot: with a differential discriminator a carrier
+    offset adds a DC term but does NOT move the pilot -- differentiation is
+    invariant to a constant frequency shift -- so the pilot's position carries
+    no CFO information (this is the trap the TODO's "or the pilot frequency"
+    wording invites). The pilot's real role here is a presence gate: confirm a
+    station is actually there with ``fm_pilot_excess_db`` before trusting this
+    number, because the mean of noise is not a carrier offset.
+
+    Args:
+        channel_bw: FM channel half-not-needed; used only to size the click
+            trim. Broadcast FM is ~100 kHz half-bandwidth of program content.
+        trim_hz: discriminator "clicks" (phase wraps in deep fades / low SNR)
+            are impulsive outliers that bias a plain mean. Samples whose
+            demodulated frequency exceeds trim_hz in magnitude are dropped
+            before averaging. Default 1.5 * channel_bw keeps the full +/-75 kHz
+            deviation swing while rejecting the near-+/-Nyquist click spikes.
+            Pass None to disable trimming.
+
+    Returns the offset in Hz (positive = the signal sits above the tuned
+    center), or None when the capture is too short or the rate too low to
+    channelize to the FM channel.
+
+    OUR code.
+    """
+    iq = np.asarray(iq, dtype=np.complex64)
+    if sample_rate <= 4.0 * channel_bw or iq.size < 4096:
+        return None
+    # Channelize to the FM channel, mirroring fm_pilot_excess_db: lowpass and
+    # decimate to ~500 kSps before discriminating so out-of-channel energy
+    # does not pollute the mean. Taps scale with the decimation.
+    decim = max(1, int(sample_rate // 480_000))
+    if decim > 1:
+        from .filters import design_lowpass, fir_apply
+        taps = design_lowpass(120_000.0, sample_rate, num_taps=8 * decim + 1)
+        iq = fir_apply(iq, taps)[::decim]
+        sample_rate = sample_rate / decim
+    if iq.size < 2:
+        return None
+    # phase discriminator -> instantaneous frequency in Hz
+    inst_hz = (np.angle(iq[1:] * np.conj(iq[:-1])).astype(np.float64)
+               * sample_rate / (2.0 * np.pi))
+    trim = 1.5 * float(channel_bw) if trim_hz is None else float(trim_hz)
+    if trim > 0:
+        keep = np.abs(inst_hz) <= trim
+        if keep.any():
+            inst_hz = inst_hz[keep]
+    if inst_hz.size == 0:
+        return None
+    return float(np.mean(inst_hz))
+
+
+def correct_fm_cfo(iq, sample_rate, cfo_hz=None, **kwargs):
+    """Remove a broadcast-FM carrier frequency offset. OUR code.
+
+    If ``cfo_hz`` is None it is measured with ``estimate_fm_cfo`` (any keyword
+    arguments are forwarded to it). The correction is a frequency shift by
+    ``-cfo_hz`` -- ``frequency_shift(iq, -cfo_hz, sample_rate)`` -- which brings
+    the carrier back to center. Estimating and correcting are separated on
+    purpose (``estimate_fm_cfo`` never mutates data), and this is the
+    convenience that does both in one call for the common case.
+
+    Returns ``(corrected_iq, cfo_hz)`` so the applied correction is visible to
+    the caller. When the offset cannot be estimated (capture too short or rate
+    too low), returns the input unchanged with ``cfo_hz = 0.0``.
+    """
+    if cfo_hz is None:
+        cfo_hz = estimate_fm_cfo(iq, sample_rate, **kwargs)
+    if cfo_hz is None:
+        return np.asarray(iq, dtype=np.complex64), 0.0
+    from .mixing import frequency_shift
+    return frequency_shift(iq, -float(cfo_hz), sample_rate), float(cfo_hz)
