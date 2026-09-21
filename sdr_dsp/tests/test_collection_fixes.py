@@ -12,6 +12,7 @@
 
 import importlib.util
 import io
+import logging
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -151,3 +152,44 @@ def test_non_bang_lines_never_filtered():
             print("same line")
             print("same line")
     assert buf.getvalue().count("same line") == 2
+
+
+def test_logging_warnings_dedupe_through_bound_handler():
+    """The real path: hackrfpy warns via logging, not a direct print.
+
+    A StreamHandler bound to the true stderr (what any logging.basicConfig or
+    hackrfpy's own setup installs) bypasses redirect_stderr entirely, so the
+    stream wrapper alone let the same warning print once per probe. The
+    logging-layer filter must collapse it to one across many probes.
+    """
+    log = logging.getLogger("hackrfpy")
+    sink = io.StringIO()
+    handler = logging.StreamHandler(sink)  # bound to sink now, before redirect
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    log.addHandler(handler)
+    prev_propagate = log.propagate
+    prev_level = log.level
+    log.propagate = False
+    log.setLevel(logging.INFO)  # let INFO through the level gate so the
+    #                             filter's level scoping is what's under test
+    try:
+        for _ in range(16):  # ~one probe each
+            with dedup_warnings():
+                log.warning("[!] sample_rate=2e+06 is below the recommended 8e+06")
+                log.info("probe lna=8 -> 70 counts")  # INFO must NOT dedupe
+    finally:
+        log.removeHandler(handler)
+        log.propagate = prev_propagate
+        log.setLevel(prev_level)
+    text = sink.getvalue()
+    assert text.count("[!]") == 1, "warning should collapse to one across probes"
+    assert text.count("probe lna=8") == 16, "INFO progress must not be filtered"
+
+
+def test_dedup_filter_removed_after_context():
+    """dedup_warnings must not leave its filter attached to the logger."""
+    log = logging.getLogger("hackrfpy")
+    before = list(log.filters)
+    with dedup_warnings():
+        pass
+    assert list(log.filters) == before
