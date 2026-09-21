@@ -91,10 +91,15 @@ markers = [
 [tool.mypy]
 python_version = "3.11"
 files = ["src/sdr_dsp"]
-# Unlike hackrfpy, sdr_dsp does not ship a py.typed marker yet and the core
-# is not annotated, so the strict disallow-untyped flags stay OFF until an
-# annotation pass happens. Turning them on before that would fail every
-# module; turning them on after is what makes py.typed honest.
+# sdr_dsp ships a py.typed marker (src/sdr_dsp/py.typed), so downstream
+# type-checkers use our inline types. The annotation campaign is incremental:
+# check_untyped_defs is ON (function BODIES are type-checked even where the
+# signature isn't annotated yet -- it catches real bugs and needs no
+# annotations), and the strict disallow-untyped flags come on per-module as
+# each module is fully annotated. Enabling the strict flags globally today
+# would report ~350 errors (the whole signature-annotation backlog); doing it
+# module-by-module keeps the gate green while the coverage grows.
+check_untyped_defs = true
 
 [[tool.mypy.overrides]]
 # scipy ships no type stubs; we use it for filter design and as a test oracle.
