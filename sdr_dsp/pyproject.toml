@@ -26,6 +26,11 @@ dependencies = [
     "scipy>=1.11",
 ]
 
+[project.urls]
+Homepage = "https://github.com/LC-Linkous/sdr_dsp_python"
+Repository = "https://github.com/LC-Linkous/sdr_dsp_python"
+Issues = "https://github.com/LC-Linkous/sdr_dsp_python/issues"
+
 [project.optional-dependencies]
 # These extras are for DOWNSTREAM INSTALLS of the library (pip install
 # sdr_dsp[plotting]); they are not how the dev environment gets its
