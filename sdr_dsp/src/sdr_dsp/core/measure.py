@@ -271,8 +271,8 @@ def find_bursts(iq, sample_rate=None, threshold=None, min_gap=0, min_len=1):
         return []
     # find rising/falling edges of the boolean "on" mask
     edges_ = np.diff(on.astype(np.int8))
-    starts = list(np.nonzero(edges_ == 1)[0] + 1)
-    stops = list(np.nonzero(edges_ == -1)[0] + 1)
+    starts = [int(i) for i in np.nonzero(edges_ == 1)[0] + 1]
+    stops = [int(i) for i in np.nonzero(edges_ == -1)[0] + 1]
     if on[0]:
         starts = [0] + starts
     if on[-1]:

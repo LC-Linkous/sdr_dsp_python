@@ -74,7 +74,7 @@ def dqpsk_demod(symbols):
     # 0, +pi/2, pi, -pi/2  ->  00, 01, 11, 10
     quad = np.mod(np.round(ang / (np.pi / 2)).astype(int), 4)
     gray = {0: (0, 0), 1: (0, 1), 2: (1, 1), 3: (1, 0)}
-    bits = []
+    bits: list[int] = []
     for q in quad:
         b = gray[int(q)]
         bits.extend(b)
@@ -117,7 +117,7 @@ def qpsk_demod(symbols, gray=True):
                                  np.where(~i_pos & ~q_pos, 2, 3)))
     gray = {0: (0, 0), 1: (0, 1), 2: (1, 1), 3: (1, 0)} if gray else \
            {0: (0, 0), 1: (0, 1), 2: (1, 0), 3: (1, 1)}
-    bits = []
+    bits: list[int] = []
     for q in quadrant:
         bits.extend(gray[int(q)])
     # the chosen constellation points (unit circle, quadrant centers)
@@ -149,7 +149,7 @@ def psk8_demod(symbols):
     sector = np.mod(np.round(ang / (np.pi / 4)).astype(int), 8)
     gray3 = {0: (0, 0, 0), 1: (0, 0, 1), 2: (0, 1, 1), 3: (0, 1, 0),
              4: (1, 1, 0), 5: (1, 1, 1), 6: (1, 0, 1), 7: (1, 0, 0)}
-    bits = []
+    bits: list[int] = []
     for sec in sector:
         bits.extend(gray3[int(sec)])
     return np.array(bits, dtype=np.uint8), sector.astype(np.uint8)

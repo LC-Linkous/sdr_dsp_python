@@ -74,7 +74,7 @@ class ARQ:
                 f"more than {SEQ_MOD_MAX} sequence numbers.")
 
         # --- sender state ---
-        self._send_queue = deque()        # app messages waiting to go out
+        self._send_queue: deque = deque()        # app messages waiting to go out
         self._next_seq = 0                # seq to assign to the next new frame
         self._send_base = 0               # oldest unacked seq (window left edge)
         # outstanding frames: seq -> {"data", "age", "retries", "acked"}
@@ -89,7 +89,7 @@ class ARQ:
         self._rx_delivered_any = False
 
         # --- output ---
-        self._out = deque()               # pending intentions
+        self._out: deque = deque()               # pending intentions
 
     # -- application API --------------------------------------------------
     def send(self, data):

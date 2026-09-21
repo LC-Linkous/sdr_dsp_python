@@ -115,7 +115,7 @@ class Pipeline:
         Returns the result list (or None if a sink was given); if profile,
         returns (results_or_None, PipelineStats).
         """
-        results = [] if sink is None else None
+        results: list = []
         stats = PipelineStats()
         for st in self.stages:
             stats.per_stage_seconds.setdefault(st.name, 0.0)
@@ -140,9 +140,10 @@ class Pipeline:
             else:
                 results.append(x)
 
+        out = None if sink is not None else results
         if profile:
-            return results, stats
-        return results
+            return out, stats
+        return out
 
     def stream(self, max_blocks=None) -> Iterator[np.ndarray]:
         """Run as a generator, yielding each processed block lazily.

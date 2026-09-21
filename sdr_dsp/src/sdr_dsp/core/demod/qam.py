@@ -52,7 +52,7 @@ def qam16_demod(symbols, normalize=True):
     q_lvl = level(np.imag(s))
     # Gray map for the 4 levels: -3->00, -1->01, +1->11, +3->10
     gray = {-3: (0, 0), -1: (0, 1), 1: (1, 1), 3: (1, 0)}
-    bits = []
+    bits: list[int] = []
     for il, ql in zip(i_lvl, q_lvl):
         bits.extend(gray[int(il)])
         bits.extend(gray[int(ql)])

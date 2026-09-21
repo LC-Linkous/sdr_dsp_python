@@ -148,7 +148,7 @@ def run_sim(station_a, station_b, max_ticks=200, transport=None, log=None):
     """
     transport = transport or perfect_transport
     log = log if log is not None else EventLog()
-    delivered = {"A": [], "B": []}
+    delivered: dict[str, list] = {"A": [], "B": []}
 
     def collect(app_outputs):
         for station, intent in app_outputs:
