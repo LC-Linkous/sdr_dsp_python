@@ -76,6 +76,7 @@ class StreamingFIR:
         self._tail: np.ndarray | None = None
 
     def reset(self) -> None:
+        """Forget all carried history, e.g. after a retune or a stream restart."""
         self._tail = None
 
     def __call__(self, block):
@@ -107,6 +108,7 @@ class StreamingDecimator:
         self._skip = 0           # samples to drop at the start of the next block
 
     def reset(self) -> None:
+        """Forget all carried history, e.g. after a retune or a stream restart."""
         self._skip = 0
 
     def __call__(self, block):
@@ -137,6 +139,7 @@ class StreamingMixer:
         self._n0 = 0
 
     def reset(self) -> None:
+        """Forget all carried history, e.g. after a retune or a stream restart."""
         self._n0 = 0
 
     def __call__(self, block):
@@ -174,6 +177,7 @@ class StreamingFMDemod:
         self._prev: np.ndarray | None = None
 
     def reset(self) -> None:
+        """Forget all carried history, e.g. after a retune or a stream restart."""
         self._prev = None
 
     def __call__(self, block):
@@ -234,6 +238,7 @@ class StreamingResampler:
         return self.ahead
 
     def reset(self) -> None:
+        """Forget all carried history, e.g. after a retune or a stream restart."""
         self._buf = None
         self._started = False
 
@@ -305,6 +310,7 @@ class StreamingDeemphasis:
         self._y_prev = 0.0
 
     def reset(self) -> None:
+        """Forget all carried history, e.g. after a retune or a stream restart."""
         self._y_prev = 0.0
 
     def __call__(self, block):

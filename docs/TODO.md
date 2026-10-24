@@ -5,6 +5,9 @@ here. Strike through or delete when done; the LOG records what happened.
 
 ## Hardware (the gate everything else waits on)
 
+- [ ] **Run `uv run pytest -m hardware tests/test_hardware_rx_smoke.py -v`
+      on the bench.** Written 2026-10-24 without a board; the first run is
+      its validation. Set `SDR_DSP_TEST_FM_HZ` to a local station.
 - [ ] **Wired one-way TX bench test** of the FSK packet chain
       (`examples/two_station_link.py`). Everything digital, TX and protocol
       is software-only until this runs (REFERENCE §12).
@@ -37,8 +40,8 @@ here. Strike through or delete when done; the LOG records what happened.
       are unannotated (~350 errors under `disallow_untyped_defs`). Enable the
       strict flags per module as each is annotated; until then the marker
       overpromises, exactly the hackrfpy pre-1.1.0 situation.
-- [ ] Line-ending normalization: `.gitattributes` is committed, the
-      `git add --renormalize .` commit has not been made. Do it alone.
+- [x] Line-ending normalization: the index was already LF-clean
+      (`git ls-files --eol`); CI now guards it. No renormalize commit needed.
 
 ## Repo hygiene
 

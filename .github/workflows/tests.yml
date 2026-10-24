@@ -116,6 +116,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Tracked text files are LF in the index
+        # .gitattributes declares `text=auto eol=lf`; this holds the line.
+        # A CRLF file sneaking into the index breaks `#!` shebangs on Linux
+        # and produces whole-file whitespace diffs. `git ls-files --eol`
+        # reports the INDEX encoding (i/...), independent of the runner's OS.
+        working-directory: .
+        run: |
+          bad=$(git ls-files --eol | grep -E '^i/(crlf|mixed)' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::tracked files with CRLF/mixed line endings in the index:"
+            echo "$bad"
+            exit 1
+          fi
+          echo "index is LF-clean ($(git ls-files --eol | grep -c '^i/lf') text files)"
+
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:

@@ -49,6 +49,7 @@ class ArraySource:
         self.block_size = int(block_size)
 
     def blocks(self) -> Iterator[np.ndarray]:
+        """Yield the array in consecutive ``block_size`` slices (last may be short)."""
         n = len(self.iq)
         for start in range(0, n, self.block_size):
             yield self.iq[start:start + self.block_size]

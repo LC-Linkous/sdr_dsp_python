@@ -7,11 +7,17 @@ stands in for the radio: the adapter's context manager, blocks(), read() and
 the hackrfpy stream path underneath all run for real, with no hardware.
 
 The ramp has I even and Q odd, and the stub writes it in deliberately
-odd-sized flushed pieces, so a single dropped byte anywhere shows up as every
+odd-sized flushed pieces with a pause after each, so the parent's read1() sees
+the odd piece on its own and a single dropped byte anywhere shows up as every
 later sample having I and Q exchanged -- a capture whose power statistics look
 fine while its phase is garbage. hackrfpy < 1.1.1 does exactly that in
-``PersistentReceiver.blocks()``; the xfail flips to a hard failure (strict)
-when the fixed hackrfpy is installed, which is the signal to delete the mark.
+``PersistentReceiver.blocks()``.
+
+Whether the old code actually misbehaves on a given run depends on how the OS
+delivers pipe writes (macOS coalesced them in CI and the bug never fired), so
+the alignment assertion is SKIPPED, not xfailed, on the old hackrfpy: a
+timing-dependent bug trigger must not be a strict expectation. Once the dev
+group pins hackrfpy >= 1.1.1 the skip disappears and the assertion runs.
 """
 
 import os
@@ -39,6 +45,8 @@ while pos < len(raw):
     n = sizes[k % len(sizes)]; k += 1
     sys.stdout.buffer.write(raw[pos:pos + n]); pos += n
     sys.stdout.buffer.flush()
+    if n % 2:
+        time.sleep(0.02)   # let the parent read the odd piece by itself
 time.sleep(10)        # stay alive until the parent interrupts us
 '''
 
@@ -82,21 +90,21 @@ def _version_tuple(v):
         return (0, 0, 0)
 
 
-needs_fixed_hackrfpy = pytest.mark.xfail(
-    _version_tuple(hackrfpy.__version__) < (1, 1, 1), strict=True,
+needs_fixed_hackrfpy = pytest.mark.skipif(
+    _version_tuple(hackrfpy.__version__) < (1, 1, 1),
     reason="hackrfpy < 1.1.1: PersistentReceiver.blocks() drops an odd byte "
-           "and swaps I/Q for the rest of the stream")
+           "and swaps I/Q for the rest of the stream (fixed in 1.1.1)")
 
 
 def test_adapter_satisfies_iqsource(stub_tools_dir, HackRFCapture):
     from sdr_dsp.sources.base import IQSource
-    src = HackRFCapture(100e6, 2e6, tools_dir=stub_tools_dir)
+    src = HackRFCapture(100e6, 8e6, tools_dir=stub_tools_dir)
     assert isinstance(src, IQSource)
-    assert src.sample_rate == 2e6 and src.center_freq == 100e6
+    assert src.sample_rate == 8e6 and src.center_freq == 100e6
 
 
 def test_adapter_requires_context_manager(stub_tools_dir, HackRFCapture):
-    src = HackRFCapture(100e6, 2e6, tools_dir=stub_tools_dir)
+    src = HackRFCapture(100e6, 8e6, tools_dir=stub_tools_dir)
     with pytest.raises(RuntimeError):
         next(src.blocks())
     with pytest.raises(RuntimeError):
@@ -104,7 +112,7 @@ def test_adapter_requires_context_manager(stub_tools_dir, HackRFCapture):
 
 
 def test_adapter_read_is_exact_and_pair_aligned(stub_tools_dir, HackRFCapture):
-    with HackRFCapture(100e6, 2e6, tools_dir=stub_tools_dir) as src:
+    with HackRFCapture(100e6, 8e6, tools_dir=stub_tools_dir) as src:
         a = src.read(1000)
         b = src.read(70_000)
     assert len(a) == 1000 and len(b) == 70_000
@@ -116,7 +124,7 @@ def test_adapter_read_is_exact_and_pair_aligned(stub_tools_dir, HackRFCapture):
 def test_adapter_blocks_are_pair_aligned_across_odd_pipe_chunks(stub_tools_dir,
                                                                  HackRFCapture):
     got = []
-    with HackRFCapture(100e6, 2e6, tools_dir=stub_tools_dir) as src:
+    with HackRFCapture(100e6, 8e6, tools_dir=stub_tools_dir) as src:
         for blk in src.blocks():
             assert blk.dtype == np.complex64
             got.append(blk)
@@ -126,7 +134,7 @@ def test_adapter_blocks_are_pair_aligned_across_odd_pipe_chunks(stub_tools_dir,
 
 
 def test_adapter_capture_array_convenience(stub_tools_dir, HackRFCapture):
-    src = HackRFCapture(100e6, 2e6, tools_dir=stub_tools_dir)
+    src = HackRFCapture(100e6, 8e6, tools_dir=stub_tools_dir)
     x = src.capture_array(5000)
     assert len(x) == 5000
     _check_ramp(x)
@@ -140,7 +148,7 @@ def test_adapter_drives_a_streaming_pipeline(stub_tools_dir, HackRFCapture):
     from sdr_dsp.stream import StreamingFIR
     taps = design_lowpass(200e3, 2e6, num_taps=33)
     seen = []
-    with HackRFCapture(100e6, 2e6, tools_dir=stub_tools_dir, block_size=4096) as src:
+    with HackRFCapture(100e6, 8e6, tools_dir=stub_tools_dir, block_size=4096) as src:
         class _Bounded:
             sample_rate, center_freq = src.sample_rate, src.center_freq
             def blocks(self):

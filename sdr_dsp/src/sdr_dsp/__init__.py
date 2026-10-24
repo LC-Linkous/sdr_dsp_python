@@ -38,7 +38,18 @@ from .core import (
 )
 from .sources import IQSource, ArraySource, FileSource
 
-__version__ = "0.1.0"
+# Resolved from the installed package metadata (pyproject.toml is the single
+# source of truth), with a fallback for an uninstalled checkout. A hard-coded
+# string here had drifted to 0.1.0 while pyproject said 0.2.0.
+try:
+    from importlib.metadata import version as _pkg_version, PackageNotFoundError
+    try:
+        __version__ = _pkg_version("sdr_dsp")
+    except PackageNotFoundError:          # pragma: no cover - uninstalled tree
+        __version__ = "0.0.0+unknown"
+    del _pkg_version, PackageNotFoundError
+except ImportError:                       # pragma: no cover
+    __version__ = "0.0.0+unknown"
 
 # io, sinks, stream, link and Pipeline are imported LAZILY (PEP 562) so that importing
 # the package -- or a submodule like `from sdr_dsp.core import demod` -- never
