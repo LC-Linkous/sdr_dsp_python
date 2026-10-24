@@ -3,6 +3,7 @@
 """
 
 import numpy as np
+import pytest
 from scipy import signal as sig
 
 from sdr_dsp.core import resample
@@ -101,3 +102,30 @@ def test_resample_empty_and_short():
     # empty input -> empty output, no crash
     out = resample.resample_poly(np.array([], dtype=np.complex64), 3, 2)
     assert len(out) == 0
+
+
+# ---------------------------------------------------------------------------
+# The polyphase form must equal the textbook zero-stuff form it replaces.
+# The direct form filters `up` times more samples than it keeps (most of them
+# zeros): 4.9 s vs 0.4 s for 500k samples at 24/125. Same taps, same math --
+# so the two must agree to rounding, on every phase, both dtypes, and inputs
+# shorter than the filter.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("up,down", [(1, 4), (3, 2), (24, 125), (125, 24),
+                                     (7, 3), (6, 50), (48, 10)])
+@pytest.mark.parametrize("n", [1, 3, 777, 20_000])
+@pytest.mark.parametrize("cplx", [False, True])
+def test_polyphase_equals_direct_form(up, down, n, cplx):
+    from math import gcd
+    rng = np.random.default_rng(n * up + down)
+    x = rng.standard_normal(n)
+    if cplx:
+        x = (x + 1j * rng.standard_normal(n)).astype(np.complex64)
+    g = gcd(up, down)
+    taps = resample._antialias_taps(up // g, down // g)
+    ref = resample._resample_poly_direct(x, up // g, down // g, taps)
+    got = resample.resample_poly(x, up, down)
+    assert got.shape == ref.shape
+    assert got.dtype == ref.dtype
+    np.testing.assert_allclose(got, ref, rtol=0, atol=1e-5 if cplx else 1e-12)

@@ -40,20 +40,23 @@ Issues = "https://github.com/LC-Linkous/sdr_dsp_python/issues"
 # it uses a native GUI backend, TkAgg on Windows, which ships with Python.
 # No PyQt5: its wheels don't resolve cleanly on Windows via uv and it isn't
 # required).
-plotting = ["matplotlib"]
+plotting = ["matplotlib>=3.8"]
 # Live audio playback (live_fm_listen.py); other audio examples write a WAV.
-audio = ["sounddevice"]
+audio = ["sounddevice>=0.4.6"]
 # Live capture examples use hackrfpy (from PyPI). NOT a library dependency.
 # Live capture additionally needs the hackrf-tools binaries at the OS level.
 examples-hackrf = ["hackrfpy>=1.1.0"]
 # Aggregate: everything the examples can use, in one install.
-examples = ["matplotlib", "sounddevice", "hackrfpy>=1.1.0"]
+examples = ["matplotlib>=3.8", "sounddevice>=0.4.6", "hackrfpy>=1.1.0"]
 
 [build-system]
 requires = ["uv_build>=0.8.11,<0.9.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
+# Every entry carries a lower bound: the CI oldest-deps leg resolves with
+# --resolution lowest-direct, and an unbounded dependency there means "the
+# oldest release on PyPI" (it tried matplotlib 0.86).
 # THE RULE THAT KEEPS THE DEV ENVIRONMENT STABLE: everything the checked-in
 # examples, tools, and tests can import belongs in this group, not only in an
 # extra. `uv sync` installs dependency-groups but REMOVES extras that weren't
@@ -73,13 +76,13 @@ build-backend = "uv_build"
 #             calls main().
 dev = [
     "pytest>=8",
-    "pytest-cov",
-    "ruff",
-    "mypy",
+    "pytest-cov>=5",
+    "ruff>=0.5",
+    "mypy>=1.10",
     "hackrfpy>=1.1.0",
-    "pyflakes",
-    "matplotlib",
-    "sounddevice",
+    "pyflakes>=3.2",
+    "matplotlib>=3.8",
+    "sounddevice>=0.4.6",
 ]
 
 [tool.pytest.ini_options]

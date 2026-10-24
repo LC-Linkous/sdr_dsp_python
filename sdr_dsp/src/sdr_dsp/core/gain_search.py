@@ -1,44 +1,61 @@
 """Gain search: find receiver gain settings that capture a usable signal.
 
-OUR code. Device-agnostic: the caller supplies a ``probe(lna, vga, amp)``
-callable that returns a short normalized IQ capture, and this module decides
-where to point the gain. Previously three near-copies of this logic lived in
-``examples/collect_sample_data.py``, ``tools/collect_dev_data.py`` and
-``examples/live_fm_listen.py``; they now all call here.
+OUR code. Device-agnostic in two layers:
+
+* ``search_gain_model`` is the general engine. It drives an arbitrary radio
+  described by a :class:`GainModel` -- a set of named gain STAGES, each either
+  a "frontend" stage (improves signal-to-noise: RF amp, LNA, a tuner's single
+  gain) or a "level" stage (adjusts ADC level after SNR is set: the HackRF's
+  VGA). The caller supplies ``probe(settings) -> iq``; the engine decides where
+  to point the gain. This is what keeps the search from being HackRF-locked --
+  point it at ``rtlsdr_gain_model(...)`` (one knob, no separate level stage) and
+  the same algorithm works.
+* ``search_gain`` is the HackRF specialization kept for existing callers: the
+  familiar ``probe(lna, vga, amp)`` signature and ``{lna, vga, amp, ...}``
+  result. It builds the HackRF model and delegates to the engine.
 
 Why level alone is not enough
 -----------------------------
 The old searches walked the VGA until the peak ADC level landed in a target
-window. That converges -- but on the wrong thing. The VGA sits after the
-point in the chain where the signal-to-noise ratio is already decided, so
-raising it amplifies signal and receiver noise together: on a weak antenna
-the search happily lifts the NOISE FLOOR into the target window, reports
-success, and the recording is hiss at a healthy-looking level. Only the
-front end -- the RF amp and the LNA -- improves what is there to record, and
-the old searches never touched the amp at all.
+window. That converges -- but on the wrong thing. The VGA sits after the point
+in the chain where the signal-to-noise ratio is already decided, so raising it
+amplifies signal and receiver noise together: on a weak antenna the search
+happily lifts the NOISE FLOOR into the target window, reports success, and the
+recording is hiss at a healthy-looking level. Only the front end -- the RF amp
+and the LNA -- improves what is there to record.
 
-So this search runs in two stages when a quality metric is available:
+So the search runs in two stages when a quality metric is available:
 
-1. **Front end for SNR.** Probe amp/LNA combinations at VGA=0 (so nothing is
-   excluded by clipping) and score each with the caller's ``quality``
-   function -- e.g. channel excess from ``capture_health``, or
-   ``fm_pilot_excess_db`` for broadcast FM. Keep the front end that measures
-   best; on ties prefer less gain.
-2. **VGA for level.** With the front end fixed, walk the VGA until the peak
-   ADC level sits in the target window. This stage changes how the ADC is
-   used, not what can be heard.
+1. **Front end for SNR.** Probe frontend combinations at the level stage's
+   minimum (so nothing is excluded by clipping) and score each with the
+   caller's ``quality`` function. Keep the front end that measures best; on
+   ties prefer less gain.
+2. **Level.** With the front end fixed, walk the level stage until the peak ADC
+   level sits in the target window. On a radio with no separate level stage
+   (e.g. an RTL-SDR's single gain), this walks the SNR-chosen frontend knob
+   itself, trading a little SNR for a sane level rather than pretending a
+   second knob exists.
 
-Without a quality metric (nothing known to be transmitting, so there is
-nothing to score), it falls back to the level-only walk -- but will now
-escalate through the LNA and finally the amp before declaring ``too_weak``.
+Without a quality metric it falls back to the level-only walk, escalating
+through the remaining frontend stages before declaring ``too_weak``.
 """
 
 from __future__ import annotations
+
+import itertools
+from dataclasses import dataclass
+from typing import Callable, Sequence
 
 import numpy as np
 
 DEFAULT_LNA_STEPS = tuple(range(0, 41, 8))    # HackRF: 0..40 dB in 8 dB steps
 DEFAULT_VGA_STEPS = tuple(range(0, 63, 2))    # HackRF: 0..62 dB in 2 dB steps
+# R820T tuner gains reported by librtlsdr, in dB -- the legal values for a
+# typical RTL-SDR. A single knob: it is a frontend stage with no separate VGA.
+DEFAULT_RTLSDR_GAIN_STEPS = (
+    0.0, 0.9, 1.4, 2.7, 3.7, 7.7, 8.7, 12.5, 14.4, 15.7, 16.6, 19.7, 20.7,
+    22.9, 25.4, 28.0, 29.7, 32.8, 33.8, 36.4, 37.2, 38.6, 40.2, 42.1, 43.4,
+    43.9, 44.5, 48.0, 49.6)
 
 
 def peak_counts(iq, full_scale=128.0):
@@ -60,118 +77,241 @@ def _snap(value, steps):
     return min(steps, key=lambda s: abs(s - value))
 
 
-def search_gain(probe, *, lna_steps=DEFAULT_LNA_STEPS,
-                vga_steps=DEFAULT_VGA_STEPS, use_amp=True, quality=None,
-                target=(45.0, 110.0), clip=120.0, full_scale=128.0,
-                max_level_probes=14, min_quality_db=3.0):
-    """Find (lna, vga, amp) for a usable capture. Returns a result dict.
+# ==========================================================================
+# The device abstraction: a radio's gain as named stages.
+# ==========================================================================
+@dataclass(frozen=True)
+class GainStage:
+    """One gain control on a radio.
 
-    Args:
-        probe:     callable ``probe(lna, vga, amp) -> iq`` returning a short
-                   normalized complex capture at those settings.
-        lna_steps, vga_steps: the hardware's legal gain values, in dB.
-        use_amp:   whether the front-end RF amp may be enabled at all.
-        quality:   optional callable ``quality(iq) -> float | None`` scoring
-                   how much *signal* a probe contains, in dB (higher =
-                   better). E.g. channel excess from ``capture_health``, or
-                   ``fm_pilot_excess_db`` for broadcast FM. When given, the
-                   front end is chosen by this score, not by level.
-        target:    (lo, hi) peak-count window the VGA stage aims for.
-        clip:      counts at/above which a probe is treated as clipping.
-        full_scale: counts scale of a normalized full-scale sample (128 for
-                   int8 normalized by the loader).
-        max_level_probes: probe budget for the VGA/level stage.
-        min_quality_db: front-end scores below this count as "nothing
-                   detected" for the status decision.
-
-    Returns a dict:
-        ``lna``, ``vga``, ``amp``   -- the chosen settings
-        ``counts``                  -- peak counts measured at them
-        ``quality_db``              -- best front-end score (None w/o quality)
-        ``status``                  -- "ok" | "too_weak" | "clipping"
-        ``probes``                  -- every probe as (lna, vga, amp, counts)
+    name:    the key the probe expects (e.g. "lna", "vga", "amp", "gain").
+    steps:   the legal settings, ascending by gain (device values -- ints/floats
+             of dB, or booleans for an on/off amp).
+    role:    "frontend" (improves SNR) or "level" (sets ADC level after SNR).
+    db:      value -> dB weight, used to rank "less gain" on ties and to size
+             level moves. Defaults to float(value); an on/off amp passes its
+             own (e.g. 14 dB when True).
+    default: the value used when this stage is NOT chosen by a quality sweep
+             (no quality metric available). None means the lowest step.
     """
-    lna_steps = sorted(lna_steps)
-    vga_steps = sorted(vga_steps)
-    lo, hi = target
-    probes = []
 
-    def take(lna, vga, amp):
-        iq = probe(lna, vga, amp)
+    name: str
+    steps: tuple
+    role: str
+    db: Callable[..., float] = float
+    default: object = None
+
+    def __post_init__(self):
+        if self.role not in ("frontend", "level"):
+            raise ValueError(f"role must be 'frontend' or 'level', got {self.role!r}")
+        if not self.steps:
+            raise ValueError(f"stage {self.name!r} has no steps")
+
+    def default_value(self):
+        return self.steps[0] if self.default is None else self.default
+
+    def min_gap(self):
+        """Smallest positive spacing between consecutive numeric steps."""
+        nums = [s for s in self.steps if isinstance(s, (int, float))
+                and not isinstance(s, bool)]
+        gaps = [b - a for a, b in zip(nums, nums[1:]) if b > a]
+        return min(gaps) if gaps else 1.0
+
+
+class GainModel:
+    """A radio's gain, as an ordered set of :class:`GainStage`.
+
+    Frontend stages are swept for SNR; the last level stage (or, if there is
+    none, the last frontend stage) is walked for ADC level. Escalation on
+    clip/too-weak steps the remaining frontend stages in declared order, so
+    put the cheaper-to-change stage first (LNA before amp).
+    """
+
+    def __init__(self, stages: Sequence[GainStage]):
+        self.stages = tuple(stages)
+        if not self.stages:
+            raise ValueError("a GainModel needs at least one stage")
+        self.frontend = tuple(s for s in self.stages if s.role == "frontend")
+        self.level = tuple(s for s in self.stages if s.role == "level")
+
+    def by_name(self, name):
+        for s in self.stages:
+            if s.name == name:
+                return s
+        raise KeyError(name)
+
+    def min_settings(self):
+        return {s.name: s.steps[0] for s in self.stages}
+
+    def default_frontend(self):
+        return {s.name: s.default_value() for s in self.frontend}
+
+    def frontend_grid(self):
+        """Every combination of frontend stage settings, as dicts."""
+        if not self.frontend:
+            yield {}
+            return
+        names = [s.name for s in self.frontend]
+        for combo in itertools.product(*(s.steps for s in self.frontend)):
+            yield dict(zip(names, combo))
+
+    def frontend_db(self, combo):
+        return sum(s.db(combo[s.name]) for s in self.frontend if s.name in combo)
+
+    def level_stage(self):
+        """The stage walked for ADC level: the last level stage, or -- when the
+        radio has none -- the last frontend stage (one knob does both)."""
+        return self.level[-1] if self.level else self.frontend[-1]
+
+
+def hackrf_gain_model(lna_steps=DEFAULT_LNA_STEPS, vga_steps=DEFAULT_VGA_STEPS,
+                      *, use_amp=True) -> GainModel:
+    """The HackRF One: LNA + optional +14 dB amp (frontend) and VGA (level)."""
+    lna = tuple(sorted(lna_steps))
+    vga = tuple(sorted(vga_steps))
+    stages = [GainStage("lna", lna, "frontend",
+                        default=lna[min(2, len(lna) - 1)])]   # legacy start
+    if use_amp:
+        stages.append(GainStage("amp", (False, True), "frontend",
+                                db=lambda v: 14.0 if v else 0.0, default=False))
+    stages.append(GainStage("vga", vga, "level"))
+    return GainModel(stages)
+
+
+def rtlsdr_gain_model(gain_steps=DEFAULT_RTLSDR_GAIN_STEPS) -> GainModel:
+    """An RTL-SDR: a SINGLE tuner-gain knob, no separate level stage.
+
+    One frontend stage means stage 1 picks the SNR-best gain and stage 2 then
+    nudges that SAME knob for level -- the honest behavior for a radio that
+    cannot set SNR and level independently.
+    """
+    g = tuple(sorted(gain_steps))
+    mid = g[len(g) // 2]
+    return GainModel([GainStage("gain", g, "frontend", default=mid)])
+
+
+# ==========================================================================
+# The general engine.
+# ==========================================================================
+def search_gain_model(probe, model: GainModel, *, quality=None,
+                      target=(45.0, 110.0), clip=120.0, full_scale=128.0,
+                      max_level_probes=14, min_quality_db=3.0):
+    """Find gain settings for a usable capture on any radio. Returns a dict.
+
+    probe:   callable ``probe(settings: dict) -> iq`` returning a short
+             normalized complex capture, where ``settings`` maps each stage's
+             name to a legal value from its ``steps``.
+    model:   the radio's :class:`GainModel`.
+    quality: optional ``quality(iq) -> float | None`` scoring how much SIGNAL a
+             probe holds, in dB. When given, the front end is chosen by this
+             score, not by level.
+    target, clip, full_scale, max_level_probes, min_quality_db: as documented
+             on :func:`search_gain`.
+
+    Returns ``{"settings", "counts", "quality_db", "status", "probes"}`` where
+    settings is the chosen ``{stage: value}``, status is "ok"|"too_weak"|
+    "clipping", and probes is every ``(settings, counts)`` taken.
+    """
+    lo, hi = target
+    probes: list = []
+
+    def take(settings):
+        iq = probe(settings)
         c = peak_counts(iq, full_scale)
-        probes.append((lna, vga, amp, round(c, 1)))
+        probes.append((dict(settings), round(c, 1)))
         return iq, c
 
-    # ---- stage 1: choose the front end by measured signal quality --------
-    amp = False
-    lna = lna_steps[min(2, len(lna_steps) - 1)]   # legacy starting point
-    best_q = None
-    if quality is not None:
-        best = None                                # (score, -gain, lna, amp)
-        for amp_try in ((False, True) if use_amp else (False,)):
-            for lna_try in lna_steps:
-                iq, c = take(lna_try, vga_steps[0], amp_try)
-                if c >= clip:
-                    break                          # more LNA only clips harder
-                q = quality(iq)
-                if q is None:
-                    continue
-                key = (q, -(lna_try + (14 if amp_try else 0)))
-                if best is None or key > best[0:2]:
-                    best = (*key, lna_try, amp_try)
-        if best is not None:
-            best_q, _, lna, amp = best
+    settings = model.min_settings()
+    lvl = model.level_stage()
+    steps = lvl.steps
+    min_step = lvl.min_gap()
+    # frontend stages we may escalate through (never the level knob itself)
+    escalate = [s for s in model.frontend if s.name != lvl.name]
 
-    # ---- stage 2: walk the VGA until the level sits in the window --------
-    vga = vga_steps[len(vga_steps) // 3]           # legacy starting point
+    # ---- stage 1: choose the front end by measured signal quality --------
+    best_q = None
+    if quality is not None and model.frontend:
+        best = None                                  # (q, -db, combo)
+        for combo in model.frontend_grid():
+            s = dict(settings)
+            s.update(combo)
+            s[lvl.name] = steps[0]                    # score at min level
+            iq, c = take(s)
+            if c >= clip:
+                continue                             # clipping: can't score SNR
+            q = quality(iq)
+            if q is None:
+                continue
+            key = (q, -model.frontend_db(combo))
+            if best is None or key > best[:2]:
+                best = (q, -model.frontend_db(combo), combo)
+        if best is not None:
+            best_q = best[0]
+            settings.update(best[2])
+    else:
+        settings.update(model.default_frontend())
+
+    # ---- stage 2: walk the level stage until the level sits in the window -
+    # If the level knob is a frontend stage that stage 1 just chose by SNR,
+    # start the walk FROM that choice; otherwise from the legacy 1/3 point.
+    if lvl.role == "frontend" and quality is not None and model.frontend:
+        pass                                         # keep the SNR-chosen value
+    else:
+        settings[lvl.name] = steps[len(steps) // 3]
+
+    def step_down_frontend():
+        for s in escalate:
+            cur = settings[s.name]
+            idx = s.steps.index(cur)
+            if idx > 0:
+                settings[s.name] = s.steps[idx - 1]
+                return True
+        return False
+
+    def step_up_frontend():
+        for s in escalate:
+            cur = settings[s.name]
+            idx = s.steps.index(cur)
+            if idx < len(s.steps) - 1:
+                settings[s.name] = s.steps[idx + 1]
+                return True
+        return False
+
     counts = 0.0
     status = "ok"
     for _ in range(max_level_probes):
-        _, counts = take(lna, vga, amp)
+        _, counts = take(settings)
+        cur = settings[lvl.name]
         if lo <= counts <= hi:
             break
         if counts >= clip:
-            if vga > vga_steps[0]:
-                vga = _snap(max(vga_steps[0], vga - 6), vga_steps)
-            elif lna > lna_steps[0]:
-                lna = _snap(lna - 8, lna_steps)
-                vga = vga_steps[0]
-            elif amp:
-                amp = False
-                vga = vga_steps[0]
+            if cur > steps[0]:
+                settings[lvl.name] = _snap(max(steps[0], cur - 6.0), steps)
+            elif step_down_frontend():
+                settings[lvl.name] = steps[0]
             else:
                 status = "clipping"
                 break
         elif counts < lo:
-            if vga < vga_steps[-1]:
+            if cur < steps[-1]:
                 deficit_db = 20 * np.log10(max(lo, 1.0) / max(counts, 0.5))
-                vga = _snap(min(vga_steps[-1],
-                                vga + max(2, int(deficit_db // 2) * 2)),
-                            vga_steps)
-            elif quality is None and lna < lna_steps[-1]:
-                # level-only fallback may still escalate the front end
-                lna = _snap(lna + 8, lna_steps)
-                vga = vga_steps[len(vga_steps) // 3]
-            elif quality is None and use_amp and not amp:
-                amp = True
-                vga = vga_steps[len(vga_steps) // 3]
+                settings[lvl.name] = _snap(
+                    min(steps[-1], cur + max(min_step, deficit_db)), steps)
+            elif quality is None and step_up_frontend():
+                settings[lvl.name] = steps[len(steps) // 3]
             else:
                 status = "too_weak"
                 break
-        else:                                       # above window, below clip
-            if vga > vga_steps[0]:
-                vga = _snap(max(vga_steps[0], vga - 2), vga_steps)
-            elif lna > lna_steps[0]:
-                lna = _snap(lna - 8, lna_steps)
-                vga = vga_steps[0]
-            elif amp:
-                amp = False
-                vga = vga_steps[0]
+        else:                                        # above window, below clip
+            if cur > steps[0]:
+                settings[lvl.name] = _snap(max(steps[0], cur - min_step), steps)
+            elif step_down_frontend():
+                settings[lvl.name] = steps[0]
             else:
                 status = "clipping"
                 break
 
-    if (status == "ok" and not (lo <= counts <= hi)):
+    if status == "ok" and not (lo <= counts <= hi):
         # probe budget exhausted: report honestly rather than pretending
         status = "too_weak" if counts < lo else "clipping"
     if (status == "ok" and quality is not None and best_q is not None
@@ -181,7 +321,51 @@ def search_gain(probe, *, lna_steps=DEFAULT_LNA_STEPS,
         # exactly the failure mode this module exists to prevent.
         status = "too_weak"
 
-    return {"lna": lna, "vga": vga, "amp": bool(amp),
-            "counts": round(counts, 1),
+    return {"settings": settings, "counts": round(counts, 1),
             "quality_db": None if best_q is None else round(best_q, 1),
             "status": status, "probes": probes}
+
+
+# ==========================================================================
+# The HackRF specialization (backward-compatible public API).
+# ==========================================================================
+def search_gain(probe, *, lna_steps=DEFAULT_LNA_STEPS,
+                vga_steps=DEFAULT_VGA_STEPS, use_amp=True, quality=None,
+                target=(45.0, 110.0), clip=120.0, full_scale=128.0,
+                max_level_probes=14, min_quality_db=3.0):
+    """Find (lna, vga, amp) for a usable HackRF capture. Returns a result dict.
+
+    A thin wrapper over :func:`search_gain_model` with the HackRF gain model,
+    kept for the ``probe(lna, vga, amp)`` callers. Args and semantics are
+    unchanged from before the GainModel refactor:
+
+        probe:     ``probe(lna, vga, amp) -> iq`` (a short normalized capture).
+        lna_steps, vga_steps: the hardware's legal gain values, in dB.
+        use_amp:   whether the +14 dB front-end RF amp may be enabled.
+        quality:   optional ``quality(iq) -> float | None`` (dB); when given,
+                   the front end is chosen by this score, not by level.
+        target:    (lo, hi) peak-count window the level stage aims for.
+        clip:      counts at/above which a probe is treated as clipping.
+        full_scale: counts scale of a normalized full-scale sample.
+        max_level_probes: probe budget for the level stage.
+        min_quality_db: front-end scores below this count as "nothing detected".
+
+    Returns ``{lna, vga, amp, counts, quality_db, status, probes}`` with probes
+    a list of ``(lna, vga, amp, counts)`` -- the original shape.
+    """
+    model = hackrf_gain_model(lna_steps, vga_steps, use_amp=use_amp)
+
+    def probe_settings(s):
+        return probe(s["lna"], s["vga"], s.get("amp", False))
+
+    res = search_gain_model(
+        probe_settings, model, quality=quality, target=target, clip=clip,
+        full_scale=full_scale, max_level_probes=max_level_probes,
+        min_quality_db=min_quality_db)
+
+    s = res["settings"]
+    probes = [(ps["lna"], ps["vga"], ps.get("amp", False), c)
+              for ps, c in res["probes"]]
+    return {"lna": s["lna"], "vga": s["vga"], "amp": bool(s.get("amp", False)),
+            "counts": res["counts"], "quality_db": res["quality_db"],
+            "status": res["status"], "probes": probes}

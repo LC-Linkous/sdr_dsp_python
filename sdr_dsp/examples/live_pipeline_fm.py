@@ -1,10 +1,17 @@
 #! /usr/bin/python3
 """live_pipeline_fm.py -- streaming FM demod with a live display tap.
 
-Shows the recommended streaming pattern: build a Pipeline that orchestrates the
-pure DSP core (filter -> FM demod -> resample), and attach a TAP that updates a
-live display each block -- here a scrolling text power/level meter, but it could
+Shows the recommended streaming pattern: build a Pipeline from the STATEFUL
+streaming stages (filter -> FM demod -> resample, each carrying its delay line
+across blocks so the seams are silent), and attach a TAP that updates a live
+display each block -- here a scrolling text power/level meter, but it could
 just as easily drive a matplotlib constellation or a decoded-message readout.
+
+Why the Streaming* stages and not `lambda b: fir_apply(b, taps)`: the core
+functions are stateless, so per-block calls restart every filter from empty
+taps and difference the first FM sample against nothing -- a click at every
+block boundary. The stages wrap the same core functions and only add the
+bookkeeping; the output equals the whole record processed at once.
 
 The whole point: "show it live" is a tap on a normal pipeline, not a separate
 engine. The same Pipeline runs on a file (this example) or a HackRF (swap the
@@ -19,13 +26,14 @@ Usage:
 import argparse
 import sys
 import time
-from math import gcd
 
 import numpy as np
 
 from sdr_dsp import Pipeline
 from sdr_dsp.sources import ArraySource, FileSource
-from sdr_dsp.core import design_lowpass, fir_apply, fm_demod, resample_poly, to_db
+from sdr_dsp.core import design_lowpass, to_db
+from sdr_dsp.stream import (StreamingFIR, StreamingDecimator, StreamingFMDemod,
+                            StreamingResampler)
 
 AUDIO_RATE = 48_000
 
@@ -57,9 +65,14 @@ def main():
         source = ArraySource(make_synth_fm(fs), fs, block_size=args.block)
         print(f"[*] synthetic FM @ {fs/1e6:g} Msps, block {args.block:,}")
 
+    # Channel filter at the capture rate, then decimate to an intermediate
+    # rate (~250 kHz, still well above the 200 kHz FM channel) BEFORE the
+    # discriminator and the audio resampler. Without this the resampler runs
+    # at the full capture rate and is the slowest stage by far.
     taps = design_lowpass(100e3, fs, num_taps=101)
-    g = gcd(AUDIO_RATE, int(fs))
-    up, down = AUDIO_RATE // g, int(fs) // g
+    dec = max(1, int(fs) // 250_000)
+    inter = fs / dec
+    resampler = StreamingResampler(AUDIO_RATE, int(inter))  # reduces the ratio itself
 
     # the live display tap: print a level meter for each processed block
     def display(audio_block):
@@ -69,15 +82,17 @@ def main():
         time.sleep(0.02)   # just to make the live update visible in a demo
 
     pipe = (Pipeline(source)
-            .add(lambda b: fir_apply(b, taps), "filter")
-            .add(lambda b: fm_demod(b, 75000, fs), "fm_demod")
-            .add(lambda b: resample_poly(b, up, down), "resample")
+            .add(StreamingFIR(taps), "filter")
+            .add(StreamingDecimator(dec), "decimate")
+            .add(StreamingFMDemod(75000, inter), "fm_demod")
+            .add(resampler, "resample")
             .tap(display, "level_meter"))
 
     print("[*] pipeline:")
     print(pipe.describe())
     print("[*] streaming (live meter updates per block):")
     results, stats = pipe.run(profile=True)
+    results.append(resampler.flush())   # the look-ahead tail, once the stream ends
     print()   # newline after the live meter
     print(f"[*] done: {stats.blocks} blocks, "
           f"{sum(len(r) for r in results):,} audio samples")

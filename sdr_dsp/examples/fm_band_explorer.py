@@ -58,6 +58,7 @@ import sys
 import numpy as np
 
 from sdr_dsp.core import psd, capture_health
+from sdr_dsp.sources.probe import probe_capture
 
 
 # ---------------------------------------------------------------------------
@@ -188,8 +189,12 @@ class Radio:
             z = z + (rng.standard_normal(n) + 1j * rng.standard_normal(n)) * 1.5
             return ((np.round(z.real) + 1j * np.round(z.imag))
                     / 127.0).astype(np.complex64)
-        return self._h.capture_array(freq, rate, n, lna=lna, vga=vga,
-                                     amp=False)
+        # File-path capture, NOT capture_array: at 8 Msps the stdout-pipe
+        # path has been observed to corrupt phase on Windows while power
+        # stats stay healthy (see sources/probe.py). The snapshot feeds
+        # capture_health and the spectrum, so it has to be the trusted path.
+        return probe_capture(self._h, freq, rate, n, lna=lna, vga=vga,
+                             amp=False)
 
 
 # ---------------------------------------------------------------------------

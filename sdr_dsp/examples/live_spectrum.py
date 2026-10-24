@@ -24,8 +24,8 @@ def main():
     p.add_argument("--freq", type=float, required=True)
     p.add_argument("--rate", type=float, default=2e6)
     p.add_argument("--nfft", type=int, default=2048)
-    p.add_argument("--lna", type=int, default=16)
-    p.add_argument("--vga", type=int, default=20)
+    p.add_argument("--lna", type=int, default=32)
+    p.add_argument("--vga", type=int, default=28)
     args = p.parse_args()
 
     try:

@@ -9,6 +9,146 @@ that have hooks, but have not been implemented yet.
 
 
 
+## 2026-09-25 — Gain search made device-agnostic: GainModel (patch 0022)
+
+Lifted the HackRF-specific gain logic into a `GainModel` abstraction so auto-gain
+works on any SDR, not just the HackRF One. `search_gain` is now a thin wrapper;
+the engine underneath drives an arbitrary radio. Suite: 797 → 808 passed.
+
+- **`GainStage` + `GainModel`** describe a radio's gain as named stages, each
+  "frontend" (improves SNR: RF amp, LNA, a tuner's single gain) or "level"
+  (sets ADC level after SNR: the HackRF VGA). Factories: `hackrf_gain_model()`
+  (LNA + optional +14 dB amp + VGA) and `rtlsdr_gain_model()` (one gain knob,
+  no separate level stage).
+- **`search_gain_model(probe, model, quality=…)`** is the general engine: the
+  same two-stage search (front end for SNR at minimum level, then walk the level
+  stage for the ADC window) over any model. When a radio has no separate level
+  stage, it walks the SNR-chosen knob itself rather than pretending a second knob
+  exists -- the honest single-knob behavior.
+- **`search_gain` is now a wrapper** over the engine with the HackRF model,
+  keeping the `probe(lna, vga, amp)` signature and `{lna,vga,amp,…}` result
+  unchanged; the 13 existing `test_gain_and_health` tests pass untouched, which
+  is the fidelity proof.
+- **The SNR-first guarantee now holds on a second radio.** New
+  `tests/test_gain_model.py` (11 tests) drives a single-knob (RTL-SDR-like) mock
+  tuner: it converges in-window on a decent antenna, reports `too_weak` on a
+  DEAD antenna (does not bless amplified noise -- the whole point of the
+  SNR-first design), reports `clipping` on overload, and stays on the gain grid.
+  The same engine still enables the amp for a weak HackRF antenna.
+
+Caveat: the single-knob path is validated against a mock tuner model, not a real
+RTL-SDR (none on hand). A coarse gain grid can leave the level just shy of the
+window near a boundary; the search reports that honestly rather than faking
+success. This closes the one device-coupling the modularity docs called out --
+RX, TX, and gain search are all radio-agnostic now.
+
+## 2026-09-25 (earlier) — Modularity kit: prove the library isn't HackRF-locked (patch 0021)
+
+Made device-independence concrete AND enforced, so "any SDR works" is a test
+result rather than a claim. Suite: 785 → 797 passed.
+
+- **`tests/test_modularity.py` (7 tests)** -- the guard with teeth. It AST-scans
+  `src/sdr_dsp/` and FAILS if any core module imports a device SDK (hackrfpy,
+  pyrtlsdr, SoapySDR, uhd, …); a deliberately smuggled `import hackrfpy` was
+  confirmed to trip it. It also drives the full pipeline (PSD, pilot check) from
+  a NON-HackRF source, so the structural guarantee is checked both ways.
+- **`examples/sdr_adapter_template.py`** -- a copy-and-fill adapter (IQSource +
+  guarded TXSink) with the four device-specific spots marked, sample-format
+  normalization (cu8, the RTL-SDR wire format) as the worked example, and a
+  built-in fake device so it self-demonstrates end to end with no hardware.
+- **`docs/ADDING_AN_SDR.md`** -- the porting process and record: the steps, the
+  normalization table, the "free vs. needs-work" split (RX/TX free; auto-gain
+  WAS the one HackRF-shaped piece, since fixed in 0022), and a per-SDR
+  porting-record table (HackRF + template filled, RTL-SDR stubbed to copy).
+- **`docs/MODULARITY.md`** (written just before the kit) -- the HAL layer model
+  (core / `IQSource`+`TXSink` Protocols / device adapter / hardware) with a
+  diagram and the sample-format normalization table.
+
+## 2026-09-24 (later) — Typing gate tightened; py.typed made honest (patches 0019–0020)
+
+The package ships `src/sdr_dsp/py.typed`, but the pyproject comment still claimed
+it did not and kept the strict flags off. Corrected the record and took a real
+step toward typed. Suite: 785 (unchanged); mypy now stricter.
+
+- **`check_untyped_defs` enabled** in `[tool.mypy]` -- mypy now type-checks the
+  BODIES of unannotated functions (catches real bugs without demanding
+  signatures everywhere). Fixed the 10 issues it surfaced: empty-container
+  annotations (`bits: list[int] = []` in psk/qam, deques in arq, dicts in
+  drivers/pipeline), a `results` refactor in the pipeline (drop the `list|None`
+  union that the append site couldn't prove safe), and int-casting the edge
+  indices in `find_bursts` so the spans list is uniformly typed.
+- **pyproject comment corrected**: py.typed IS shipped; the full strict
+  disallow-untyped flags remain the per-module annotation campaign (~350 errors
+  under `--strict` today), turned on as each module is annotated.
+- **`[project.urls]`** (patch 0019): Homepage / Repository / Issues, now that
+  the repo is public.
+
+## 2026-09-24 — TX examples across the sink seam (patch 0018)
+
+`examples/transmit_examples.py`: modulate the library's own schemes as framed
+packets and key them through a `TXSink`, proving `demod(modulate(x)) == x` across
+the device boundary in software. The last big no-hardware chunk before the
+two-SDR bench test. Suite: 756 → 785 passed.
+
+- **OOK / FSK / BPSK / QPSK, framed** (`build_frame` → modulate → sink → read
+  back → demod → `find_frames`), all recovered with a valid CRC. Offline by
+  default via `LoopbackSink`; the example self-checks (nonzero exit if any scheme
+  fails to round-trip). `--sink hackrf` drives the guarded `HackRFSink` to the
+  device seam and stops there -- the actual radiation is the bench step.
+- **RX chains are the hardware-robust ones** from the demod docstrings and
+  `two_station_link`: smoothed auto-threshold FSK, transition-phase symbol
+  decimation via `sample_symbols`, guard-padded bursts. QPSK decimates at known
+  symbol centers on the clean loopback (unknown-delay timing recovery is the
+  Phase E two-SDR concern, noted in the code).
+- **24 offline tests** (`test_transmit_examples.py`): every scheme × four
+  payloads, `key_out` genuinely drives the sink protocol, a non-buffering
+  device-like sink is handled without crashing, and the `HackRFSink` seam is
+  confirmed guarded (`armed=False`, refuses to transmit).
+
+## 2026-09-24 (earlier) — FM carrier-offset estimate & correct (patch 0017)
+
+New core capability: `estimate_fm_cfo` / `correct_fm_cfo`, validated on the real
+103.7 MHz capture's genuine crystal offset. Suite: 746 → 756 passed.
+
+- **Method: the discriminator DC term.** Under a constant carrier offset Δf the
+  differential discriminator picks up that same Δf at every sample, while the
+  program audio averages to zero -- so the MEAN of the demodulated instantaneous
+  frequency IS the offset. Channelized first (like `fm_pilot_excess_db`) so
+  out-of-channel energy doesn't corrupt the mean; impulsive discriminator clicks
+  are trimmed before averaging.
+- **NOT the pilot.** With a differential discriminator a carrier offset adds a DC
+  term but does NOT move the 19 kHz pilot (differentiation is invariant to a
+  constant frequency shift), so the pilot carries no CFO information -- the trap
+  the TODO's "or the pilot frequency" wording invited. A test pins this so nobody
+  "improves" the estimator into it; the pilot's real role is a presence gate.
+- **`correct_fm_cfo`** reuses `frequency_shift(-cfo)` and returns
+  `(corrected_iq, cfo_hz)` so the applied correction is visible; estimation never
+  mutates data (separate call), matching `estimate_cfo`'s contract.
+- **Validated:** synthetic offsets (±500 Hz to ±12 kHz) recovered to <10 Hz with
+  correct sign; the real capture carries −315 Hz (~3 ppm) corrected to −2 Hz,
+  stable across the two halves (a real offset, not noise). 10 tests
+  (`test_cfo.py`).
+
+## 2026-09-23 (later) — Sub-8 Msps warning dedup; lint gate re-green (patches 0015–0016)
+
+Two hygiene fixes after the CI landing. Suite: 744 → 746 passed.
+
+- **The sub-8 Msps warning now dedupes for real (0016).** `dedup_warnings` used
+  `redirect_stderr`, but hackrfpy emits the notice through
+  `logging.getLogger("hackrfpy").warning()`; once anything installs a
+  `StreamHandler` bound to the real stderr (a plain `logging.basicConfig` does
+  it), `redirect_stderr` never sees the record and the same line printed once per
+  probe (~16× per station in preflight). Fixed at the logging layer: a
+  `logging.Filter` on the hackrfpy logger drops repeat WARNING+ records before
+  any handler, bound or not; INFO progress chatter is left alone. Two regression
+  tests cover the bound-handler path the old code missed.
+- **Lint gate re-greened (0015).** Three ruff errors had slipped into two
+  untracked diagnostic scripts that never passed the gate --
+  `tools/diagnose_rate.py` (unused numpy import; a lambda assignment) and
+  `tools/diagnose_path.py` (missing trailing newline). Fixed in-style (fix, not
+  a blanket per-file-ignore, matching `preflight_collection`), so CI's ruff step
+  is green again.
+
 ## 2026-09-23 — CI pipeline, typing gate, RNG determinism (+ the real flake)
 
 Made the pipeline trustworthy: a CI workflow, a green mypy gate, deterministic

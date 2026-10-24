@@ -38,8 +38,13 @@ class HackRFCapture:
                 ...
     """
 
-    def __init__(self, center_freq, sample_rate, *, lna=16, vga=20, amp=False,
+    def __init__(self, center_freq, sample_rate, *, lna=32, vga=28, amp=False,
                  block_size=262144, tools_dir=None):
+        # lna/vga default to 32/28, the collection defaults hackrfpy 1.1.0
+        # moved to after its old 16/20 produced captures spanning only a few
+        # int8 codes (effectively 3-bit recordings) on a typical antenna. Tune
+        # per band; capture_health() on a short snapshot tells you if the ADC
+        # is under-driven or clipping.
         try:
             from hackrfpy import HackRF
         except ImportError as e:

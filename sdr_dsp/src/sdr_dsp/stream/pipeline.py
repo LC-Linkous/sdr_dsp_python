@@ -54,13 +54,20 @@ class Pipeline:
     Build declaratively and run:
 
         pipe = (Pipeline(source)
-                .add(lambda b: fir_apply(b, taps), "filter")
-                .add(lambda b: fm_demod(b, 75000, fs), "demod")
+                .add(StreamingFIR(taps), "filter")
+                .add(StreamingFMDemod(75000, fs), "demod")
                 .tap(lambda b: meter.update(b)))      # live peek, flow unchanged
         audio = pipe.run()                            # or run(sink=write_audio)
 
     Stages transform the block; taps observe it and return nothing (the original
     block continues). Order matters and is preserved.
+
+    Use the ``Streaming*`` stages (``sdr_dsp.stream.stages``) for anything with
+    memory -- filters, mixers, the FM discriminator, resamplers. A bare core
+    function such as ``lambda b: fir_apply(b, taps)`` restarts its delay line
+    at every block and clicks at every seam; it is fine only for stages that
+    are genuinely per-sample (``to_db``, ``am_demod`` without dc_block, a
+    slicer) or for taps.
     """
 
     def __init__(self, source):

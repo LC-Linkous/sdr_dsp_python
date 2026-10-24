@@ -50,11 +50,65 @@ jobs:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
 
+      - name: Lockfile is in sync with pyproject
+        # A stale uv.lock means CI tests a different dependency set than a
+        # fresh `uv sync` would install. Fail early instead.
+        run: uv lock --check
+
       - name: Sync environment (numpy + scipy + dev group, editable install)
         run: uv sync
 
       - name: Run test suite (hardware tests deselected)
-        run: uv run pytest -m "not hardware" --cov=sdr_dsp --cov-report=xml --cov-report=term-missing
+        # 85% floor, same as hackrfpy. The tree is at ~93%; the gate is there
+        # so a large untested module cannot land unnoticed.
+        run: uv run pytest -m "not hardware" --cov=sdr_dsp --cov-report=xml --cov-report=term-missing --cov-fail-under=85
+
+  oldest-deps:
+    name: pytest (ubuntu, py3.11, oldest declared numpy/scipy)
+    # pyproject promises numpy>=1.26 and scipy>=1.11; the matrix above only
+    # ever tests whatever the lockfile resolved to (the newest). This leg
+    # installs the OLDEST versions the project claims to support, so the
+    # claim is tested rather than assumed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+      - name: Sync with lowest allowed direct dependencies
+        run: uv sync --resolution lowest-direct
+      - name: Show what resolved
+        run: uv run --no-sync python -c "import numpy, scipy; print('numpy', numpy.__version__, 'scipy', scipy.__version__)"
+      - name: Run test suite
+        # --no-sync: a plain `uv run` re-syncs to the lockfile (newest) first,
+        # which would silently undo the step above.
+        run: uv run --no-sync pytest -m "not hardware" -q
+
+  package:
+    name: build wheel + import from a clean env
+    # The package __init__ lazy-loads submodules (PEP 562) and ships a
+    # py.typed marker; both are easy to break in a way the editable install
+    # used by the tests never notices. Build the wheel, install it alone
+    # into an empty environment, and import the public surface from there.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Build sdist + wheel
+        run: uv build
+      - name: Import the wheel in an isolated environment
+        run: |
+          uv run --isolated --no-project --with dist/*.whl python - <<'PY'
+          import importlib.resources as r
+          import sdr_dsp, sdr_dsp.core, sdr_dsp.io, sdr_dsp.sinks, sdr_dsp.sources
+          import sdr_dsp.stream, sdr_dsp.link
+          from sdr_dsp import Pipeline, fm_demod, design_lowpass
+          from sdr_dsp.stream import StreamingFIR, StreamingResampler
+          assert (r.files("sdr_dsp") / "py.typed").is_file(), "py.typed missing from wheel"
+          print("wheel imports OK:", sdr_dsp.__name__)
+          PY
 
   lint:
     name: ruff + mypy
@@ -75,9 +129,10 @@ jobs:
         run: uv run ruff check .
 
       - name: Mypy
-        # Blocking. Not the py.typed-strict gate hackrfpy runs (sdr_dsp is not
-        # fully annotated yet and ships no py.typed marker), but mypy's default
-        # checks -- real type errors, incompatible assignments, wrong argument
-        # types. The tree is clean at that level; a regression fails the build.
-        # The path to strict + py.typed is tracked in TODO.
+        # Blocking. Not the strict gate hackrfpy runs: sdr_dsp DOES ship a
+        # py.typed marker but most signatures are not annotated yet, so this
+        # is mypy's default checks plus check_untyped_defs -- real type errors,
+        # incompatible assignments, wrong argument types. The tree is clean at
+        # that level; a regression fails the build. The path to strict is in
+        # docs/TODO.md.
         run: uv run mypy
