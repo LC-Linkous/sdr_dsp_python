@@ -108,6 +108,8 @@ class GainStage:
             raise ValueError(f"stage {self.name!r} has no steps")
 
     def default_value(self):
+        """The setting used when no quality sweep picks this stage: ``default``
+        if given, otherwise the lowest step."""
         return self.steps[0] if self.default is None else self.default
 
     def min_gap(self):
@@ -135,15 +137,18 @@ class GainModel:
         self.level = tuple(s for s in self.stages if s.role == "level")
 
     def by_name(self, name):
+        """Return the :class:`GainStage` called ``name``; ``KeyError`` if absent."""
         for s in self.stages:
             if s.name == name:
                 return s
         raise KeyError(name)
 
     def min_settings(self):
+        """Every stage at its lowest step, as a ``{name: value}`` dict."""
         return {s.name: s.steps[0] for s in self.stages}
 
     def default_frontend(self):
+        """Each frontend stage at its :meth:`GainStage.default_value`, as a dict."""
         return {s.name: s.default_value() for s in self.frontend}
 
     def frontend_grid(self):
@@ -156,6 +161,8 @@ class GainModel:
             yield dict(zip(names, combo))
 
     def frontend_db(self, combo):
+        """Total frontend gain in dB for a ``{name: value}`` combo (stages not
+        in ``combo`` contribute nothing)."""
         return sum(s.db(combo[s.name]) for s in self.frontend if s.name in combo)
 
     def level_stage(self):
