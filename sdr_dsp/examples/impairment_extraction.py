@@ -123,7 +123,7 @@ def main():
             print("[!] matplotlib not installed: uv sync --extra plotting")
             return
         fig, axes = plt.subplots(1, 4, figsize=(16, 4.2), constrained_layout=True)
-        for ax, (label, rx, _err) in zip(axes, clouds):
+        for ax, (label, rx, _err) in zip(axes, clouds, strict=True):
             ax.scatter(rx.real, rx.imag, s=2, alpha=0.25, color="#2a6fb0")
             ax.scatter(const.real, const.imag, s=40, color="#c0392b",
                        marker="x", zorder=3)

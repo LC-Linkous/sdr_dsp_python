@@ -22,7 +22,7 @@ from math import gcd
 
 import numpy as np
 
-from sdr_dsp.core import ssb_demod, resample_poly, frequency_shift
+from sdr_dsp.core import ssb_demod, ssb_modulate, resample_poly, frequency_shift
 from sdr_dsp.sinks import write_wav
 
 AUDIO_RATE = 48000
@@ -31,19 +31,15 @@ def synth_ssb(fs, sideband="usb"):
     """A simple USB/LSB test signal: a couple of audio tones on one sideband.
 
     A proper SSB signal is the analytic signal of the audio (USB = the audio's
-    positive-frequency content; LSB = its conjugate). This is exactly what an
-    SSB transmitter produces after the carrier and one sideband are removed.
+    positive-frequency content; LSB = its conjugate). That is exactly what the
+    library's `ssb_modulate` produces -- the transmit side of the `ssb_demod`
+    this example exercises -- so the test signal is made with it, closing the
+    loop `ssb_demod(ssb_modulate(audio)) ~= audio`.
     """
     n = 200_000
     t = np.arange(n) / fs
     audio = (np.cos(2 * np.pi * 800 * t) + 0.6 * np.cos(2 * np.pi * 1900 * t))
-    # analytic signal: real audio -> complex with only positive frequencies
-    spec = np.fft.fft(audio)
-    spec[n // 2:] = 0           # zero negative frequencies -> analytic (USB)
-    analytic = 2 * np.fft.ifft(spec)
-    iq = analytic.astype(np.complex64)
-    if sideband == "lsb":
-        iq = np.conj(iq)        # flip to the lower sideband
+    iq = ssb_modulate(audio, sideband=sideband)
     iq += 0.02 * (np.random.randn(n) + 1j * np.random.randn(n))
     return iq.astype(np.complex64)
 

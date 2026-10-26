@@ -53,7 +53,7 @@ def qam16_demod(symbols, normalize=True):
     # Gray map for the 4 levels: -3->00, -1->01, +1->11, +3->10
     gray = {-3: (0, 0), -1: (0, 1), 1: (1, 1), 3: (1, 0)}
     bits: list[int] = []
-    for il, ql in zip(i_lvl, q_lvl):
+    for il, ql in zip(i_lvl, q_lvl, strict=True):
         bits.extend(gray[int(il)])
         bits.extend(gray[int(ql)])
     points = (i_lvl + 1j * q_lvl).astype(np.complex64)

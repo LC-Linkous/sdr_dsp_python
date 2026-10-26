@@ -35,7 +35,7 @@ _MORSE_ENC = {
 def synth_cw(text, fs, dit_samples, tone_hz=800, noise=0.03):
     """Build a complex tone keyed with the Morse for `text`."""
     on = []   # list of (is_on, units)
-    for ci, ch in enumerate(text.upper()):
+    for ch in text.upper():
         if ch == " ":
             on.append((False, 7))
             continue

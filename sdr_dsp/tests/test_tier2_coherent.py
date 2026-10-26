@@ -29,8 +29,8 @@ def test_qpsk_gray_adjacent_one_bit():
     # adjacent quadrants must differ by exactly one bit (Gray property)
     _, _ = qpsk_demod(np.array([1 + 1j], dtype=np.complex64))
     maps = [(0, 0), (0, 1), (1, 1), (1, 0)]  # quadrant order
-    for a, b in zip(maps, maps[1:] + [maps[0]]):
-        diff = sum(x != y for x, y in zip(a, b))
+    for a, b in zip(maps, maps[1:] + [maps[0]], strict=True):
+        diff = sum(x != y for x, y in zip(a, b, strict=True))
         assert diff == 1
 
 

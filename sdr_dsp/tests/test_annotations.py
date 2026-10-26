@@ -124,7 +124,7 @@ def test_full_detect_label_save_reload():
     loaded = read_annotations(os.path.join(d, "cap.iq"))
     assert len(loaded) == len(spans) >= 2
     # the reloaded spans match what was detected
-    for orig, got in zip(spans, loaded):
+    for orig, got in zip(spans, loaded, strict=True):
         assert got.sample_start == orig[0]
         assert got.sample_count == orig[1] - orig[0]
 

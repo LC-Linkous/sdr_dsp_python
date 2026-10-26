@@ -45,7 +45,7 @@ def test_top_level_lazy_subpackages_resolve_once():
         assert mod is importlib.import_module(f"sdr_dsp.{name}")
         assert name in sdr_dsp.__dict__                 # cached after first access
     with pytest.raises(AttributeError):
-        sdr_dsp.no_such_thing
+        _ = sdr_dsp.no_such_thing
 
 
 # -- construction validation -------------------------------------------------

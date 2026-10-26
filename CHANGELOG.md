@@ -17,10 +17,28 @@ was measured, why a design went the way it did) lives in `docs/LOG.md`.
 
 ### Changed
 - Package description and README links prepared for PyPI (absolute links to
-  the docs; "personal" dropped from the one-line description).
+  the docs; "personal" dropped from the one-line description). The README's
+  "hooks that aren't implemented" line is gone (nothing exported is a stub)
+  and its quick-start now calls the `tune_to_baseband` it imports.
 - Python 3.14 added to the CI matrix and the trove classifiers.
+- `zip()` calls carry an explicit `strict=` throughout (bugbear B905):
+  `strict=True` wherever the sequences must match, which turns a silent
+  truncation into an error.
+- `ssb_receiver.py` builds its test signal with `ssb_modulate`;
+  `spectrum_analyzer.py` draws on axes from `plot_spectrum`; `cfo_demo.py`
+  gains `--fm` for `estimate_fm_cfo` / `correct_fm_cfo`.
+
+### Quality gates
+- ruff: bugbear (`B`) enabled; `docs/dev_handbook/*.py` now linted in CI.
+- Coverage floor raised from 85% to 95%.
+- `test_public_surface.py` also requires a docstring on every module.
 
 ### Added
+- `examples/gain_search_demo.py`: the device-agnostic `GainModel` /
+  `search_gain_model` engine run on three simulated radios (HackRF, RTL-SDR
+  and a hand-built two-stage model). `docs/EXAMPLES.md` also catalogs the four
+  scripts it was missing (`transmit_examples`, `fm_band_explorer`,
+  `collect_sample_data`, `sdr_adapter_template`).
 - 89 edge-case tests (`tests/test_core_edges.py`, `test_io_link_edges.py`,
   `test_stream_sources_edges.py`) covering empty-input guards, argument
   validation, every streaming stage's `reset()`, and alternative branches

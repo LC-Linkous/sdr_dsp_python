@@ -59,9 +59,10 @@ jobs:
         run: uv sync
 
       - name: Run test suite (hardware tests deselected)
-        # 85% floor, same as hackrfpy. The tree is at ~93%; the gate is there
-        # so a large untested module cannot land unnoticed.
-        run: uv run pytest -m "not hardware" --cov=sdr_dsp --cov-report=xml --cov-report=term-missing --cov-fail-under=85
+        # 95% floor. The tree is at ~99.6% line coverage; a floor far below
+        # that lets a whole untested module land unnoticed, which is exactly
+        # what the gate exists to catch. Raise it again if coverage climbs.
+        run: uv run pytest -m "not hardware" --cov=sdr_dsp --cov-report=xml --cov-report=term-missing --cov-fail-under=95
 
   oldest-deps:
     name: pytest (ubuntu, py3.11, oldest declared numpy/scipy)
@@ -141,7 +142,10 @@ jobs:
         run: uv sync
 
       - name: Ruff lint
-        run: uv run ruff check .
+        # The two maintenance scripts in docs/dev_handbook/ live outside the
+        # package directory ruff is run from, so they are named explicitly;
+        # left to the default they were never checked and drifted.
+        run: uv run ruff check . ../docs/dev_handbook
 
       - name: Mypy
         # Blocking. Not the strict gate hackrfpy runs: sdr_dsp DOES ship a

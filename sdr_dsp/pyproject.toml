@@ -119,10 +119,12 @@ line-length = 100
 target-version = "py311"
 
 [tool.ruff.lint]
-# Default ruleset (pyflakes + a pycodestyle subset). Kept deliberately small:
-# this gates CI, so every enabled rule should be one we actually want to
-# block a merge on.
-select = ["E", "F", "W"]
+# Default ruleset (pyflakes + a pycodestyle subset) plus bugbear. Kept
+# deliberately small: this gates CI, so every enabled rule should be one we
+# actually want to block a merge on. B is in because its findings are
+# behaviour, not style: zip() silently truncating unequal sequences, a
+# closure capturing a loop variable, a mutable default argument.
+select = ["E", "F", "W", "B"]
 
 [tool.ruff.lint.per-file-ignores]
 # Scripts and examples open with a docstring, then set up sys.path or read

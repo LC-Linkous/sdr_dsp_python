@@ -19,6 +19,7 @@ import numpy as np
 
 from sdr_dsp.io import load_iq
 from sdr_dsp.core import psd
+from sdr_dsp.sinks import plot_spectrum
 
 def find_peaks(freqs, psd_db, n_peaks, min_separation_bins=10):
     """Crude peak picker: the n strongest bins, kept apart by a separation."""
@@ -70,9 +71,11 @@ def main():
         print("\n(install matplotlib to plot: pip install matplotlib)")
         return 0
 
-    x = freqs / 1e6 if fc else freqs
-    fig, ax = plt.subplots(figsize=(11, 6))
-    ax.plot(x, psd_db, lw=0.7, color="#1f77b4")
+    # The library's plot sink draws the PSD and hands back (fig, ax) so the
+    # analyzer can annotate on top of it -- the peaks and the floor are this
+    # script's analysis, the spectrum itself is the sink's job.
+    fig, ax = plot_spectrum(iq, fs, center_freq=fc, nfft=args.nfft,
+                            title=f"spectrum -- {args.iq_file}", show=False)
     ax.axhline(floor, color="gray", ls="--", lw=0.8, label=f"noise floor "
                f"{floor:.0f} dB")
     for f, db in peaks:
@@ -80,9 +83,6 @@ def main():
         ax.plot(xf, db, "rv", ms=7)
         ax.annotate(f"{xf:.3f}", (xf, db), textcoords="offset points",
                     xytext=(0, 8), ha="center", fontsize=8)
-    ax.set_xlabel("frequency (MHz)" if fc else "frequency (Hz)")
-    ax.set_ylabel("PSD (dB)")
-    ax.set_title(f"spectrum -- {args.iq_file}")
     ax.legend()
     ax.grid(alpha=0.3)
     fig.tight_layout()

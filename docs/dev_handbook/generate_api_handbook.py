@@ -10,15 +10,14 @@ Usage:
 """
 import importlib
 import inspect
-import sys
-import textwrap
 
 # the public surface, in the order we want it documented
 MODULES = [
     ("sdr_dsp", "Top-level package", "Lazily-loaded submodules and the flattened DSP API."),
     ("sdr_dsp.core", "core — pure DSP", "Every signal-processing primitive. numpy + scipy only."),
     ("sdr_dsp.core.demod", "core.demod — demodulators", "Recover bits/audio/symbols from IQ."),
-    ("sdr_dsp.core.modulate", "core.modulate — modulators", "Inverse of demod: bits/symbols -> IQ."),
+    ("sdr_dsp.core.modulate", "core.modulate — modulators",
+     "Inverse of demod: bits/symbols -> IQ."),
     ("sdr_dsp.sources", "sources — receive seam", "IQSource protocol and concrete sources."),
     ("sdr_dsp.sinks", "sinks — output & transmit seam", "TXSink protocol, file and plot sinks."),
     ("sdr_dsp.io", "io — file formats", "SigMF load/save, annotations, metadata."),
@@ -162,7 +161,7 @@ def main():
 
     # table of contents
     print("## Modules\n")
-    for modname, title, _ in MODULES:
+    for _modname, title, _ in MODULES:
         anchor = title.lower().replace(" — ", "--").replace(" ", "-").replace("—", "")
         print(f"- [{title}](#{anchor})")
     print("\n---\n")

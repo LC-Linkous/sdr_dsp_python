@@ -57,9 +57,9 @@ def test_lazy_submodules_load_and_are_cached():
 
 def test_lazy_attribute_errors_are_real_attribute_errors():
     with pytest.raises(AttributeError):
-        sdr_dsp.no_such_thing
+        _ = sdr_dsp.no_such_thing
     with pytest.raises(AttributeError):
-        sdr_dsp.sinks.no_such_thing
+        _ = sdr_dsp.sinks.no_such_thing
 
 
 def test_sinks_lazy_plot_helpers_are_the_plot_sink_ones():
@@ -86,7 +86,7 @@ def _public_callables(modname):
 def _all_public():
     seen = {}
     for m in MODULES:
-        for name, obj in _public_callables(m):
+        for _name, obj in _public_callables(m):
             seen.setdefault(f"{obj.__module__}.{obj.__qualname__}", obj)
     return sorted(seen.items())
 
@@ -118,3 +118,16 @@ def test_version_matches_pyproject():
         declared = tomllib.load(f)["project"]["version"]
     assert sdr_dsp.__version__ == declared, (
         f"sdr_dsp.__version__={sdr_dsp.__version__!r} but pyproject says {declared!r}")
+
+
+def test_every_module_has_a_docstring():
+    """Functions, classes and methods are gated above; this closes the last
+    docstring surface. A module docstring is what `help(sdr_dsp.core.sync)`
+    and the API handbook generator show first."""
+    import pkgutil
+    missing = []
+    for info in pkgutil.walk_packages(sdr_dsp.__path__, "sdr_dsp."):
+        mod = importlib.import_module(info.name)
+        if not (mod.__doc__ or "").strip():
+            missing.append(info.name)
+    assert not missing, "modules without a docstring:\n  " + "\n  ".join(missing)

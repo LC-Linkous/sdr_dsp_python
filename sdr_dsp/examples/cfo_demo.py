@@ -16,13 +16,15 @@ Library deps only (numpy). No hardware -- synthesizes an offset signal.
 Usage:
     python examples/cfo_demo.py
     python examples/cfo_demo.py --offset 35000 --correct
+    python examples/cfo_demo.py capture.iq --fm --correct
 """
 import argparse
 import sys
 
 import numpy as np
 
-from sdr_dsp.core import estimate_cfo, frequency_shift
+from sdr_dsp.core import (estimate_cfo, estimate_fm_cfo, correct_fm_cfo,
+                          frequency_shift)
 
 def main():
     p = argparse.ArgumentParser(description="Measure/correct carrier offset.")
@@ -32,6 +34,11 @@ def main():
                    help="synth: put the signal this far off center (Hz)")
     p.add_argument("--correct", action="store_true",
                    help="actually apply the correction (default: measure only)")
+    p.add_argument("--fm", action="store_true",
+                   help="treat the input as broadcast FM: channelize to the FM "
+                        "channel before measuring (estimate_fm_cfo / "
+                        "correct_fm_cfo), so out-of-channel energy cannot "
+                        "pull the estimate")
     args = p.parse_args()
 
     if args.iq_file:
@@ -48,8 +55,18 @@ def main():
         print(f"[*] synthetic signal placed {args.offset/1e3:g} kHz off center")
 
     # MEASURE -- this does not change the data
-    cfo = estimate_cfo(iq, fs)
-    print(f"[*] measured carrier offset: {cfo/1e3:+.2f} kHz")
+    if args.fm:
+        cfo = estimate_fm_cfo(iq, fs)
+        if cfo is None:
+            print("[!] estimate_fm_cfo declined: the capture is too short or "
+                  "the rate too low to channelize to the FM channel",
+                  file=sys.stderr)
+            return 1
+        print(f"[*] measured FM carrier offset: {cfo/1e3:+.2f} kHz "
+              "(mean instantaneous frequency inside the channel)")
+    else:
+        cfo = estimate_cfo(iq, fs)
+        print(f"[*] measured carrier offset: {cfo/1e3:+.2f} kHz")
 
     if not args.correct:
         before = iq.copy()
@@ -61,8 +78,15 @@ def main():
         return 0
 
     # CORRECT -- your explicit choice
-    corrected = frequency_shift(iq, -cfo, fs)
-    residual = estimate_cfo(corrected, fs)
+    if args.fm:
+        # correct_fm_cfo measures and shifts in one call, and returns the
+        # offset it applied so the correction is never hidden from you
+        corrected, applied = correct_fm_cfo(iq, fs)
+        assert applied == cfo
+        residual = estimate_fm_cfo(corrected, fs) or 0.0
+    else:
+        corrected = frequency_shift(iq, -cfo, fs)
+        residual = estimate_cfo(corrected, fs)
     print(f"[*] corrected by {-cfo/1e3:+.2f} kHz; residual offset now "
           f"{residual/1e3:+.2f} kHz")
     print("[*] signal is now centered (residual ~ one FFT bin)")

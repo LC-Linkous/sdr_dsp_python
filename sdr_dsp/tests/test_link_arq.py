@@ -215,13 +215,16 @@ def test_windowed_random_loss_stress():
         rng = random.Random(trial)
 
         class _RandomLoss:
+            def __init__(self, rng):
+                self.rng = rng
+
             def __call__(self, payload):
-                return (False, None) if rng.random() < 0.3 else (True, payload)
+                return (False, None) if self.rng.random() < 0.3 else (True, payload)
 
         n = rng.choice([1, 2, 4, 8])
         nmsg = rng.randint(5, 25)
         msgs = [bytes([i % 256, (i * 7) % 256]) for i in range(nmsg)]
-        received, _ = run_link(msgs, window_size=n, transport=_RandomLoss(),
+        received, _ = run_link(msgs, window_size=n, transport=_RandomLoss(rng),
                                timeout_ticks=2, max_retries=200,
                                max_ticks=20000)
         assert received == msgs, f"trial {trial}: N={n}"

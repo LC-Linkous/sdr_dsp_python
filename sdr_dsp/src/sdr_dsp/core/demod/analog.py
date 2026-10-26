@@ -260,7 +260,7 @@ def cw_decode(bits, samples_per_symbol):
         return ""
     text = []
     symbol = []
-    for length, val in zip(run_lengths, run_values):
+    for length, val in zip(run_lengths, run_values, strict=True):
         units = length / spb
         if val == 1:                       # tone ON: dit (~1) or dah (~3)
             symbol.append("." if units < 2 else "-")

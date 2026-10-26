@@ -62,7 +62,7 @@ def main():
         for i in range(args.nsym)])
 
     n = min(len(syms), len(truth))
-    errs = sum(int(a) != int(b) for a, b in zip(syms[:n], truth[:n]))
+    errs = sum(int(a) != int(b) for a, b in zip(syms[:n], truth[:n], strict=True))
     print(f"[*] {n - errs}/{n} symbols correct ({args.levels} levels = "
           f"{int(np.log2(args.levels))} bits/symbol)")
     print(f"[*] recovered: {''.join(str(int(s)) for s in syms[:40])}")

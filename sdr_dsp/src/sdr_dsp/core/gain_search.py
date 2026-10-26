@@ -116,7 +116,7 @@ class GainStage:
         """Smallest positive spacing between consecutive numeric steps."""
         nums = [s for s in self.steps if isinstance(s, (int, float))
                 and not isinstance(s, bool)]
-        gaps = [b - a for a, b in zip(nums, nums[1:]) if b > a]
+        gaps = [b - a for a, b in zip(nums, nums[1:], strict=False) if b > a]
         return min(gaps) if gaps else 1.0
 
 
@@ -158,7 +158,7 @@ class GainModel:
             return
         names = [s.name for s in self.frontend]
         for combo in itertools.product(*(s.steps for s in self.frontend)):
-            yield dict(zip(names, combo))
+            yield dict(zip(names, combo, strict=True))
 
     def frontend_db(self, combo):
         """Total frontend gain in dB for a ``{name: value}`` combo (stages not

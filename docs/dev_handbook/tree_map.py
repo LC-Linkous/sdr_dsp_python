@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Generate an ASCII file tree of the dcdash project."""
 
-import os
 import sys
 from pathlib import Path
 

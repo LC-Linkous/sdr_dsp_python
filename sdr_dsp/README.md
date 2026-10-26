@@ -13,8 +13,9 @@ can't do, and why it's a good development platform.
 
 ## Status
 
-Pre-release; there is no Version 1 yet, and it is heavily under development.
-Some features have hooks that aren't implemented. What is proven where:
+Pre-release; there is no Version 1 yet, and the API may still move between
+minor versions. Everything exported is implemented and tested; what differs
+is how much of it has met a real radio. What is proven where:
 
 - **FM receive** — validated on real, ear-verified over-the-air captures.
 - **Other demodulators (AM/SSB/CW, OOK/ASK, FSK, the PSK family, QAM-16)** —
@@ -42,7 +43,11 @@ from sdr_dsp.io import load_iq
 
 iq, meta = load_iq("sample_data/fm_2Msps.iq")
 fs = meta["global"]["core:sample_rate"]
-# (already at baseband here; tune_to_baseband handles off-center captures)
+# A direct-conversion SDR puts a DC spike at its tuned frequency, so real
+# captures are often made with the radio tuned a little to one side and the
+# station brought back to 0 Hz in software. This capture is centered, so the
+# offset is 0; see docs/DC_SPIKE.md for the recipe.
+iq = tune_to_baseband(iq, offset_hz=0.0, sample_rate=fs)
 audio = fm_demod(fir_apply(iq, design_lowpass(100e3, fs)),
                  deviation_hz=75e3, sample_rate=fs)
 ```

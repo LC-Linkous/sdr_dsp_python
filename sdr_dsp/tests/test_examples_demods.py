@@ -87,7 +87,7 @@ def test_fsk_decoder_synth():
     spb, _ = estimate_symbol_rate(bits, 2e6, min_run=3)
     syms = slice_to_symbols(bits, spb)
     n = min(len(syms), len(truth))
-    errs = sum(int(a) != int(b) for a, b in zip(syms[:n], truth[:n]))
+    errs = sum(int(a) != int(b) for a, b in zip(syms[:n], truth[:n], strict=True))
     assert errs == 0   # clean recovery on the demo signal
 
 
@@ -114,7 +114,7 @@ def test_nask_decoder_synth():
     syms = np.array([int(np.round(np.median(
         per_sample[int((i + 0.2) * spb):int((i + 0.8) * spb)])))
         for i in range(40)])
-    errs = sum(int(a) != int(b) for a, b in zip(syms, truth))
+    errs = sum(int(a) != int(b) for a, b in zip(syms, truth, strict=True))
     assert errs == 0
 
 

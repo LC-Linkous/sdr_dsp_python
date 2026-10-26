@@ -91,6 +91,7 @@ The TX arc, in build order — each script is one phase of "the library can now 
 | `packet_loopback.py` | Phase B: send a verifiable *packet* — `[preamble][sync][length][payload][CRC]` — through frame → modulate → channel → demod → `find_frames`, with the CRC deciding whether it survived. | |
 | `channel_sweep.py` | Phase C: send a framed packet through worsening simulated channels (SNR sweep, optional CFO) and report where the link breaks. | |
 | `two_station_link.py` | Phase D, the capstone: two stations exchanging acked messages over the ARQ link protocol, with a forced frame drop showing a retransmit — all in software. The template to copy for bench work. | |
+| `transmit_examples.py` | Across the sink seam: for each of OOK / FSK / BPSK / QPSK, build a real frame, modulate it, key it out through a `TXSink` (the loopback sink by default), read it back and decode it. Proves `demod(modulate(x)) == x` through the same protocol boundary a real radio sits behind. | |
 
 ## Measurement & detection
 
@@ -100,6 +101,7 @@ The TX arc, in build order — each script is one phase of "the library can now 
 | `annotate_bursts.py` | The detect → label → save → reload workflow: detected bursts become SigMF annotations in the recording's sidecar, readable by any SigMF-aware tool. | |
 | `cfo_demo.py` | Measure a carrier frequency offset — and only correct it if you ask. Embodies the measure-don't-auto-apply principle. | |
 | `power_calibration.py` | Turn dBFS into absolute dBm via a one-time calibration against a known reference (opt-in, advanced; only valid for the gain/frequency measured). | |
+| `gain_search_demo.py` | Auto-gain a radio the library has never seen by describing its knobs as a `GainModel`: the same `search_gain_model` engine runs on a simulated HackRF (LNA + amp + VGA), an RTL-SDR (one knob) and a hand-built two-stage radio, choosing the front end by measured pilot quality and the level stage by ADC fill. `--antenna` sets signal strength; `--trace` shows every probe. | |
 
 ## Impairment modeling & extraction
 
@@ -128,6 +130,9 @@ library; see §13 of [`sdr_dsp_REFERENCE.md`](sdr_dsp_REFERENCE.md).)
 | `live_433_capture.py` | Capture a 433 MHz burst (e.g. a key fob) and save it for the OOK/FSK decoders to run on offline. | HW |
 | `live_fm_listen.py` | Tune an FM station and play it through your speakers in real time. | HW, audio |
 | `live_spectrum.py` | Live spectrum display from the HackRF — "what's on this frequency right now?" | HW, plot |
+| `fm_band_explorer.py` | Interactive: sweep the FM band, click a station, tune it live and listen. Built for answering "why am I not hearing anything?" — the sweep, the detected peaks and the tuned channel's pilot check are on screen at once. | HW, plot, audio |
+| `collect_sample_data.py` | The read-only collection tool behind `sample_data/`: records real captures with SigMF sidecars and provenance so the file-based examples have genuine signals to run against. Receive and sweep only; never transmits. | HW |
+| `sdr_adapter_template.py` | A fill-in-the-blanks adapter for a *new* SDR: copy it, complete the four marked spots, and you have an `IQSource` (and optionally a `TXSink`) the core drives with no change to `src/`. Not run directly; the modularity claim made concrete. | |
 
 ---
 

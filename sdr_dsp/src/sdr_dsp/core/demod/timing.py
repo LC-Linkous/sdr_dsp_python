@@ -72,7 +72,7 @@ def slice_to_symbols(bits, samples_per_symbol):
     if spb <= 0:
         return np.asarray(bits, dtype=np.uint8)
     out = []
-    for length, val in zip(run_lengths, run_values):
+    for length, val in zip(run_lengths, run_values, strict=True):
         count = max(1, int(round(length / spb)))
         out.extend([int(val)] * count)
     return np.array(out, dtype=np.uint8)

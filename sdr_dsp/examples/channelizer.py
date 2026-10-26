@@ -66,7 +66,7 @@ def main():
               f"({'oversampled' if args.oversample else 'critically sampled'})")
         print(f"\n    {'ch':>3} {'center (kHz)':>14} {'power':>10}")
         print("    " + "-" * 32)
-        for i, (f, c) in enumerate(zip(freqs, chans)):
+        for i, (f, c) in enumerate(zip(freqs, chans, strict=True)):
             pw = power_dbfs(c)
             mark = "  <-- signal" if pw > -20 else ""
             print(f"    {i:>3} {f/1e3:>14.1f} {pw:>7.1f} dB{mark}")

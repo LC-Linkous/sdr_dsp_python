@@ -42,7 +42,7 @@ def main():
     t_fine = np.linspace(0, dur, 5000)
     true_wave = np.cos(2 * np.pi * true_hz * t_fine)
 
-    for ax, fs in zip(axes, rates):
+    for ax, fs in zip(axes, rates, strict=True):
         n = int(fs * dur)
         ts = np.arange(n) / fs
         samples = np.cos(2 * np.pi * true_hz * ts)

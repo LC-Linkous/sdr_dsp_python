@@ -106,7 +106,7 @@ def main():
     if truth is not None:
         n = min(len(syms), len(truth))
         # align (recovery may offset by a symbol) and report agreement
-        errs = sum(int(a) != int(b) for a, b in zip(syms[:n], truth[:n]))
+        errs = sum(int(a) != int(b) for a, b in zip(syms[:n], truth[:n], strict=True))
         print(f"[*] vs known truth: {n-errs}/{n} symbols match")
     return 0
 

@@ -277,7 +277,7 @@ def find_bursts(iq, sample_rate=None, threshold=None, min_gap=0, min_len=1):
         starts = [0] + starts
     if on[-1]:
         stops = stops + [len(on)]
-    spans = list(zip(starts, stops))
+    spans = list(zip(starts, stops, strict=True))
     # merge close spans
     if min_gap > 0 and spans:
         merged = [spans[0]]
