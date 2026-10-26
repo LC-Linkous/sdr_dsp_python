@@ -1,0 +1,115 @@
+name: Hardware / bench report
+description: Results from running sdr_dsp against a real radio (works, doesn't, or partly)
+labels: ["hardware"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for anything that only shows up with a board attached: the
+        `-m hardware` tests, a live capture or transmit example, a new SDR
+        adapter, or a modulation that has only ever been verified against
+        synthetic signals (everything except FM receive -- see
+        `docs/MODULATIONS.md`). **A report that something works is as useful
+        as one that something doesn't:** the hardware items in `docs/TODO.md`
+        are gated on exactly these runs, and the maintainer has one HackRF One
+        at one location.
+
+        If a HackRF is involved, please run the preflight first and paste its
+        verdict below -- it checks that the board is healthy and the antenna
+        receives anything at all, which is where most "nothing works" reports
+        end up:
+
+        ```bash
+        uv run python tools/preflight_collection.py
+        ```
+
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: Outcome
+      options:
+        - "Works as documented"
+        - "Works with caveats (describe below)"
+        - "Does not work"
+        - "Mixed / partial"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: what
+    attributes:
+      label: What was exercised
+      options:
+        - "pytest -m hardware (the hardware-marked test suite)"
+        - "Live receive example (FM listen / band explorer / capture)"
+        - "Transmit example (hackrf_sink / two_station_link / transmit_examples)"
+        - "Gain search / calibrate / preflight tooling"
+        - "A non-FM demodulator on a real off-air signal"
+        - "A new or non-HackRF device adapter"
+        - "Other (describe below)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: radio
+    attributes:
+      label: Radio and setup
+      description: Board, firmware, how it is driven, and the RF side of things.
+      value: |
+        - radio (model, firmware/hardware revision):
+        - driver path (hackrfpy version / hackrf-tools version / other):
+        - antenna and band:
+        - sample rate and center frequency used:
+        - amp / LNA / VGA (or equivalent gain) settings:
+        - location type (urban / rural; any known strong local transmitters):
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Exact command(s)
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: readiness
+    attributes:
+      label: preflight_collection.py output (HackRF only)
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: results
+    attributes:
+      label: What happened
+      description: |
+        For a pass: anything that was borderline (pilot SNR near threshold,
+        clip backoff triggered, drops reported). For a failure: the full
+        output / traceback, and whether the same capture replays correctly
+        from a file (that separates a DSP problem from a streaming one).
+    validations:
+      required: true
+
+  - type: textarea
+    id: capture
+    attributes:
+      label: Capture available?
+      description: |
+        A short (few-second) IQ recording with its `.sigmf-meta` sidecar is
+        the single most valuable attachment; it lets the problem be
+        reproduced without your board. Link it here (release asset, cloud
+        drive, etc.). Do not paste binary data into the issue.
+    validations:
+      required: false
+
+  - type: input
+    id: env
+    attributes:
+      label: OS / Python / sdr_dsp version
+      placeholder: "e.g. Windows 11, Python 3.12, sdr_dsp 0.2.0 (or commit a1b2c3d)"
+    validations:
+      required: true

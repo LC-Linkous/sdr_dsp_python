@@ -39,7 +39,7 @@ jobs:
         # macos keep the pure-DSP core honest cross-platform. No board is
         # needed -- every hardware test self-skips without one.
         os: [windows-latest, ubuntu-latest, macos-latest]
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - uses: actions/checkout@v4

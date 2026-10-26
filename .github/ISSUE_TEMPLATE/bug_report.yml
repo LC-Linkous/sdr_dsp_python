@@ -118,8 +118,10 @@ body:
     attributes:
       label: sdr_dsp version
       description: |
-        Not on PyPI yet, so this is a commit — `git rev-parse --short HEAD`.
-      placeholder: "e.g. local checkout at a1b2c3d"
+        `python -c "import sdr_dsp; print(sdr_dsp.__version__)"` for an
+        installed release; for a checkout, the commit as well
+        (`git rev-parse --short HEAD`).
+      placeholder: "e.g. 0.2.0 from PyPI, or local checkout at a1b2c3d"
     validations:
       required: true
 

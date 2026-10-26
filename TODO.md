@@ -1,4 +1,9 @@
-# TODO
+# TODO (September 2026 session journal)
+
+> **The live list is `docs/TODO.md`.** This file is the running journal from
+> the September 2026 review/repair sessions, kept for the reasoning behind
+> the open items. Items marked done below after 2026-10 were closed when
+> the tree was prepared for packaging; the hardware items remain open.
 
 Running list from the September 2026 review/repair sessions. Done so far,
 for context: capture_health mid-band noise reference, the channelized 19 kHz
@@ -184,7 +189,8 @@ files are untracked and must be `git add`ed -- see section 6.
       / device adapter / hardware -- with a diagram, the sample-format
       normalization table (ci8/cu8/cf32 -> complex64), and the honest note that
       the gain-search/probe tooling is HackRF-shaped and not yet portable.
-- [ ] Add `[project.urls]` to pyproject when the repo is pushed.
+- [x] Add `[project.urls]` to pyproject when the repo is pushed. (Done; Homepage,
+      Repository and Issues are set.)
 
 ## 6. Open issues & warnings
 
@@ -221,20 +227,23 @@ tasks so much as things to keep in view.
   is random bits with no group framing -- decodable-looking, not decodable.
   Do NOT use it as RDS ground truth; the real capture's frames are the only
   valid reference (section 2 RDS item).
-- **py.typed is NOT shipped.** mypy's default checks are gated, but the
-  package makes no typing promise to downstream users yet. Enabling strict
-  flags before the annotation pass would fail every module (section 3).
+- **py.typed IS shipped (since patches 0019-0020) but overpromises**: most
+  signatures are unannotated, so downstream mypy sees `Any` for much of the
+  API. Strict flags come on per module as each is annotated (docs/TODO.md).
 - **Rare-flake vigilance.** The known flake (hash()-seeded fixtures) is
   fixed and CI pins PYTHONHASHSEED, but any NEW test using unseeded
   randomness or the builtin hash() for seeding can reintroduce order/run
   dependence. Always seed with default_rng(fixed) or hashlib.
-- **Untracked files must be `git add`ed before they push.** The 785-passing
+- ~~**Untracked files must be `git add`ed before they push.**~~ (Resolved: all
+  listed files, including this TODO.md and .github/, are tracked on main.)
+  Original note: The 785-passing
   state depends on files git does not yet track: TODO.md (kept untracked on
   purpose), the three test files that were never added (test_collection_fixes,
   test_real_demod_e2e, test_stereo_decode), and this session's new
   test_cfo.py, test_transmit_examples.py, examples/transmit_examples.py, and
   docs/MODULARITY.md. A clone/CI without them is NOT the tree tested here.
-- **Confirm .github/ is committed.** It was deleted in a working tree this
+- ~~**Confirm .github/ is committed.**~~ (Confirmed; tests.yml runs on main.)
+  Original note: It was deleted in a working tree this
   session (unstaged); CI (patch 0014) only runs if the workflow is actually in
   the pushed tree. Check `git status` for a stray .github deletion before push.
 - **Line endings normalized 2026-09-20** -- tree is LF. Keep NEW files LF; a

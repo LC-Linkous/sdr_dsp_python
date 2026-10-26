@@ -8,7 +8,7 @@ flowgraph runtime; you call functions and compose them. The DSP core imports no
 specific radio; device adapters (HackRF, files) live at the edges.
 
 Developed and tested against a **HackRF One**, but the core processes IQ
-regardless of source. See `docs/HARDWARE.md` for what that hardware can and
+regardless of source. See [`docs/HARDWARE.md`](https://github.com/LC-Linkous/sdr_dsp_python/blob/main/docs/HARDWARE.md) for what that hardware can and
 can't do, and why it's a good development platform.
 
 ## Status
@@ -18,21 +18,21 @@ Some features have hooks that aren't implemented. What is proven where:
 
 - **FM receive** — validated on real, ear-verified over-the-air captures.
 - **Other demodulators (AM/SSB/CW, OOK/ASK, FSK, the PSK family, QAM-16)** —
-  verified against synthetic ground truth; see `docs/MODULATIONS.md` for the
+  verified against synthetic ground truth; see [`docs/MODULATIONS.md`](https://github.com/LC-Linkous/sdr_dsp_python/blob/main/docs/MODULATIONS.md) for the
   honest per-scheme status (Supported / Demonstrable / Visualize-only).
 - **Transmit and the ARQ link protocol** — proven in software (closed-loop
   simulation); the real-radio transmit path is not yet validated. See §12 of
-  `docs/sdr_dsp_REFERENCE.md`.
+  [`docs/sdr_dsp_REFERENCE.md`](https://github.com/LC-Linkous/sdr_dsp_python/blob/main/docs/sdr_dsp_REFERENCE.md).
 
 ## Start here
 
-- `docs/sdr_dsp_REFERENCE.md` — the comprehensive technical reference
+- [`docs/sdr_dsp_REFERENCE.md`](https://github.com/LC-Linkous/sdr_dsp_python/blob/main/docs/sdr_dsp_REFERENCE.md) — the comprehensive technical reference
   (architecture, module map, usage, extension guide, limitations).
-- `docs/EXAMPLES.md` — a catalog of every runnable script in `examples/`.
-- `docs/MODULATIONS.md` — what's supported and what "supported" means.
-- `docs/HARDWARE.md`, `docs/DC_SPIKE.md` — device behavior and the offset-tuning
+- [`docs/EXAMPLES.md`](https://github.com/LC-Linkous/sdr_dsp_python/blob/main/docs/EXAMPLES.md) — a catalog of every runnable script in [`examples/`](https://github.com/LC-Linkous/sdr_dsp_python/blob/main/sdr_dsp/examples).
+- [`docs/MODULATIONS.md`](https://github.com/LC-Linkous/sdr_dsp_python/blob/main/docs/MODULATIONS.md) — what's supported and what "supported" means.
+- [`docs/HARDWARE.md`](https://github.com/LC-Linkous/sdr_dsp_python/blob/main/docs/HARDWARE.md), [`docs/DC_SPIKE.md`](https://github.com/LC-Linkous/sdr_dsp_python/blob/main/docs/DC_SPIKE.md) — device behavior and the offset-tuning
   recipe every direct-conversion capture needs.
-- `docs/LOG.md` — dated development log of major changes and fixes.
+- [`docs/LOG.md`](https://github.com/LC-Linkous/sdr_dsp_python/blob/main/docs/LOG.md) — dated development log of major changes and fixes.
 
 Quick example:
 
@@ -47,8 +47,22 @@ audio = fm_demod(fir_apply(iq, design_lowpass(100e3, fs)),
                  deviation_hz=75e3, sample_rate=fs)
 ```
 
-Setup uses [uv](https://docs.astral.sh/uv/): `uv sync` for the library and
-tests, `uv sync --extra examples` for everything the examples can use.
+## Install
+
+```bash
+pip install sdr-dsp                 # core: numpy + scipy only
+pip install "sdr-dsp[plotting]"     # + matplotlib, for the analyzer/spectrogram examples
+pip install "sdr-dsp[audio]"        # + sounddevice, for live FM playback
+pip install "sdr-dsp[examples]"     # everything the examples can use (adds hackrfpy)
+```
+
+Live capture additionally needs the `hackrf-tools` binaries installed at the
+OS level; the library itself never imports a device driver.
+
+For development, clone the repo and use [uv](https://docs.astral.sh/uv/)
+from the `sdr_dsp/` directory: `uv sync` installs the library, the test
+suite and the dev tools; `uv run pytest -m "not hardware"` runs everything
+that needs no radio.
 
 ---
 
