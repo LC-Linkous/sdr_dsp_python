@@ -80,12 +80,15 @@ only ever sees `complex64` in roughly [-1, 1].
 - **Transmit: free at the seam.** Write a `TXSink`; the modulate/frame stack
   and `transmit_examples.py` drive it. Keep it guarded (`armed=False`) like
   `examples/hackrf_sink.py`.
-- **Auto-gain search: NOT free.** `sources/probe.py`, `core/gain_search.py`
-  (`search_gain`), and `tools/preflight_collection.py` assume the HackRF's
-  `lna`/`vga`/`amp` gain model. A new radio needs its own gain model before
-  auto-gain works; until then, set gains manually in the adapter. Lifting a
-  `GainModel` protocol out of `search_gain` is the clean generalization when a
-  second radio actually needs it (tracked in TODO §2/§6).
+- **Auto-gain search: almost free.** The search engine
+  (`core/gain_search.py: search_gain_model`) is device-agnostic: describe the
+  radio's gain knobs as a `GainModel` (see `hackrf_gain_model()` /
+  `rtlsdr_gain_model()` for the two that ship) and give it a
+  `probe(settings) -> iq` callable that applies those settings on your device
+  and returns a short capture. The device-specific part is that callable.
+  `sources/probe.py` and `tools/preflight_collection.py` are still written
+  against hackrfpy's `capture(...)` signature, so for a new radio write your
+  own probe rather than reusing those. See MODULARITY §2.
 
 ## Porting record
 

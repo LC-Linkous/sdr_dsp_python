@@ -10,7 +10,81 @@ was measured, why a design went the way it did) lives in `docs/LOG.md`.
 
 ## [Unreleased]
 
+### Changed
+- `fm_demod` raises `ValueError` when given `deviation_hz` without
+  `sample_rate` or vice versa. It used to fall through to the raw rad/sample
+  output silently, leaving the caller with audio ~1e5x too quiet and no hint.
+- `resample_poly` raises `ValueError` for a non-integer `up` or `down`
+  (`int(2.7)` silently made a requested 2.7x resample a 2x one). Integral
+  floats (`2.0`) and numpy integers are still accepted.
+- `psd()` raises `ValueError` when `len(iq) < nfft` (see Fixed below).
+- A bare `pytest` now deselects the `hardware` tests via `addopts`, matching
+  what CI runs; `pytest -m hardware` still selects them.
+- Docs: README named sinks that do not exist (`WavSink`, `IQSink`; the API is
+  `write_wav` / `write_iq`), counted 43 examples (47) and 641 tests (1,200+).
+  REFERENCE named the wrong build backend (hatchling; it is `uv_build`), the
+  wrong handbook path, two different stale test counts, and a module map
+  missing `gain_search.py`, `stream/stages.py`, `sources/probe.py`,
+  `demod/phase.py` and the FM-CFO / capture-health functions. MODULARITY §2,
+  ADDING_AN_SDR and `docs/TODO.md` described the `GainModel` generalization as
+  future work; it shipped in 0.2.0 and is now described as it is. Hard-coded
+  test counts are gone from the prose: CI reports the number.
+
 ### Fixed
+- `agc()` tracks the INPUT level and steers the gain toward
+  `target / tracked_input_level`. The previous loop smoothed the OUTPUT level,
+  which lags the very gain it steers: after a +20 dB step the gain cut at
+  `attack` while the level estimate could only fall at `decay`, so the error
+  stayed on the "cut" side and the output collapsed to ~0 before crawling back
+  over thousands of samples. The step response is now monotone (output comes
+  down to target and stays) and the fast-attack / slow-decay contract is
+  pinned by a test for the first time.
+- `ssb_modulate` doubled the DC bin along with the positive frequencies, so
+  the analytic signal of a constant message was twice the message. DC and
+  the Nyquist bin are now kept at 1x (the `scipy.signal.hilbert` weighting);
+  for zero-mean audio nothing changes.
+- `am_demod([])`, `ook_slice([])` and `evm_stats([])` return empty / NaN
+  results cleanly instead of a raw numpy `ValueError` or a `RuntimeWarning`.
+- Tests: four behaviours that a mutation pass showed were unprotected now have
+  tests -- the AGC level tracker's attack/decay assignment, `estimate_fm_cfo`'s
+  click trim (disabling it changed nothing), `find_frames`' inclusive
+  `max_sync_errors` boundary, and `fsk_demod("auto")`'s power weighting (an
+  unweighted mean passed, because every fixture padded with exact zeros).
+  `test_channel.py`'s low-SNR test asserted only inside an `if` that never
+  fired at 0 dB; it now sweeps 12 dB where corrupt frames ARE found and
+  requires every `crc_ok` frame to carry the true payload.
+- `agc()` no longer poisons its output with NaN after a run of exact digital
+  silence. With `max_gain=None` the level estimate decayed to the eps floor,
+  the gain overflowed to `inf`, and every later sample -- including signal
+  after the gap -- came out NaN. The loop now holds its gain through silence
+  and resumes tracking when signal returns.
+- The streaming `AGC` stage carried `|last output sample|` as its level state
+  instead of the loop's smoothed level, so a streamed run diverged from the
+  whole-record run by ~5% at every block boundary. It now carries the exact
+  loop variable; streamed and whole-record output are bit-identical.
+- `agc(mode="peak")` was validated and then ignored (both modes ran the rms
+  tracker). Peak mode is now a real peak detector: instant attack on the held
+  input peak, release at `decay`.
+- `symbol_sync` was amplitude-dependent: the TED output scales with |x|^2 and
+  drove the loop unnormalized, so a strong input (100x) made the loop skip and
+  emit ~2x too many symbols. The TED is now normalized by signal power and each
+  correction is clamped to +/- sps/4. `damping` was accepted and never read;
+  the loop is now a second-order PI loop and `damping` sets its integral gain.
+- `psd()` returned a flat -200 dB spectrum when `len(iq) < nfft` instead of
+  failing, so `occupied_bandwidth` and `snr_db` reported confident nonsense on
+  short inputs (99% of the sample rate; -3 dB). It now raises `ValueError`.
+- `Pipeline.run()` and `Pipeline.stream()` never flushed stages with look-ahead
+  (`StreamingResampler`), silently dropping the tail of every run. Both now
+  call the new `Pipeline.flush()` when the source is exhausted (not when cut
+  short by `max_blocks`); a pipeline run yields the same sample count as the
+  whole-record function.
+- Tests: the AGC streaming test compared boundary steps against a set that
+  contained them (could not fail) and the whole-vs-streamed test allowed 15%
+  (hid the state-carry bug); both are exact now. The QPSK Gray test asserted a
+  list typed into the test rather than the demod's output. New tests pin the
+  FM discriminator's absolute Hz scale and the resampler's absolute gain
+  without `sample_data`, so a 2x scale error or a missing `up` gain
+  compensation fails in CI rather than only on a checkout with the sample.
 - Docstrings on `GainStage.default_value` and
   `GainModel.by_name` / `min_settings` / `default_frontend` / `frontend_db`;
   the public-surface test was failing on every CI platform without them.

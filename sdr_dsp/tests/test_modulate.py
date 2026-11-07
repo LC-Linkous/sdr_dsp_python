@@ -61,6 +61,30 @@ def test_ssb_usb_roundtrip():
     assert _corr(msg, rec) > 0.95
 
 
+@pytest.mark.parametrize("n", [8, 9, 4096, 4097])
+def test_ssb_modulate_is_the_analytic_signal(n):
+    # ssb_modulate builds the analytic signal (message + j*Hilbert(message)),
+    # so: a constant message must come back at 1x, not 2x (the DC bin was
+    # being doubled along with the positive frequencies); a cosine must come
+    # back as exp(j*w*t) -- real part the message, |iq| constant, and the
+    # imaginary part the quadrature sine. Even and odd n cover both Nyquist
+    # handling branches.
+    const = ssb_modulate(np.ones(n), "usb")
+    assert np.allclose(const.real, 1.0, atol=1e-5)
+    assert np.allclose(const.imag, 0.0, atol=1e-5)
+
+    t = np.arange(n)
+    k = max(1, n // 8)                          # whole cycles, below Nyquist
+    msg = np.cos(2 * np.pi * k * t / n)
+    iq = ssb_modulate(msg, "usb")
+    assert np.allclose(iq.real, msg, atol=1e-5)
+    assert np.allclose(iq.imag, np.sin(2 * np.pi * k * t / n), atol=1e-5)
+    assert np.allclose(np.abs(iq), 1.0, atol=1e-5)
+    # lsb is the conjugate: same real part, negated quadrature
+    lsb = ssb_modulate(msg, "lsb")
+    assert np.allclose(lsb, np.conj(iq), atol=1e-6)
+
+
 def test_ssb_invalid_sideband():
     with pytest.raises(ValueError):
         ssb_modulate(np.ones(10), "bogus")

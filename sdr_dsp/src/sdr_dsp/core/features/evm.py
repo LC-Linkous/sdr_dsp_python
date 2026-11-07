@@ -145,6 +145,11 @@ def evm_stats(
         Real-valued feature vector, length ``len(EVM_FEATURE_NAMES)``.
     """
     e = np.asarray(errors, dtype=np.complex128)
+    if e.size == 0:
+        # no symbols -> no statistics. The same all-NaN vector
+        # fingerprint_vector uses when it has no symbols, returned explicitly
+        # instead of falling out of np.mean([]) with a RuntimeWarning.
+        return np.full(len(EVM_FEATURE_NAMES), np.nan, dtype=np.float64)
     ei = e.real
     eq = e.imag
 

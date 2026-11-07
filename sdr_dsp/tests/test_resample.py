@@ -10,6 +10,41 @@ from sdr_dsp.core import resample
 from helpers.signals import tone
 
 
+@pytest.mark.parametrize("up,down", [(3, 2), (1, 8), (5, 1), (48, 125)])
+def test_resample_preserves_absolute_amplitude(up, down):
+    # The scipy comparison below is a NORMALIZED correlation, so it is blind to
+    # gain: a resampler that forgot the `up` gain compensation (output 1/up of
+    # the right level) would still score 0.999. Resampling must preserve the
+    # amplitude of an in-band tone, and match scipy's level, not just its shape.
+    fs = 48_000
+    x = tone(1000, fs, 48_000)
+    ours = resample.resample_poly(x, up, down)
+    ref = sig.resample_poly(x, up, down)
+    m = min(len(ours), len(ref))
+    a, b = ours[200:m - 200], ref[200:m - 200]
+    assert np.mean(np.abs(a)) == pytest.approx(np.mean(np.abs(x)), rel=1e-2)
+    assert np.mean(np.abs(a)) == pytest.approx(np.mean(np.abs(b)), rel=1e-2)
+    # the samples themselves agree, not just their statistics (0.5%: our
+    # default taps are not scipy's, so steady-state differs at the 1e-3 level)
+    assert np.max(np.abs(a - b)) < 5e-3 * np.max(np.abs(x))
+
+
+@pytest.mark.parametrize("up,down", [(2.7, 1), (1, 2.5), (3.0001, 2), (True, 1)])
+def test_resample_rejects_non_integer_ratio(up, down):
+    # int(2.7) == 2 silently turned a requested 2.7x into 2x; the ratio must be
+    # integers (floats that ARE integral, like 2.0, are fine)
+    x = tone(1000, 48_000, 4800)
+    with pytest.raises(ValueError, match="positive integer"):
+        resample.resample_poly(x, up, down)
+
+
+def test_resample_accepts_integral_floats_and_numpy_ints():
+    x = tone(1000, 48_000, 4800)
+    a = resample.resample_poly(x, 3, 2)
+    assert np.array_equal(resample.resample_poly(x, 3.0, 2.0), a)
+    assert np.array_equal(resample.resample_poly(x, np.int64(3), np.int32(2)), a)
+
+
 def test_resample_matches_scipy_steady_state():
     # our resampler should track scipy's in the middle (edges differ by design)
     fs = 48_000

@@ -85,6 +85,28 @@ def test_mixing_roundtrip_identity():
     assert np.allclose(back, x, atol=1e-5)
 
 
+def test_psd_rejects_input_shorter_than_one_frame():
+    # regression: psd() used to return a flat -200 dB floor when len(iq) < nfft
+    # (no full frame, loop broke out, acc stayed zero). Every measurement built
+    # on it then reported nonsense with a straight face -- occupied_bandwidth
+    # of 100 samples of pure DC came back as 99% of the sample rate, snr_db as
+    # -3 dB. Too-short input must be an error, not a silent floor.
+    import pytest
+    short = tone(1000, 1e6, 100)
+    with pytest.raises(ValueError, match="full frame"):
+        spectral.psd(short, 1e6, nfft=1024)
+    with pytest.raises(ValueError, match="nfft"):
+        spectral.psd(short, 1e6, nfft=0)
+    with pytest.raises(ValueError):
+        measure.occupied_bandwidth(short, 1e6, nfft=1024)
+    with pytest.raises(ValueError):
+        measure.snr_db(short, 1e6, (-10e3, 10e3), nfft=1024)
+    # exactly one frame is fine, and a short record with a matching nfft works
+    spectral.psd(tone(1000, 1e6, 1024), 1e6, nfft=1024)
+    freqs, p = spectral.psd(short, 1e6, nfft=64)
+    assert len(freqs) == 64 and p.max() > -100
+
+
 def test_psd_parseval_scaling():
     # the integrated PSD should relate to time-domain power. For a unit tone,
     # total power is ~1; the PSD integrated over frequency (linear) should

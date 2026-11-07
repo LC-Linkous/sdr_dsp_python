@@ -56,6 +56,36 @@ def test_recovers_injected_cfo_with_sign(true_cfo):
     assert abs(est - true_cfo) < 10.0, f"est {est} vs {true_cfo}"
 
 
+def test_click_trimming_rejects_discriminator_spikes():
+    # The documented click trim: discriminator samples beyond trim_hz (default
+    # 1.5 x channel_bw) are dropped before the mean, so phase-wrap "clicks"
+    # from deep fades do not bias the estimate. Disabling the trim passed every
+    # test, so pin it: 1500 forward phase jumps of 0.8*pi (each a +192 kHz
+    # spike, above the 150 kHz trim) spread over 0.3 s bias the untrimmed mean
+    # by ~+2 kHz; the trimmed estimate must not move. 480 kSps sits in the
+    # no-decimation branch so the spikes reach the discriminator un-smeared.
+    fs = 480_000.0
+    n = int(fs * 0.3)
+    t = np.arange(n) / fs
+    msg = 0.5 * np.sin(2 * np.pi * 440 * t) + 0.3 * np.sin(2 * np.pi * 1200 * t)
+    clean = (fm_modulate(msg, deviation_hz=30_000.0, sample_rate=fs)
+             * np.exp(2j * np.pi * 12_000.0 * t)).astype(np.complex64)
+    rng = np.random.default_rng(0)
+    idx = rng.choice(np.arange(10, n - 10), 1500, replace=False)
+    jumps = np.zeros(n)
+    jumps[idx] = 0.8 * np.pi
+    clicked = (clean * np.exp(1j * np.cumsum(jumps))).astype(np.complex64)
+
+    assert estimate_fm_cfo(clean, fs) == pytest.approx(12_000.0, abs=20)
+    trimmed = estimate_fm_cfo(clicked, fs)                 # default trim
+    untrimmed = estimate_fm_cfo(clicked, fs, trim_hz=0)    # trim disabled
+    assert trimmed == pytest.approx(12_000.0, abs=50), f"trim failed: {trimmed}"
+    assert abs(untrimmed - 12_000.0) > 1_000, \
+        f"clicks did not bias the untrimmed mean ({untrimmed}); test is inert"
+    # an explicit trim above the click level lets them through again
+    assert estimate_fm_cfo(clicked, fs, trim_hz=230_000) == pytest.approx(untrimmed, abs=1)
+
+
 def test_correction_drives_residual_to_zero():
     iq = add_cfo(_fm_signal(), -3200.0, FS)
     corrected, applied = correct_fm_cfo(iq, FS)

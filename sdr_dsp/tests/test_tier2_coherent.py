@@ -27,11 +27,23 @@ def test_qpsk_roundtrip_clean():
 
 def test_qpsk_gray_adjacent_one_bit():
     # adjacent quadrants must differ by exactly one bit (Gray property)
-    _, _ = qpsk_demod(np.array([1 + 1j], dtype=np.complex64))
-    maps = [(0, 0), (0, 1), (1, 1), (1, 0)]  # quadrant order
-    for a, b in zip(maps, maps[1:] + [maps[0]], strict=True):
+    # Ask the DEMOD for the bit pair at each ideal point, walking the quadrants
+    # counter-clockwise (0 -> 90 -> 180 -> 270 degrees); consecutive pairs must
+    # differ in exactly one bit. (An earlier version of this test asserted the
+    # Gray property of a list typed into the test and discarded the demod
+    # output -- it could not detect a wrong mapping in the code.)
+    points = [1 + 1j, -1 + 1j, -1 - 1j, 1 - 1j]
+    decoded = []
+    for p in points:
+        bits, _ = qpsk_demod(np.array([p], dtype=np.complex64))
+        decoded.append(tuple(int(b) for b in bits))
+    assert len(set(decoded)) == 4, f"quadrants not distinct: {decoded}"
+    for a, b in zip(decoded, decoded[1:] + [decoded[0]], strict=True):
         diff = sum(x != y for x, y in zip(a, b, strict=True))
-        assert diff == 1
+        assert diff == 1, f"{a} -> {b} differs in {diff} bits"
+    # and it is the documented mapping the modulator-side tests rely on
+    inverse = {v: k for k, v in _QPSK_MAP.items()}
+    assert decoded == [inverse[p] for p in points]
 
 
 def test_qpsk_empty():
@@ -73,9 +85,21 @@ def test_qpsk_end_to_end_through_recovery():
     corr = carrier_recovery(imp, method="costas", order=4, loop_bw=0.005)
     syms = symbol_sync(corr, sps, method="gardner")
 
-    # measure constellation cleanliness: mean distance to nearest ideal point
-    s = syms[50:] / np.abs(syms[50:])
-    ideal = np.exp(1j * (np.pi / 4 + np.pi / 2
-                         * np.round((np.angle(s) - np.pi / 4) / (np.pi / 2))))
-    err = np.mean(np.abs(s - ideal))
+    def cleanliness(symbols):
+        # mean distance from each (normalized) symbol to its nearest ideal point
+        s = symbols[50:] / np.abs(symbols[50:])
+        ideal = np.exp(1j * (np.pi / 4 + np.pi / 2
+                             * np.round((np.angle(s) - np.pi / 4) / (np.pi / 2))))
+        return float(np.mean(np.abs(s - ideal)))
+
+    err = cleanliness(syms)
     assert err < 0.2, f"constellation not clean after recovery: {err}"
+    # The 0.2 bound alone does not show symbol_sync contributes: with
+    # rectangular pulses at 4 sps, plain stride-sampling the carrier-corrected
+    # signal already scores ~0.06. Timing recovery must do BETTER than the
+    # best naive stride, or it isn't recovering anything.
+    best_stride = min(cleanliness(corr[off::sps]) for off in range(sps))
+    assert err < best_stride, (
+        f"symbol_sync ({err:.4f}) no better than naive stride ({best_stride:.4f})")
+    # and carrier recovery must matter too: without it the constellation spins
+    assert cleanliness(symbol_sync(imp, sps, method="gardner")) > 0.3

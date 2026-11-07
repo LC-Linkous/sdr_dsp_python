@@ -87,6 +87,53 @@ def test_fm_demod_linearity_across_frequencies():
         assert abs(peak - msg_hz) < 100, f"failed at {msg_hz} Hz (got {peak})"
 
 
+def test_fm_demod_absolute_scale_in_hz():
+    # The discriminator's absolute scale, pinned without sample_data: a pure
+    # tone at f0 Hz off center IS a constant instantaneous frequency of f0, so
+    # fm_demod(..., deviation_hz=D, sample_rate=fs) must read exactly f0/D and
+    # the raw form exactly 2*pi*f0/fs rad/sample. The spectral-peak tests above
+    # pass with the output inverted or scaled by 2x; this one does not.
+    fs, f0, dev = 200_000, 12_500, 75_000
+    t = np.arange(20_000) / fs
+    iq = np.exp(2j * np.pi * f0 * t).astype(np.complex64)
+    scaled = demod.fm_demod(iq, deviation_hz=dev, sample_rate=fs)
+    assert np.allclose(scaled[10:-10], f0 / dev, rtol=1e-3)
+    raw = demod.fm_demod(iq)
+    assert np.allclose(raw[10:-10], 2 * np.pi * f0 / fs, rtol=1e-3)
+    # and the sign is the sign of the offset
+    neg = demod.fm_demod(np.conj(iq), deviation_hz=dev, sample_rate=fs)
+    assert np.allclose(neg[10:-10], -f0 / dev, rtol=1e-3)
+
+
+def test_fm_demod_rejects_half_specified_scaling():
+    # deviation_hz without sample_rate (or vice versa) used to fall through to
+    # the raw rad/sample path silently -- audio ~1e5x too quiet, no error
+    import pytest
+    iq = np.exp(2j * np.pi * 0.01 * np.arange(100)).astype(np.complex64)
+    with pytest.raises(ValueError, match="BOTH"):
+        demod.fm_demod(iq, deviation_hz=75e3)
+    with pytest.raises(ValueError, match="BOTH"):
+        demod.fm_demod(iq, sample_rate=200e3)
+    with pytest.raises(ValueError):
+        demod.fm_demod(iq, deviation_hz=0, sample_rate=200e3)
+    # the two documented forms still work
+    assert len(demod.fm_demod(iq)) == 99
+    assert len(demod.fm_demod(iq, deviation_hz=75e3, sample_rate=200e3)) == 99
+
+
+def test_empty_input_is_handled_not_crashed():
+    # siblings return empty arrays for empty input; these three used to raise
+    # a raw numpy "zero-size array" error or return NaN with a RuntimeWarning
+    import warnings
+    empty = np.zeros(0, dtype=np.complex64)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        env = demod.am_demod(empty)
+        assert env.dtype == np.float64 and env.size == 0
+        out = demod.ook_slice(np.zeros(0))
+        assert out.dtype == np.uint8 and out.size == 0
+
+
 def test_fm_demod_deviation_scaling():
     # doubling the deviation should double the recovered amplitude (the
     # discriminator output is proportional to instantaneous frequency).

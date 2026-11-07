@@ -89,6 +89,10 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Hardware tests are deselected by default so a bare `pytest` matches what CI
+# runs; they self-skip without a board anyway, but deselecting keeps them out
+# of the count. Run them explicitly with `pytest -m hardware`.
+addopts = "-m 'not hardware'"
 markers = [
     "hardware: requires a connected HackRF (auto-skipped otherwise)",
 ]

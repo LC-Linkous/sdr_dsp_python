@@ -4,7 +4,7 @@ A complete reference for the `sdr_dsp` library: what it is, how it's built, how
 to use it, how to extend it, and where its weaknesses are and what
 still needs real hardware to validate. This is the deep document; the README is
 the quick start, and the call-level companion is
-[`sdr_dsp_API_HANDBOOK.md`](sdr_dsp_API_HANDBOOK.md) — auto-generated from the
+[`dev_handbook/sdr_dsp_API_HANDBOOK.md`](dev_handbook/sdr_dsp_API_HANDBOOK.md) — auto-generated from the
 source, it holds every signature, parameter, default, and docstring. When this
 document and the handbook disagree on a signature, the handbook (regenerated)
 wins; when they disagree on intent or architecture, this document wins.
@@ -14,8 +14,8 @@ all functions. It's being human validated as development continues.
 
 > **Status at time of writing:** RX path complete and, for **FM**, validated on
 > real over-the-air captures (§12, §14); TX path complete in software through
-> Phase E's seam (real radiation pending bench). 725 tests passing, 1 skipped
-> (hardware). Windowed (N>1) ARQ and cumulative ACK are validated correct under
+> Phase E's seam (real radiation pending bench). The suite is green (count in
+> CI; `CHANGELOG.md` records it per release). Windowed (N>1) ARQ and cumulative ACK are validated correct under
 > the loss-stress suites (§11.1); the honest remaining gaps are the
 > model-vs-reality limits in §11.2–11.7, the non-FM demods on real captures,
 > and the bench work in §12.
@@ -157,13 +157,18 @@ nothing from `core`.
 - **resample.py** — `decimate`, `interpolate`, `resample_poly` (own polyphase,
   verified vs scipy).
 - **mixing.py** — `frequency_shift`, `tune_to_baseband`, `remove_dc`.
-- **spectral.py** — `psd`, `spectrogram`.
+- **spectral.py** — `psd`, `spectrogram`, `get_window`.
 - **measure.py** — `power_dbfs`, `snr_db`, `occupied_bandwidth`, `find_bursts`,
-  `estimate_cfo`.
+  `estimate_cfo`, `estimate_fm_cfo`, `correct_fm_cfo`, `capture_health`,
+  `fm_pilot_excess_db`.
 - **detect.py** — `matched_filter`, `correlate`, `convolve`, `detect_peak`.
 - **sync.py** — `carrier_recovery` (Costas/decision-directed), `symbol_sync`
   (Gardner/early-late/Mueller-Müller), `LoopDiagnostics`.
 - **agc.py** — `agc`, `AGC` (opt-in, reversible: returns gain trace).
+- **gain_search.py** — `GainModel`, `GainStage`, `hackrf_gain_model`,
+  `rtlsdr_gain_model`, `search_gain_model`, `search_gain`, `peak_counts`
+  (device-independent front-end gain search over a probe callable; the models
+  are data, so a new radio is a new `GainModel`, not new code).
 - **calibrate.py** — `power_dbm`, `Calibration`, `compute_cal_offset` (opt-in
   absolute power).
 - **channelize.py** — `channelize` (single channel), `channelize_bank`
@@ -181,7 +186,9 @@ nothing from `core`.
     evm.py (`decide_symbols`, `error_vector`, `evm_stats`, `EVM_FEATURE_NAMES`),
     fingerprint.py (`fingerprint_vector`, `FEATURE_NAMES`).
 - **demod/** — the demodulator package (see §9 for structure):
-  - analog.py (fm/am/ssb/dsb_sc/cw/deemphasis), ask.py (ook/nask),
+  - phase.py (`instantaneous_phase`, `instantaneous_frequency` — the primitives
+    fm/fsk build on), analog.py (fm/am/ssb/dsb_sc/cw/deemphasis/fm_stereo_decode),
+    ask.py (ook/nask),
     fsk.py, psk.py (bpsk/qpsk/psk8/dbpsk/dqpsk), qam.py (qam16),
     spread.py (dsss/fhss), timing.py (edges/symbol-rate/slicing).
 - **modulate/** — the modulator package (mirror of demod/):
@@ -191,6 +198,9 @@ nothing from `core`.
 ### sources/ — receive-side device seam
 - **base.py** — `IQSource` protocol, `ArraySource`.
 - **file_source.py** — `FileSource` (true incremental streaming from disk).
+- **probe.py** — `load_ci8`, `probe_capture`, `make_prober`, `dedup_warnings`
+  (short-capture probing used by the gain search and the collection tools;
+  not re-exported from `sources/__init__`).
 
 ### sinks/ — output & transmit-side device seam
 - **wav_sink.py** — `write_wav`.
@@ -203,7 +213,12 @@ nothing from `core`.
   `read_annotations`, `bursts_to_annotations` (SigMF, 6 IQ datatypes).
 
 ### stream/ — block orchestration
-- **pipeline.py** — `Pipeline`, `Stage`, `PipelineStats`.
+- **pipeline.py** — `Pipeline` (with `run`, `stream`, `process_block`, `flush`),
+  `Stage`, `PipelineStats`.
+- **stages.py** — the stateful block stages that make chunked processing equal
+  whole-record processing: `StreamingFIR`, `StreamingDecimator`,
+  `StreamingMixer`, `StreamingFMDemod`, `StreamingResampler` (with look-ahead
+  `flush()`), `StreamingDeemphasis`.
 
 ### link/ — ARQ link protocol (application layer)
 - **protocol.py** — `pack_payload`, `unpack_payload`, type constants,
@@ -227,7 +242,7 @@ hard dependency set. The library is pure Python + these two.
 - `examples-hackrf` → hackrfpy (for the HackRF device adapters)
 - `examples` → all of the above
 
-**Build system:** hatchling. The package builds with `uv build` into a wheel +
+**Build system:** `uv_build` (see `[build-system]` in `pyproject.toml`). The package builds with `uv build` into a wheel +
 sdist. Only `src/sdr_dsp/` ships — tests and examples are excluded.
 
 **Install (development):**
@@ -463,9 +478,10 @@ round-trip but with matched filtering before slicing.
 ## 10. Development workflow & testing discipline
 
 **The test count is the signal.** Every feature lands with tests; the suite is
-run after every change. Current: 355 passing, 1 skipped (hardware) — the most
-recent addition being the hardware-readiness suite (`test_hardware_readiness.py`),
-which closed the delay-sweep gap the closed-loop oracle had been missing.
+run after every change; the count is reported by CI rather than written here
+(every hard-coded count this document ever carried went stale within weeks).
+The hardware-readiness suite (`test_hardware_readiness.py`) closed the
+delay-sweep gap the closed-loop oracle had been missing.
 
 **Test categories used throughout:**
 - *Reference-oracle tests* — compare against scipy (filters, resampling) or a
@@ -488,7 +504,7 @@ uv run pytest -m hardware                  # hardware-only (needs a device)
 **After any API change**, regenerate the API handbook so it stays true to its
 "cannot drift" promise (run from the `sdr_dsp/` project directory):
 ```
-PYTHONPATH=src python3 ../docs/dev_handbook/generate_api_handbook.py > ../docs/sdr_dsp_API_HANDBOOK.md
+PYTHONPATH=src python3 ../docs/dev_handbook/generate_api_handbook.py > ../docs/dev_handbook/sdr_dsp_API_HANDBOOK.md
 ```
 
 **The discipline that has caught real bugs:** read what's actually in front of

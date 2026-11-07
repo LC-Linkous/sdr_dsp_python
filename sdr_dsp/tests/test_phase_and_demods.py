@@ -49,6 +49,28 @@ def test_fsk_demod_recovers_bits():
     assert list(syms) == pattern
 
 
+def test_fsk_auto_threshold_is_power_weighted():
+    # threshold_hz="auto" is documented as the |x|^2-weighted mean of the
+    # instantaneous frequency, so weak content around a burst "contributes
+    # ~nothing". An unweighted mean passed every existing test because the
+    # fixtures pad with exact zeros (inst-freq 0, weight irrelevant). Pad with
+    # a -150 kHz tone at 1e-3 amplitude instead, three times the burst's
+    # length: the unweighted mean lands near -125 kHz, below the -50 kHz
+    # space tone, and every 0 bit reads as 1 (BER 0.25 on a 3:1 pattern);
+    # the weighted mean ignores the pad and slices the burst correctly.
+    from sdr_dsp.core import fsk_modulate
+    fs, sps = 1e6, 20
+    bits = np.array([1, 1, 1, 0] * 50, dtype=np.uint8)
+    burst = fsk_modulate(bits, sps, 50e3, fs)
+    t_pad = np.arange(3 * len(burst)) / fs
+    pad = (1e-3 * np.exp(-2j * np.pi * 150e3 * t_pad)).astype(np.complex64)
+    sig = np.concatenate([pad, burst, pad])
+    raw = fsk_demod(sig, fs, threshold_hz="auto")
+    start = len(pad) + sps // 2
+    recovered = raw[start:len(pad) + len(burst):sps][:len(bits)]
+    assert np.array_equal(recovered, bits)
+
+
 def test_ssb_usb_recovers_audio():
     fs = 1e6
     audio = ssb_demod(_tone(5000, fs, 20000), fs, sideband="usb")

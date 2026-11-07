@@ -22,7 +22,7 @@ This is part of a personal ecosystem of libraries for experimental and education
 
 **The radio DSP is the library's own code.** Filtering, demodulation, modulation, resampling, mixing, and measurement are all implemented here. scipy is a design-time tool, not a runtime crutch: `scipy.signal` only *designs* filter coefficients, `numpy.fft` provides the FFT, and scipy doubles as a **test oracle** that the library's own implementations are verified against.
 
-**Device-agnostic by structure.** The core DSP operates on `complex64` arrays and knows nothing about any device. IQ arrives through a *source* satisfying the `IQSource` protocol; `ArraySource` and `FileSource` ship with the library and carry no device dependency. On the transmit side, IQ leaves through a *sink* — `WavSink`, `IQSink`, and the `TXSink` protocol ship with the library. Device adapters live in *your* code (see `examples/hackrf_capture.py` and `examples/hackrf_sink.py` for HackRF references on each side), so pointing a different SDR at it is a small adaptation. Note: there may be another SDR hook in, but that's a later phase of design.
+**Device-agnostic by structure.** The core DSP operates on `complex64` arrays and knows nothing about any device. IQ arrives through a *source* satisfying the `IQSource` protocol; `ArraySource` and `FileSource` ship with the library and carry no device dependency. On the transmit side, IQ leaves through a *sink* — `write_wav`, `write_iq`, and the `TXSink` protocol (with a `LoopbackSink` for tests) ship with the library. Device adapters live in *your* code (see `examples/hackrf_capture.py` and `examples/hackrf_sink.py` for HackRF references on each side), so pointing a different SDR at it is a small adaptation. Note: there may be another SDR hook in, but that's a later phase of design.
 
 ## Project Layout
 
@@ -70,7 +70,7 @@ sdr_dsp_python/
     ├── tests/
     │   ├── conftest.py
     │   ├── helpers/signals.py   # synthetic signal generators (ground truth)
-    │   └── test_*.py            # 641 tests; scipy-oracle + synthetic verification
+    │   └── test_*.py            # the test suite; scipy-oracle + synthetic verification
     ├── tools/                   # capture collection + promotion (dev; needs hackrfpy)
     └── sample_data/             # SigMF recordings the examples default to
 ```
@@ -82,7 +82,7 @@ This project uses [uv](https://docs.astral.sh/uv/). From the **`sdr_dsp/` projec
 ```bash
 cd sdr_dsp
 uv sync                  # create the venv, install numpy + scipy + dev tools
-uv run pytest -q         # run the test suite (expect: 641 passed, 1 skipped)
+uv run pytest -q         # run the test suite (hardware tests deselect automatically)
 uv build                 # build the wheel + sdist into dist/
 ```
 
@@ -146,7 +146,7 @@ uv sync --extra examples-hackrf # hackrfpy, for live capture/transmit
 uv sync --extra examples        # everything above in one install
 ```
 
-There are 43 examples currently sketched out, from single-concept teaching demos (aliasing, windowing, matched filtering) through full receivers (FM, AM, SSB, CW), digital decoders (OOK, ASK, FSK, DPSK, DSSS, FHSS), the transmit arc (modulate → packet → channel sweep → two-station ARQ link), and live-hardware scripts. See [`docs/EXAMPLES.md`](docs/EXAMPLES.md) for the full catalog with per-example requirements. These are slowly being tested and shared when they're stable. 
+There are 47 examples, from single-concept teaching demos (aliasing, windowing, matched filtering) through full receivers (FM, AM, SSB, CW), digital decoders (OOK, ASK, FSK, DPSK, DSSS, FHSS), the transmit arc (modulate → packet → channel sweep → two-station ARQ link), and live-hardware scripts. See [`docs/EXAMPLES.md`](docs/EXAMPLES.md) for the full catalog with per-example requirements. These are slowly being tested and shared when they're stable. 
 
 Live capture and transmit also need the `hackrf-tools` binaries at the OS level (see the hackrfpy docs); file-based examples need none of that.
 
@@ -157,7 +157,7 @@ Two disciplines, both carried over from the sibling `hackrfpy` project:
 - **scipy as oracle** — the library's own implementations (FIR application, resampler) are asserted equal to scipy's within numerical tolerance.
 - **synthetic ground truth** — signals are generated with known properties (a tone at a known frequency, an FM-modulated message, an OOK bit pattern, a framed packet through a known channel) and the DSP is checked against what it should recover.
 
-The suite is currently 641 tests. Most tests need no hardware. Hardware-dependent tests (live capture) are marked `@pytest.mark.hardware` and skip automatically when no board is present.
+The suite is 1,200+ tests (the exact count lives in CI, not here). Most tests need no hardware. Hardware-dependent tests (live capture) are marked `@pytest.mark.hardware` and skip automatically when no board is present.
 
 ## Documentation
 

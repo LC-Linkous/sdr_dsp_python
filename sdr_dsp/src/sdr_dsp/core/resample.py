@@ -70,9 +70,15 @@ def resample_poly(iq, up, down, half_len=10, window="hamming"):
     output length is ceil(n * up / down), both matching
     ``scipy.signal.resample_poly`` (verified in tests).
 
-    up, down:  resampling ratio (reduced internally).
+    up, down:  resampling ratio, as positive INTEGERS (reduced internally).
+               A non-integer is an error, not rounded: resample_poly(x, 2.7, 1)
+               once silently became a 2x resample. For an arbitrary ratio pick
+               an integer pair (e.g. 27/10) or use decimate()/interpolate().
     half_len:  controls filter length / quality.
     """
+    for name, v in (("up", up), ("down", down)):
+        if isinstance(v, bool) or v != int(v):
+            raise ValueError(f"{name} must be a positive integer, got {v!r}")
     up = int(up)
     down = int(down)
     if up < 1 or down < 1:

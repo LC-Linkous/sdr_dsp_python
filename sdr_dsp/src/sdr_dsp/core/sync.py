@@ -118,8 +118,6 @@ def carrier_recovery(iq, method="costas", order=2, loop_bw=0.01, damping=0.707,
         # phase error detector
         if method == "costas":
             if order == 2:                      # BPSK: sign(I)*Q
-                e = np.real(s) * np.imag(s)
-                # normalize-ish for stability
                 e = np.sign(np.real(s)) * np.imag(s)
             else:                               # QPSK order-4
                 e = (np.sign(np.real(s)) * np.imag(s)
@@ -163,6 +161,18 @@ def symbol_sync(iq, samples_per_symbol, method="gardner", loop_bw=0.01,
       "early_late"     : early-late gate -- simple, intuitive.
       "mueller_muller" : Mueller & Muller -- 1 sps, decision-aided.
     samples_per_symbol: nominal sps (from estimate_symbol_rate or known rate).
+    loop_bw: proportional gain of the timing loop, in samples of correction per
+      unit (power-normalized) TED output. damping: damping ratio of the
+      second-order loop; the integral gain follows from it as (loop_bw/2*zeta)^2,
+      so the loop can track a steady symbol-rate offset without a standing
+      error. Smaller loop_bw = slower but steadier lock.
+
+    The TED output is normalized by the signal's mean power before it drives
+    the loop, so the loop behaves the same whether the input is at 0.01 or
+    100x full scale; every TED here scales with |x|^2 and an unnormalized loop
+    would overshoot and skip symbols on a strong signal. Each correction is
+    also clamped to +/- sps/4: a single TED sample can never move the sampling
+    instant by more than a quarter symbol.
     """
     iq = np.asarray(iq, dtype=np.complex64)
     sps = float(samples_per_symbol)
@@ -173,6 +183,16 @@ def symbol_sync(iq, samples_per_symbol, method="gardner", loop_bw=0.01,
             return empty, LoopDiagnostics(np.zeros(0), np.zeros(0),
                                           np.zeros(0, bool), False)
         return empty
+
+    # amplitude normalization for the TED (see docstring); an all-zero input
+    # has no timing to recover, so leave the scale at 1 and let the loop idle
+    power = float(np.mean(np.abs(iq) ** 2))
+    norm = 1.0 / power if power > 0 else 1.0
+    # second-order (PI) loop: proportional gain = loop_bw, integral gain from
+    # the damping ratio (zeta = Kp / (2*sqrt(Ki)))
+    kp = float(loop_bw)
+    ki = (kp / (2.0 * float(damping))) ** 2
+    max_step = sps / 4.0
 
     def interp(pos):
         # linear interpolation at fractional sample position pos
@@ -192,8 +212,10 @@ def symbol_sync(iq, samples_per_symbol, method="gardner", loop_bw=0.01,
     half = sps / 2.0
 
     # tau is the current sampling position (in samples); advances by ~sps each
-    # symbol, nudged by the timing error.
+    # symbol, nudged by the timing error. `rate` is the integrator: the loop's
+    # running estimate of the symbol-period error, in samples per symbol.
     tau = sps
+    rate = 0.0
     while tau < n - 1:
         sample = interp(tau)
         if method == "gardner":
@@ -215,17 +237,20 @@ def symbol_sync(iq, samples_per_symbol, method="gardner", loop_bw=0.01,
         else:
             raise ValueError(f"unknown timing method: {method!r}")
 
+        e = float(e) * norm                       # amplitude-independent TED
         out.append(sample)
-        errs.append(float(e))
+        errs.append(e)
         prev_sym = sample
-        # advance one symbol, corrected by the timing error
-        tau += sps + loop_bw * float(e)
+        # advance one symbol, corrected by the PI loop filter; the integrator
+        # is bounded so a burst of bad TED samples can't run the rate away
+        rate = float(np.clip(rate + ki * e, -max_step, max_step))
+        step = float(np.clip(rate + kp * e, -max_step, max_step))
+        tau += sps + step
         ests.append(tau % sps)
 
     err = np.array(errs, dtype=np.float64)
     est = np.array(ests, dtype=np.float64)
-    lock, locked = _lock_trace(err, window=max(20, int(10)),
-                               threshold=lock_threshold)
+    lock, locked = _lock_trace(err, window=20, threshold=lock_threshold)
     diag = LoopDiagnostics(err, est, lock, locked)
     if csv_path:
         diag.to_csv(csv_path)

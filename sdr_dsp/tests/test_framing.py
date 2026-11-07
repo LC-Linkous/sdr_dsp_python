@@ -13,6 +13,7 @@ from sdr_dsp.core import (build_frame, find_frames, crc16,
                           ook_modulate, ook_envelope, ook_slice,
                           fsk_modulate, fsk_demod,
                           bpsk_modulate, bpsk_demod)
+from sdr_dsp.core.framing import DEFAULT_SYNC, DEFAULT_PREAMBLE_BITS
 
 
 # -- CRC --------------------------------------------------------------------
@@ -94,6 +95,31 @@ def test_sync_tolerates_small_errors():
     frame[33] ^= 1                      # one bit in the sync region
     found = find_frames(frame, max_sync_errors=2)
     assert len(found) == 1 and found[0]["payload"] == b"OK"
+
+
+@pytest.mark.parametrize("tolerance", [0, 1, 2, 3])
+def test_sync_tolerance_is_inclusive_at_the_boundary(tolerance):
+    # max_sync_errors is an inclusive bound: EXACTLY that many errors must
+    # still match, one more must not. (The test above uses 1 error against a
+    # tolerance of 2, so an off-by-one in the comparison -- `<` for `<=` --
+    # passed it.) Errors are placed inside the sync word, which build_frame
+    # puts at the head of the frame after the preamble.
+    frame = build_frame(b"OK")
+    sync_start = DEFAULT_PREAMBLE_BITS
+    assert np.array_equal(frame[sync_start:sync_start + len(DEFAULT_SYNC)],
+                          DEFAULT_SYNC)
+
+    at_limit = frame.copy()
+    for k in range(tolerance):
+        at_limit[sync_start + 2 * k] ^= 1
+    found = find_frames(at_limit, max_sync_errors=tolerance)
+    assert len(found) == 1 and found[0]["payload"] == b"OK", \
+        f"{tolerance} errors rejected at tolerance {tolerance}"
+
+    over = at_limit.copy()
+    over[sync_start + 2 * tolerance] ^= 1       # one more error
+    assert find_frames(over, max_sync_errors=tolerance) == [], \
+        f"{tolerance + 1} errors accepted at tolerance {tolerance}"
 
 
 # -- full chain through modulation -----------------------------------------

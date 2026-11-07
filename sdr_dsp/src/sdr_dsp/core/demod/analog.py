@@ -19,13 +19,24 @@ def fm_demod(iq, deviation_hz=None, sample_rate=None):
     FM carries the message in instantaneous frequency, so demod IS the
     instantaneous frequency (see instantaneous_frequency). Returns a real array.
 
-    If deviation_hz and sample_rate are given, the output is scaled by the peak
-    deviation to give roughly normalized audio; otherwise it returns raw
-    radians/sample.
+    If deviation_hz and sample_rate are both given, the output is scaled by the
+    peak deviation to give roughly normalized audio (a tone deviation_hz off
+    center reads 1.0); with neither it returns raw radians/sample. Giving one
+    without the other is an error: the deviation is in Hz, so it cannot scale
+    a rad/sample output, and an earlier version silently returned rad/sample
+    in that case -- the caller then had audio ~1e5 times too quiet and no
+    indication why.
     """
+    if (deviation_hz is None) != (sample_rate is None):
+        raise ValueError(
+            "fm_demod: pass BOTH deviation_hz and sample_rate (scaled output) "
+            "or NEITHER (raw rad/sample); got "
+            f"deviation_hz={deviation_hz!r}, sample_rate={sample_rate!r}")
     if len(np.asarray(iq)) < 2:
         return np.zeros(0, dtype=np.float64)
-    if deviation_hz and sample_rate:
+    if deviation_hz is not None:
+        if deviation_hz <= 0 or sample_rate <= 0:
+            raise ValueError("fm_demod: deviation_hz and sample_rate must be > 0")
         inst_hz = instantaneous_frequency(iq, sample_rate=sample_rate)
         return inst_hz / float(deviation_hz)
     return instantaneous_frequency(iq)
@@ -39,7 +50,7 @@ def am_demod(iq, dc_block=True):
     """
     iq = np.asarray(iq)
     env = np.abs(iq).astype(np.float64)
-    if dc_block:
+    if dc_block and env.size:          # mean of nothing is NaN + a warning
         env = env - np.mean(env)
     return env
 

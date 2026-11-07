@@ -18,7 +18,10 @@ amplitude reflects the loop, not the signal. Do any dBm / calibration work
 BEFORE applying AGC, never after. With max_gain=None (the default) there is no
 ceiling, so during silence the loop will happily amplify pure noise up toward
 the target ("gain runaway in the gaps"); set max_gain if that matters for your
-signal.
+signal. Exact digital silence (|x| == 0, e.g. a muted or zero-padded gap) is the
+one case the loop refuses to chase: there is no level to track, so the gain is
+HELD until signal returns. Without that hold the gain would overflow to inf and
+poison every later sample with NaN.
 
 Two entry points, ONE algorithm:
   - agc(iq, ...) processes a whole array (owns its loop state for that call).
@@ -61,31 +64,77 @@ def agc(iq, mode="rms", target=1.0, attack=0.01, decay=0.001, max_gain=None,
     The _initial_* args let the streaming AGC stage continue a loop across blocks
     and aren't normally set by hand.
     """
+    adjusted, gain, _level = _agc_core(iq, mode, target, attack, decay, max_gain,
+                                       _initial_gain, _initial_level)
+    return adjusted, gain
+
+
+# Exact-zero detection floor. Below this the sample carries no level
+# information (digital silence / zero padding), so the loop holds rather than
+# chasing an infinite error. complex64 quantization is ~1e-7 of full scale, so
+# any real sample, however quiet, sits far above this.
+_SILENCE = 1e-30
+
+
+def _agc_core(iq, mode, target, attack, decay, max_gain, initial_gain,
+              initial_level):
+    """The AGC loop. Returns (adjusted, gain_trace, final_level).
+
+    `final_level` is the loop's level-tracker state after the last sample --
+    what the streaming stage must carry to the next block (as `initial_level`)
+    so the loop is continuous. It is the tracked INPUT level (smoothed |x| in
+    rms mode, the held peak of |x| in peak mode): the exact variable the loop
+    iterates, so a streamed run reproduces a whole-record run bit for bit.
+    """
     iq = np.asarray(iq, dtype=np.complex64)
     n = len(iq)
     if n == 0:
-        return iq, np.zeros(0, dtype=np.float64)
+        return iq, np.zeros(0, dtype=np.float64), initial_level
     if mode not in ("rms", "peak"):
         raise ValueError("mode must be 'rms' or 'peak'")
+    peak = mode == "peak"
 
     mag = np.abs(iq).astype(np.float64)
     gain = np.empty(n, dtype=np.float64)
-    g = float(_initial_gain)
+    g = float(initial_gain)
     eps = 1e-12
 
-    # The loop tracks the OUTPUT level (a smoothed estimate of |output|) and
-    # nudges the gain to push that toward target. Single feedback path -> stable.
-    # `level` is the running estimate of the post-gain output magnitude.
-    if _initial_level is not None:
-        level = float(_initial_level)
+    # The loop tracks the INPUT level and steers the gain so that
+    # (tracked input level) * gain -> target. `lvl_in` is the running estimate
+    # of |x|:
+    #   rms  : one-pole smoothed |x|, rising at `attack`, falling at `decay`
+    #          (a step up is seen quickly, a fade is believed slowly)
+    #   peak : classic peak detector -- jumps to |x| instantly when it is above
+    #          the held value, releases at `decay`. Twitchier, and what you
+    #          want when the goal is "never clip".
+    # Tracking the input rather than the output matters. An earlier version
+    # smoothed the OUTPUT level, which depends on the very gain it steers:
+    # after a +20 dB step the gain cut at `attack`, the output-level estimate
+    # could only fall at `decay`, so it stayed above target and the gain kept
+    # cutting -- the output collapsed to ~0 and crawled back over thousands of
+    # samples. The input level does not move when the gain does, so the gain
+    # converges to target/lvl_in without that feedback.
+    if initial_level is not None:
+        lvl_in = float(initial_level)
+    elif mag[0] > 0:
+        lvl_in = mag[0]
     else:
-        level = mag[0] * g if mag[0] > 0 else target
+        lvl_in = target / g if g > 0 else target
 
     for i in range(n):
-        out_mag = mag[i] * g                      # current output magnitude
-        # smooth the output-level estimate; rise fast (attack), fall slow (decay)
-        a = attack if out_mag > level else decay
-        level += a * (out_mag - level)
+        if mag[i] < _SILENCE:
+            # digital silence: no level to track, hold the gain (see module note)
+            gain[i] = g
+            continue
+        if peak:
+            if mag[i] > lvl_in:
+                lvl_in = mag[i]
+            else:
+                lvl_in += decay * (mag[i] - lvl_in)
+        else:
+            a = attack if mag[i] > lvl_in else decay
+            lvl_in += a * (mag[i] - lvl_in)
+        level = lvl_in * g                        # where the output level sits
         # error between where the output level is and where we want it; adjust
         # gain multiplicatively (AGC works in log/ratio space, not additively)
         err = target / max(level, eps)
@@ -99,7 +148,7 @@ def agc(iq, mode="rms", target=1.0, attack=0.01, decay=0.001, max_gain=None,
         gain[i] = g
 
     adjusted = (iq * gain.astype(np.float64)).astype(np.complex64)
-    return adjusted, gain
+    return adjusted, gain, lvl_in
 
 
 @dataclass
@@ -131,15 +180,16 @@ class AGC:
 
     def __call__(self, block):
         """Process one block, continuing the loop from the previous block."""
-        adjusted, gain = agc(block, mode=self.mode, target=self.target,
-                             attack=self.attack, decay=self.decay,
-                             max_gain=self.max_gain,
-                             _initial_gain=self._gain,
-                             _initial_level=self._level)
+        adjusted, gain, level = _agc_core(block, self.mode, self.target,
+                                          self.attack, self.decay, self.max_gain,
+                                          self._gain, self._level)
         if len(gain):
             self._gain = float(gain[-1])
-            # carry the output-level estimate: |last output sample|
-            self._level = float(abs(adjusted[-1]))
+            # carry the loop's SMOOTHED output-level estimate. Carrying
+            # |last output sample| instead (an earlier version did) restarts
+            # the level tracker from an unsmoothed value at every block, so a
+            # streamed run diverged from the whole-record run by several %.
+            self._level = float(level)
         self.last_gain = gain
         return adjusted
 

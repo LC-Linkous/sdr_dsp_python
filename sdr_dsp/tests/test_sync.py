@@ -84,6 +84,51 @@ def test_symbol_sync_all_methods_converge():
         assert diag.locked, f"{method} did not lock"
 
 
+def _shaped_bpsk(nsym=400, sps=8, seed=0):
+    from sdr_dsp.core import bpsk_modulate
+    rng = np.random.default_rng(seed)
+    bits = rng.integers(0, 2, nsym)
+    return bpsk_modulate(bits, sps, pulse_shaping=True), bits
+
+
+def _bits_from(syms):
+    return (np.real(syms) < 0).astype(int)
+
+
+def test_symbol_sync_is_amplitude_invariant():
+    # Every TED here scales with |x|^2. Before the loop normalized by signal
+    # power, a 100x stronger input made the correction 10,000x larger: the
+    # sampling instant skipped around and the loop emitted ~2x too many
+    # symbols. The recovered symbol count and the decisions must not depend
+    # on the input's scale.
+    sig, bits = _shaped_bpsk()
+    ref = symbol_sync(sig, 8)
+    for amp in (0.01, 1.0, 100.0, 1e4):
+        syms = symbol_sync((sig * amp).astype(np.complex64), 8)
+        assert len(syms) == len(ref), f"amp {amp}: {len(syms)} vs {len(ref)} symbols"
+        np.testing.assert_array_equal(_bits_from(syms), _bits_from(ref))
+    # sanity: the count is the transmitted symbol count (give or take the edges)
+    assert abs(len(ref) - len(bits)) <= 2
+
+
+def test_symbol_sync_damping_is_used():
+    # damping sets the integral gain of the second-order loop; it must change
+    # the loop's behaviour, not be an accepted-and-ignored argument.
+    sig, _ = _shaped_bpsk()
+    _, d_light = symbol_sync(sig, 8.05, damping=0.3, diagnostics=True)
+    _, d_heavy = symbol_sync(sig, 8.05, damping=2.0, diagnostics=True)
+    assert not np.array_equal(d_light.estimate, d_heavy.estimate)
+
+
+def test_symbol_sync_tracks_a_symbol_rate_offset():
+    # the integrator's job: a 1% error in the nominal sps must not accumulate
+    # into dropped or doubled symbols over a 400-symbol burst
+    sig, bits = _shaped_bpsk()
+    for told in (7.92, 8.08):
+        syms = symbol_sync(sig, told)
+        assert abs(len(syms) - len(bits)) <= 8, f"sps={told}: {len(syms)} symbols"
+
+
 def test_symbol_sync_bad_method():
     import pytest
     sym, _ = _bpsk(100, 4, seed=6)

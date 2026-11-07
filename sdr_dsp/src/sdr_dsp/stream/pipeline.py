@@ -111,6 +111,39 @@ class Pipeline:
                 x = st.fn(x)
         return x
 
+    def flush(self) -> list:
+        """Drain the look-ahead held inside stages once the stream has ended.
+
+        Stages with internal look-ahead (``StreamingResampler``) hold back the
+        last few output samples until they know the stream is over; without a
+        flush that tail is silently lost. This walks the chain in order: each
+        stage that exposes ``flush()`` is asked for its tail, and that tail is
+        threaded through every LATER stage (taps included) exactly like a
+        normal block -- so a downstream stage with its own look-ahead receives
+        the upstream tail before being flushed itself.
+
+        Returns the list of non-empty processed tail blocks (usually 0 or 1).
+        ``run()`` and ``stream()`` call this when the source is exhausted;
+        call it yourself only if you drive ``process_block`` by hand.
+        Flushing twice is harmless: a drained stage returns nothing.
+        """
+        tails: list = []
+        for i, st in enumerate(self.stages):
+            fl = getattr(st.fn, "flush", None)
+            if st.is_tap or fl is None:
+                continue
+            x = fl()
+            if x is None or len(x) == 0:
+                continue
+            for later in self.stages[i + 1:]:
+                if later.is_tap:
+                    later.fn(x)
+                else:
+                    x = later.fn(x)
+            if len(x):
+                tails.append(x)
+        return tails
+
     def run(self, sink=None, profile=False, max_blocks=None):
         """Pull blocks from the source, process each, deliver to sink.
 
@@ -118,6 +151,11 @@ class Pipeline:
                     collected and returned as a list.
         profile:    if True, also return PipelineStats (per-stage timing).
         max_blocks: stop after this many blocks (useful for live sources).
+
+        When the source runs dry the stages are flushed (see ``flush``) and
+        any tail is delivered like a final block, so a Pipeline run produces
+        the same sample count as the whole-record function. Stopping early via
+        ``max_blocks`` does NOT flush: the stream was cut, not ended.
 
         Returns the result list (or None if a sink was given); if profile,
         returns (results_or_None, PipelineStats).
@@ -127,8 +165,10 @@ class Pipeline:
         for st in self.stages:
             stats.per_stage_seconds.setdefault(st.name, 0.0)
 
+        exhausted = True
         for bi, block in enumerate(self.source.blocks()):
             if max_blocks is not None and bi >= max_blocks:
+                exhausted = False
                 break
             stats.blocks += 1
             stats.samples_in += len(block)
@@ -147,6 +187,13 @@ class Pipeline:
             else:
                 results.append(x)
 
+        if exhausted:
+            for x in self.flush():
+                if sink is not None:
+                    sink(x)
+                else:
+                    results.append(x)
+
         out = None if sink is not None else results
         if profile:
             return out, stats
@@ -157,12 +204,15 @@ class Pipeline:
 
         This is the bridge to the generator-chain style: a Pipeline can be
         consumed lazily, so it composes with other generators and stays
-        memory-friendly for long/continuous streams.
+        memory-friendly for long/continuous streams. Like ``run``, it flushes
+        the stages' look-ahead when the source is exhausted (not when cut by
+        ``max_blocks``) and yields any tail as a final block.
         """
         for bi, block in enumerate(self.source.blocks()):
             if max_blocks is not None and bi >= max_blocks:
-                break
+                return
             yield self.process_block(block)
+        yield from self.flush()
 
     def __repr__(self):
         return f"Pipeline({len(self.stages)} stages, source={self.source!r})"

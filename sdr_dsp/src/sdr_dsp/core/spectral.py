@@ -48,18 +48,28 @@ def psd(iq, sample_rate, nfft=1024, window="hann", center_freq=0.0):
 
     freqs_hz:  frequency axis centered on center_freq, fftshifted (low->high).
     psd_db:    10*log10 of the averaged power spectrum.
+
+    Raises ValueError if the signal is shorter than one frame (len(iq) < nfft):
+    there is no full frame to transform. Pass a smaller nfft, or pad the signal
+    yourself if that is what you mean. (An earlier version silently returned a
+    flat -200 dB floor here, which made every downstream measurement --
+    occupied_bandwidth, snr_db -- confidently wrong on short inputs.)
     """
     iq = np.asarray(iq)
     nfft = int(nfft)
+    if nfft < 1:
+        raise ValueError(f"nfft must be >= 1, got {nfft}")
+    if len(iq) < nfft:
+        raise ValueError(
+            f"psd needs at least one full frame: len(iq)={len(iq)} < nfft={nfft}. "
+            "Use a smaller nfft or pad the signal.")
     win = _get_window(window, nfft).astype(np.float64)
     win_power = np.sum(win ** 2)  # for power normalization
 
-    nframes = max(1, len(iq) // nfft)
+    nframes = len(iq) // nfft
     acc = np.zeros(nfft, dtype=np.float64)
     for k in range(nframes):
         seg = iq[k * nfft:(k + 1) * nfft]
-        if len(seg) < nfft:
-            break
         spec = np.fft.fftshift(np.fft.fft(seg * win))
         acc += (np.abs(spec) ** 2)
     acc /= nframes

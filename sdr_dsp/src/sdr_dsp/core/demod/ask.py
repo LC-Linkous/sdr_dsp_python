@@ -22,6 +22,8 @@ def ook_slice(envelope, threshold=None):
     capture). Returns a uint8 array of 0/1.
     """
     env = np.asarray(envelope, dtype=np.float64)
+    if env.size == 0:
+        return np.zeros(0, dtype=np.uint8)
     if threshold is None:
         threshold = (env.min() + env.max()) / 2.0
     return (env > threshold).astype(np.uint8)

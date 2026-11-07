@@ -95,6 +95,84 @@ def test_stream_is_lazy():
     assert len(blocks) == 2
 
 
+def _noise(n=100_000, seed=0):
+    rng = np.random.default_rng(seed)
+    return (rng.standard_normal(n) + 1j * rng.standard_normal(n)).astype(np.complex64)
+
+
+def test_run_flushes_lookahead_stages():
+    # regression: StreamingResampler holds back a look-ahead tail until the
+    # stream ends, and Pipeline.run() never asked for it -- a 1/8 resample of
+    # 100k samples yielded 604 blocks-worth of samples where resample_poly
+    # gives 625. The pipeline must produce the whole-record result exactly.
+    from sdr_dsp.stream import StreamingResampler
+    from sdr_dsp.core import resample_poly
+    iq = _noise()
+    ref = resample_poly(iq, 1, 8)
+    for bs in (4096, 1000, 7777):
+        pipe = Pipeline(ArraySource(iq, 1e6, block_size=bs)).add(
+            StreamingResampler(1, 8), "resample")
+        out = np.concatenate(pipe.run())
+        assert len(out) == len(ref), f"block_size {bs}: {len(out)} vs {len(ref)}"
+        np.testing.assert_array_equal(out, ref)
+
+
+def test_flush_threads_tail_through_later_stages_and_taps():
+    # the upstream tail must pass through every later stage (so a second
+    # look-ahead stage sees it before being flushed itself) and every tap
+    from sdr_dsp.stream import StreamingResampler, StreamingFIR
+    from sdr_dsp.core import resample_poly
+    iq = _noise()
+    taps = design_lowpass(50e3, 1e6, num_taps=31)
+    seen = []
+    pipe = (Pipeline(ArraySource(iq, 1e6, block_size=4096))
+            .add(StreamingResampler(1, 2), "r2")
+            .add(StreamingFIR(taps), "lpf")
+            .tap(lambda b: seen.append(len(b)), "watch")
+            .add(StreamingResampler(1, 4), "r4"))
+    out = np.concatenate(pipe.run())
+    ref = resample_poly(fir_apply(resample_poly(iq, 1, 2), taps), 1, 4)
+    assert len(out) == len(ref)
+    assert sum(seen) == len(iq) // 2          # the tap saw the r2 tail too
+    np.testing.assert_allclose(out, ref, atol=1e-5)
+
+
+def test_flush_delivers_to_sink_and_stream():
+    from sdr_dsp.stream import StreamingResampler
+    from sdr_dsp.core import resample_poly
+    iq = _noise()
+    n_ref = len(resample_poly(iq, 1, 8))
+    got = []
+    Pipeline(ArraySource(iq, 1e6, block_size=4096)).add(
+        StreamingResampler(1, 8)).run(sink=got.append)
+    assert sum(len(b) for b in got) == n_ref
+    streamed = list(Pipeline(ArraySource(iq, 1e6, block_size=4096)).add(
+        StreamingResampler(1, 8)).stream())
+    assert sum(len(b) for b in streamed) == n_ref
+
+
+def test_max_blocks_does_not_flush():
+    # a stream cut short by max_blocks has not ENDED; the look-ahead stays put
+    from sdr_dsp.stream import StreamingResampler
+    iq = _noise()
+    pipe = Pipeline(ArraySource(iq, 1e6, block_size=4096)).add(
+        StreamingResampler(1, 8))
+    assert len(pipe.run(max_blocks=3)) == 3
+    assert len(list(pipe.stream(max_blocks=3))) == 3
+
+
+def test_flush_is_idempotent_and_safe_without_flushable_stages():
+    from sdr_dsp.stream import StreamingResampler
+    iq = _noise(20_000)
+    pipe = Pipeline(ArraySource(iq, 1e6, block_size=4096)).add(
+        StreamingResampler(1, 8))
+    pipe.run()
+    assert pipe.flush() == []                 # already drained
+    plain = Pipeline(ArraySource(iq, 1e6)).add(lambda b: np.abs(b), "mag")
+    plain.run()
+    assert plain.flush() == []
+
+
 def test_describe_is_inspectable():
     fs = 1_000_000
     iq = _fm_signal(fs)

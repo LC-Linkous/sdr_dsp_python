@@ -125,16 +125,43 @@ def test_packet_survives_clean_channel():
 
 
 def test_packet_lost_or_flagged_at_low_snr():
-    # at very low SNR the frame should either not be found or fail CRC --
-    # never silently return a corrupt payload as valid
+    # at low SNR the frame should either not be found or fail CRC --
+    # never silently return a corrupt payload as valid. The property that
+    # matters is the converse of the obvious one: ANY frame reported crc_ok
+    # must carry the true payload. (An earlier form of this test only asserted
+    # inside `if payload == expected`, at 0 dB where no frame is ever found,
+    # so it asserted nothing.)
     fs = 1e6
     sps = 20
-    frame = build_frame(b"CQ DE SDR")
+    expected = b"CQ DE SDR"
+    frame = build_frame(expected)
     iq = fsk_modulate(frame, sps, 50e3, fs)
-    rx = apply_channel(iq, sample_rate=fs, snr_db=0, seed=3)
-    bits = fsk_demod(rx, fs)[sps // 2::sps][:len(frame)]
-    found = find_frames(np.asarray(bits, dtype=np.uint8))
-    for f in found:
-        if f["payload"] == b"CQ DE SDR":
-            assert f["crc_ok"]          # if the right payload, CRC must agree
-        # a wrong payload with crc_ok would be the real failure; CRC prevents it
+    # 12 dB: the sync word survives often enough to be found, the payload
+    # rarely does -- the regime where a weak CRC would let garbage through.
+    # (At 0 dB nothing is ever found, so there is nothing to check.)
+    n_found = n_bad = 0
+    for seed in range(24):
+        rx = apply_channel(iq, sample_rate=fs, snr_db=12, seed=seed)
+        bits = fsk_demod(rx, fs)[sps // 2::sps][:len(frame)]
+        for f in find_frames(np.asarray(bits, dtype=np.uint8)):
+            n_found += 1
+            n_bad += f["payload"] != expected
+            if f["crc_ok"]:
+                assert f["payload"] == expected, \
+                    f"seed {seed}: corrupt payload {f['payload']!r} passed CRC"
+    # the sweep must actually exercise the guarantee: some corrupt frames
+    # have to be found and flagged, otherwise the loop above proved nothing
+    assert n_bad > 0, f"no corrupt frames seen ({n_found} found) -- raise the noise"
+
+
+def test_corrupt_payload_is_flagged_not_dropped():
+    # the same guarantee without the channel: flip one payload bit in an
+    # otherwise perfect frame; the frame is FOUND (sync intact) and crc_ok is
+    # False, so a link layer can NAK it rather than never hearing about it
+    frame = build_frame(b"CQ DE SDR").copy()
+    payload_bit = 32 + 16 + 8 + 3            # preamble + sync + length byte + 3
+    frame[payload_bit] ^= 1
+    found = find_frames(frame)
+    assert len(found) == 1
+    assert not found[0]["crc_ok"]
+    assert found[0]["payload"] != b"CQ DE SDR"

@@ -140,26 +140,32 @@ A good adapter also, in `blocks()`:
   correct;
 - handles partial/short reads at the stream tail without raising.
 
-### 2. The collection tooling is HackRF-shaped (a real gap, not a bug)
+### 2. The collection tooling: gain search is device-agnostic, the probe is not
 
-The DSP is device-agnostic; the *gain-search and capture-quality* tooling is
-not, and this is worth stating plainly so nobody assumes a free port:
+The DSP is device-agnostic. Of the *collection* tooling, the gain search now is
+too, and the probe layer still is not -- worth stating plainly so nobody
+assumes more or less than they get:
 
-- `sources/probe.py` expects a handle `h` with hackrfpy's `capture(...)`
+- `core/gain_search.py` is split in two layers. `search_gain_model` is the
+  general engine: it drives any radio described by a `GainModel` -- named gain
+  *stages*, each tagged "frontend" (improves SNR: RF amp, LNA, a tuner's single
+  gain) or "level" (sets ADC level after SNR is decided: the HackRF's VGA) --
+  through a caller-supplied `probe(settings) -> iq`. `hackrf_gain_model()` and
+  `rtlsdr_gain_model()` are the two models that ship; a new radio is a new
+  model (data), not new search code. `search_gain` is the HackRF-signature
+  wrapper (`probe(lna, vga, amp)`) kept for existing callers; it builds the
+  HackRF model and delegates. `examples/gain_search_demo.py` runs the same
+  engine against a mock HackRF and a mock RTL-SDR.
+- `sources/probe.py` still expects a handle `h` with hackrfpy's `capture(...)`
   signature and routes captures through a file to dodge the Windows pipe
-  corruption (see the module docstring).
-- `core/gain_search.py` (`search_gain`) assumes the HackRF's three-knob gain
-  model: `lna` / `vga` / `amp`, with the specific "SNR improves with amp+LNA,
-  not VGA" strategy. That is right for the HackRF and wrong in the specifics for
-  most other radios.
+  corruption (see the module docstring). This is the HackRF-shaped piece.
 - `tools/preflight_collection.py` builds on both.
 
-Porting a *receiver + demod* path to another SDR needs none of this — write an
-`IQSource` and you are done. Porting *auto-gain search* needs a per-device gain
-model. The clean way to do it, when the need arises, is to lift the gain
-abstraction into its own small protocol (e.g. a `GainModel` with the device's
-knobs and a `set(...)` method) so `search_gain` can drive any radio, rather than
-special-casing hackrfpy. Until then, treat auto-gain as HackRF-only.
+Porting a *receiver + demod* path to another SDR needs none of this -- write an
+`IQSource` and you are done. Porting *auto-gain search* needs (a) a `GainModel`
+for the radio (a few lines of data) and (b) a `probe(settings)` callable that
+sets those stages on the device and returns a short capture -- that callable is
+the device-specific part, and it lives in your adapter, not in the library.
 
 ### 3. Keeping the core device-free (the invariant)
 
@@ -218,12 +224,14 @@ family, framing, `measure` — runs against these unchanged.
       saved capture, then against the live adapter — output should match.
 - [ ] Leave `core/` untouched. If you found yourself editing it, the seam moved
       to the wrong place.
-- [ ] Only if you need auto-gain: add a per-device gain model (§2). Otherwise set
-      gains manually in the adapter.
+- [ ] Only if you need auto-gain: write a `GainModel` for the radio and a
+      `probe(settings)` callable, and call `search_gain_model` (§2). Otherwise
+      set gains manually in the adapter.
 
 ---
 
 *This is a personal research library; the abstractions above are real and
-enforced today, but the collection-tooling generalization in §2 is future work,
-not a shipped feature. See `sources/base.py`, `sinks/tx_sink.py`, and
+enforced today. The gain-search engine in §2 is shipped and tested against
+mock radios; only the probe layer (`sources/probe.py`) remains HackRF-shaped.
+See `sources/base.py`, `sinks/tx_sink.py`, `core/gain_search.py`, and
 `examples/hackrf_capture.py` for the authoritative reference.*

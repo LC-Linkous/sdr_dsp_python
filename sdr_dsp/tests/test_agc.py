@@ -55,6 +55,69 @@ def test_peak_mode_runs_and_is_reversible():
     assert np.allclose(adjusted / gain, sig, atol=1e-5)
 
 
+def test_peak_mode_is_a_different_tracker_than_rms():
+    # "peak" and "rms" must not be the same code path (they once were: the
+    # mode was validated and then ignored). A peak detector jumps to a spike
+    # instantly, so after a short burst its gain is clamped down HARDER than
+    # the one-pole rms tracker's, and the two traces differ.
+    sig = np.ones(30000, dtype=np.complex64)
+    sig[2500:2510] = 5.0
+    _, g_rms = agc(sig, mode="rms", target=1.0)
+    _, g_peak = agc(sig, mode="peak", target=1.0)
+    assert not np.allclose(g_rms, g_peak)
+    assert g_peak[2510] < g_rms[2510]
+    # the peak detector holds the burst, so it stays clamped longer ...
+    assert g_peak[3500] < g_rms[3500]
+    # ... but both release and settle back to target on the long constant tail
+    assert g_peak[-1] == pytest.approx(1.0, rel=0.05)
+    assert g_rms[-1] == pytest.approx(1.0, rel=0.05)
+
+
+def _first_settled(out, target, after, tol=0.1):
+    m = np.abs(out[after:])
+    return int(np.argmax(np.abs(m - target) < tol * target))
+
+
+def test_fast_attack_slow_decay_and_no_collapse_after_a_step_up():
+    # The two rates are the AGC's contract: a level step UP is caught at the
+    # attack rate (fast), a fade is followed at the decay rate (slow). With
+    # attack 10x decay the step-up must settle several times faster than the
+    # step-down -- the level tracker's attack/decay assignment was never
+    # pinned, and swapping them passed the whole suite.
+    # Also pins the fix for output collapse: the output after a +20 dB step
+    # must come DOWN to target and stay there, never undershoot. An earlier
+    # loop smoothed the OUTPUT level, which lagged the gain it was steering,
+    # and drove the output to ~0 for thousands of samples after every step up.
+    n = 20000
+    step_up = np.concatenate([np.full(n, 0.1), np.full(n, 1.0)]).astype(np.complex64)
+    step_dn = np.concatenate([np.full(n, 1.0), np.full(n, 0.1)]).astype(np.complex64)
+    out_up, _ = agc(step_up, target=0.5, attack=0.01, decay=0.001)
+    out_dn, _ = agc(step_dn, target=0.5, attack=0.01, decay=0.001)
+    t_up = _first_settled(out_up, 0.5, n)
+    t_dn = _first_settled(out_dn, 0.5, n)
+    assert t_up < 1000, f"step up took {t_up} samples to settle"
+    assert t_dn > 4 * t_up, f"attack ({t_up}) not clearly faster than decay ({t_dn})"
+    # no undershoot: once the output comes back down to target it stays there
+    settled = np.abs(out_up[n + t_up:])
+    assert settled.min() > 0.45, f"output collapsed to {settled.min():.3f} after step up"
+    assert np.abs(out_dn[n:]).max() <= 0.5 + 1e-6      # monotone recovery on fade
+
+
+def test_digital_silence_holds_gain_and_never_produces_nan():
+    # regression: with max_gain=None, a run of exact zeros drove `level` to
+    # the eps floor, err to ~1e12, gain to inf, and every later sample to NaN
+    # -- including the signal AFTER the gap. The loop must hold through
+    # silence and resume cleanly.
+    sig = np.concatenate([np.full(20000, 0.5), np.zeros(40000),
+                          np.full(2000, 0.5)]).astype(np.complex64)
+    with np.errstate(all="raise"):              # any overflow is a failure
+        adjusted, gain = agc(sig, target=1.0, attack=0.01, decay=0.001)
+    assert np.isfinite(gain).all() and np.isfinite(adjusted).all()
+    assert gain[20000] == gain[59999]           # held, not run away
+    assert np.all(adjusted[20000:60000] == 0)   # zeros in, zeros out
+    assert abs(adjusted[-1]) == pytest.approx(1.0, rel=0.1)   # tracks again
+
+
 def test_invalid_mode_raises():
     with pytest.raises(ValueError):
         agc(np.ones(10, dtype=np.complex64), mode="bogus")
@@ -81,35 +144,64 @@ def test_empty_input():
     assert len(adjusted) == 0 and len(gain) == 0
 
 
+def _stream(sig, stage, block_sizes):
+    """Push sig through stage in blocks of the given (cycling) sizes."""
+    gains, outs = [], []
+    i = 0
+    k = 0
+    while i < len(sig):
+        bs = block_sizes[k % len(block_sizes)]
+        outs.append(stage(sig[i:i + bs]))
+        gains.append(stage.last_gain)
+        i += bs
+        k += 1
+    return np.concatenate(outs), np.concatenate(gains)
+
+
 def test_streaming_no_boundary_lurch():
-    # the reason the stage carries state: gain steps at block boundaries must
-    # be no larger than typical within-block steps (no pumping at edges).
+    # the reason the stage carries state: the gain step ACROSS a block
+    # boundary must be no larger than the largest step the whole-record loop
+    # takes anywhere near it. (The previous form of this test compared the
+    # boundary steps against the max over ALL streamed steps, a set that
+    # contains them -- it could not fail.)
     sig = _fade()
+    _, gw = agc(sig, target=0.5, attack=0.01, decay=0.001)
+    ref_steps = np.abs(np.diff(gw))
     stage = AGC(target=0.5, attack=0.01, decay=0.001)
     bs = 5000
-    gains = []
-    for i in range(0, len(sig), bs):
-        stage(sig[i:i + bs])
-        gains.append(stage.last_gain)
-    gs = np.concatenate(gains)
-    steps = np.abs(np.diff(gs))
-    boundary_steps = [steps[i - 1] for i in range(bs, len(sig), bs)]
-    assert max(boundary_steps) <= steps.max()
+    _, gs = _stream(sig, stage, [bs])
+    for b in range(bs, len(sig), bs):
+        boundary = abs(gs[b] - gs[b - 1])
+        local_max = ref_steps[b - 50:b + 50].max()
+        assert boundary <= local_max * 1.01 + 1e-12, f"lurch at block edge {b}"
 
 
-def test_streaming_tracks_whole_signal():
-    # streamed gain should agree with whole-signal processing to within a few %
-    # (small float drift over a long recursive loop is expected, not a lurch)
-    sig = _fade()
-    whole, gw = agc(sig, target=0.5, attack=0.01, decay=0.001)
-    stage = AGC(target=0.5, attack=0.01, decay=0.001)
-    gains = []
-    for i in range(0, len(sig), 5000):
-        stage(sig[i:i + 5000])
-        gains.append(stage.last_gain)
-    gs = np.concatenate(gains)
-    rel = np.abs(gs - gw) / np.maximum(gw, 1e-9)
-    assert rel.max() < 0.15
+@pytest.mark.parametrize("mode", ["rms", "peak"])
+@pytest.mark.parametrize("block_sizes", [[5000], [1], [7, 1000, 3, 64, 999]])
+def test_streaming_equals_whole_signal_exactly(block_sizes, mode):
+    # the stage is "the function plus a memory of the loop state", so streamed
+    # processing must reproduce the whole-record run sample for sample -- same
+    # arithmetic in the same order, there is no float drift to forgive. A
+    # 15% tolerance here once hid a bug where the stage carried |last output|
+    # instead of the smoothed level and diverged by ~5% at every block edge.
+    sig = _fade(n=20000)
+    whole, gw = agc(sig, mode=mode, target=0.5, attack=0.01, decay=0.001)
+    stage = AGC(mode=mode, target=0.5, attack=0.01, decay=0.001)
+    streamed, gs = _stream(sig, stage, block_sizes)
+    np.testing.assert_array_equal(gs, gw)
+    np.testing.assert_array_equal(streamed, whole)
+
+
+def test_streaming_equals_whole_on_a_level_step():
+    # a 26 dB step mid-record is where a bad carried state shows up most
+    rng = np.random.default_rng(7)
+    n = 40000
+    env = np.concatenate([np.full(n // 2, 0.1), np.full(n // 2, 2.0)])
+    sig = (env * np.exp(1j * rng.uniform(0, 2 * np.pi, n))).astype(np.complex64)
+    whole, gw = agc(sig, target=0.5)
+    streamed, gs = _stream(sig, AGC(target=0.5), [500])
+    np.testing.assert_array_equal(gs, gw)
+    np.testing.assert_array_equal(streamed, whole)
 
 
 def test_stage_reset():

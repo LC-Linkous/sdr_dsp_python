@@ -66,10 +66,20 @@ def ssb_modulate(message, sideband="usb"):
     n = len(m)
     if n == 0:
         return np.zeros(0, dtype=np.complex64)
-    # analytic signal: zero the negative frequencies, double the positive ones
+    # analytic signal: zero the negative frequencies, double the positive ones.
+    # DC (and, for even n, the Nyquist bin) belong to NEITHER side and are
+    # kept at 1x -- the same weighting as scipy.signal.hilbert. Doubling DC
+    # too (an earlier version did) made the analytic signal of a constant
+    # message twice the message.
     spec = np.fft.fft(m)
-    spec[n // 2:] = 0
-    analytic = 2 * np.fft.ifft(spec)
+    h = np.zeros(n)
+    h[0] = 1.0
+    if n % 2 == 0:
+        h[1:n // 2] = 2.0
+        h[n // 2] = 1.0
+    else:
+        h[1:(n + 1) // 2] = 2.0
+    analytic = np.fft.ifft(spec * h)
     iq = analytic.astype(np.complex64)
     if sideband == "lsb":
         iq = np.conj(iq)

@@ -169,6 +169,18 @@ def test_evm_grows_with_noise():
     assert evm_high > evm_low
 
 
+def test_evm_stats_of_nothing_is_the_nan_vector_without_warnings():
+    # no symbols -> the same all-NaN EVM block fingerprint_vector emits when it
+    # has no symbols, returned deliberately (np.mean([]) used to produce it by
+    # accident, with a RuntimeWarning per moment)
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        stats = evm_stats(np.zeros(0, dtype=np.complex64))
+    assert stats.shape == (len(EVM_FEATURE_NAMES),)
+    assert np.isnan(stats).all()
+
+
 def test_error_vector_shape_mismatch_raises():
     with pytest.raises(ValueError):
         error_vector(np.zeros(5, dtype=complex), np.zeros(4, dtype=complex))

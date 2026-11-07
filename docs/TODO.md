@@ -26,9 +26,11 @@ here. Strike through or delete when done; the LOG records what happened.
 
 ## Library
 
-- [ ] Lift the HackRF three-knob gain model out of `core/gain_search.py`
-      into a `GainModel` protocol so `search_gain` can drive another radio
-      (MODULARITY §2).
+- [x] Lift the HackRF three-knob gain model out of `core/gain_search.py`
+      into a `GainModel` so `search_gain` can drive another radio
+      (`search_gain_model`, `hackrf_gain_model`, `rtlsdr_gain_model`; patch
+      0022, 0.2.0). Still open from it: a probe layer that is not written
+      against hackrfpy's `capture(...)` (`sources/probe.py`).
 - [ ] Give `live_fm_listen.py`'s `FMStream` over to the `Streaming*` stages
       (`stream/stages.py`) now that they exist; it should become a thin
       composition, and the stereo path can then go live too.
