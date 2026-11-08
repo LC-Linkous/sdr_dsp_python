@@ -350,10 +350,14 @@ class StreamingPSD:
       axis is in cycles/sample and only "dbfs" scaling is allowed ("density"
       needs the rate).
 
-    ``reset()`` drops any buffered partial frame -- call it on a retune so a
-    spectrum never straddles two centre frequencies. ``frames_emitted`` counts
-    outputs. Blocks are not dropped: a slow consumer sees every spectrum,
-    later; rate-limit upstream (skip calls) if that is not wanted.
+    ``retune(center_freq)`` relabels ``.freqs`` and keeps the buffered
+    samples, for a DISPLAY retune where the samples this stage sees have not
+    changed (the mixer sits downstream of the spectrum tap, say) or where a
+    one-frame blend across the seam is acceptable; pass ``drop_buffer=True``
+    (or call ``reset()``) when the RF centre actually moved, so a spectrum
+    never straddles two centre frequencies. ``frames_emitted`` counts outputs.
+    Blocks are not dropped: a slow consumer sees every spectrum, later;
+    rate-limit upstream (skip calls) if that is not wanted.
     """
 
     def __init__(self, nfft=1024, avg=1, window="hann", scaling="dbfs",
@@ -377,8 +381,23 @@ class StreamingPSD:
                             center_freq=self.center_freq, scaling=scaling)
 
     def reset(self) -> None:
-        """Drop buffered samples (e.g. after a retune). Keeps the axis/config."""
+        """Drop buffered samples (e.g. after an RF retune). Keeps the axis/config."""
         self._buf = np.zeros(0, dtype=np.complex64)
+
+    def retune(self, center_freq, drop_buffer=False) -> None:
+        """Move the frequency axis to a new centre; optionally drop the buffer.
+
+        The axis is a pure relabel (same bins, same spacing), so the buffered
+        samples carry over and the next spectrum is still a full ``avg``-frame
+        average. Set drop_buffer=True when the samples arriving from now on
+        are from a different RF centre than the ones already buffered.
+        """
+        self.center_freq = float(center_freq)
+        self.freqs, _ = psd(np.zeros(self.nfft, dtype=np.complex64), self._fs,
+                            nfft=self.nfft, window=self.window,
+                            center_freq=self.center_freq, scaling=self.scaling)
+        if drop_buffer:
+            self.reset()
 
     def __call__(self, block):
         block = np.asarray(block, dtype=np.complex64)

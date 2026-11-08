@@ -292,3 +292,17 @@ def test_streaming_psd_reset_scaling_and_validation():
     rateless = StreamingPSD(nfft)                                 # axis in cycles/sample
     assert rateless.freqs.min() == pytest.approx(-0.5)
     assert -1.5 < rateless(x[:nfft]).max() < 0.1          # 0 dBFS less scalloping
+
+
+def test_streaming_psd_retune_relabels_axis_and_keeps_buffer():
+    from sdr_dsp.stream import StreamingPSD
+    fs, nfft = 1e6, 256
+    x = _noisy_tone(nfft * 2, fs)
+    stage = StreamingPSD(nfft, avg=2, sample_rate=fs, center_freq=100e6)
+    assert stage(x[:300]) is None
+    old_axis = stage.freqs.copy()
+    stage.retune(101e6)                                   # display retune: keep samples
+    np.testing.assert_allclose(stage.freqs, old_axis + 1e6)
+    assert stage(x[300:]) is not None                     # 300 + 212 = 512 = avg*nfft
+    stage.retune(102e6, drop_buffer=True)                 # RF retune: start clean
+    assert stage(x[:nfft * 2 - 1]) is None and stage.center_freq == 102e6

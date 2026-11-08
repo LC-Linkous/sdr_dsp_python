@@ -28,6 +28,13 @@ was measured, why a design went the way it did) lives in `docs/LOG.md`.
   from the capture-time health report). The sidecars and `.report.json` files
   stay in git; only the 80 MB `.iq` payloads are ignored and distributed as
   release assets, so `FileSource` can read a downloaded copy.
+- `StreamingPSD.retune(center_freq, drop_buffer=False)`: relabel the axis for
+  a display retune and keep the buffered samples; `drop_buffer=True` for an
+  RF retune.
+- `tools/fetch_sample_data.py`: downloads the release-asset payloads next to
+  their sidecars and verifies them against the sidecar's `sdr_dsp:sha256`
+  (refuses a mismatch, installs nothing). `--check` verifies only. Tested
+  against a `file://` release; standard library only.
 - Packaging verified: sdist (110 KB) and wheel (135 KB) contain `src/`,
   LICENSE, README and `pyproject.toml` only -- no `sample_data/`, `examples/`
   or `tools/`.

@@ -51,18 +51,21 @@ What IS in git is everything needed to use a downloaded copy:
 | `fm_98.1MHz_8Msps.sigmf-meta`, `fm_103.7MHz_8Msps.sigmf-meta` | SigMF sidecars: datatype, rate, centre, gains, sha256 of the payload. `FileSource` and `load_iq` read these. |
 | `*.report.json` | the `capture_health` report written at capture time |
 
-To use them: download the `.iq` files from the release assets into this
-directory, next to their sidecars, and check them:
+To get them, from `sdr_dsp/`:
 
 ```bash
-sha256sum fm_98.1MHz_8Msps.iq      # must match sdr_dsp:sha256 in the sidecar
+uv run python tools/fetch_sample_data.py            # downloads + verifies both
+uv run python tools/fetch_sample_data.py --check    # just verify what is here
 uv run python examples/inspect_capture.py sample_data/hackrf_one/fm_98.1MHz_8Msps.iq
 ```
 
+The script downloads each payload next to its sidecar and verifies it against
+the `sdr_dsp:sha256` in the sidecar; a mismatch is refused and nothing is
+installed. The release tag it pulls from is `DEFAULT_RELEASE` at the top of
+the script (`--release TAG` or `--base-url URL/` override it).
+
 Nothing in the examples or the default test run needs them; only
 `fm_2Msps.iq` is required.
-
-Download: `<release asset URL to be added>`
 
 Captures are promoted into this directory only through
 `tools/promote_to_sample_data.py`, which re-runs `capture_health` after
