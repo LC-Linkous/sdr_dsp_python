@@ -1,19 +1,34 @@
 # docs/
 
-| File | What it is |
-|---|---|
-| `LOG.md` | Running development log, newest first. Start here when coming back to the project. |
-| `TODO.md` | Open work, in priority order. The LOG's deferrals live here, not in prose. |
-| `sdr_dsp_REFERENCE.md` | The deep technical reference for the library. |
-| `EXAMPLES.md` | Catalog of every example script. |
-| `MODULARITY.md` / `ADDING_AN_SDR.md` | The IQSource/TXSink seam and how to drive the library from another radio. |
-| `HARDWARE.md` | HackRF One characteristics that set expectations for the demods. |
-| `MODULATIONS.md` | The modulation families covered. |
-| `DC_SPIKE.md` | Where the DC spike comes from and the offset-tuning recipe. |
-| `PCAP_CONVERTER_NOTE.md` | Note on packet-capture conversion. |
-| `dev_handbook/` | Generated API handbook plus the scripts that produce it. |
+Start at the quickstart: [`../sdr_dsp/README.md`](../sdr_dsp/README.md)
+(install, extras, hear a station). Everything here is one layer deeper.
 
-The package README (`../sdr_dsp/README.md`) is the user-facing one.
+## For users
+
+| File | Who it is for |
+|---|---|
+| [`../sdr_dsp/README.md`](../sdr_dsp/README.md) | Anyone starting out: install and the FM quickstart. |
+| [`MODULATIONS.md`](MODULATIONS.md) | Deciding whether your signal is covered, and what "supported" means for it. |
+| [`EXAMPLES.md`](EXAMPLES.md) | Finding the example script that does what you want, and what it needs to run. |
+| [`HARDWARE.md`](HARDWARE.md) | HackRF One owners: what the board can and can't do, and why it shapes the demods. |
+| [`DC_SPIKE.md`](DC_SPIKE.md) | Anyone with a direct-conversion capture: where the DC spike comes from and the offset-tuning recipe. |
+| [`sdr_dsp_REFERENCE.md`](sdr_dsp_REFERENCE.md) | Users who want the whole picture: architecture, module map, usage, limitations. |
+
+## For contributors
+
+| File | Who it is for |
+|---|---|
+| [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | Anyone filing a bug, sharing a capture, or sending a small PR. |
+| [`ADDING_AN_SDR.md`](ADDING_AN_SDR.md) | Anyone pointing the library at a radio other than the HackRF: the `IQSource`/`TXSink` seam, the porting process and record. |
+| [`dev_handbook/`](dev_handbook/) | Generated API handbook plus the scripts that produce it (CI checks it is current). |
+
+## Maintainer notes
+
+| File | Who it is for |
+|---|---|
+| [`TODO.md`](TODO.md) | Open work in priority order, plus known limitations. The LOG's deferrals live here. |
+| [`LOG.md`](LOG.md) | The dated development log, newest first: what was tried, measured, and why. |
+| [`notes/`](notes/) | One-off investigation notes (currently the packet-capture converter note). |
 
 *Documentation is AI-assisted for spelling and structure; all mistakes are
 human and will take a revision or two to fix experimentally.*

@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Large raw IQ captures live in GitHub release assets, not in git (150 MB of
+# ci8 that no test or example reads). A local copy downloaded next to the
+# shipped sample must never be re-added by a careless `git add .`.
+sdr_dsp/sample_data/hackrf_one/

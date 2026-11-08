@@ -110,9 +110,21 @@ def test_hackrf_sink_guard_prevents_accidental_tx():
         sink.transmit(np.ones(10, dtype=np.complex64))   # refuses when unarmed
 
 
-# -- hardware test (auto-skips without a device) ---------------------------
+# -- the TX adapter's contract until the bench phase enables it --------------
 
-@pytest.mark.hardware
-def test_real_hackrf_transmit():
-    # only runs with a connected, armed HackRF on a legal/wired setup.
-    pytest.skip("requires connected HackRF + explicit arming; bench-only")
+def test_armed_hackrf_sink_refuses_to_pretend():
+    # HackRFSink.transmit() is a guarded STUB: unarmed it raises RuntimeError
+    # (above); armed, it must raise NotImplementedError rather than return as
+    # if something had gone out. The real device call is enabled on the bench,
+    # with an attenuated/wired setup, and this test is then replaced by a
+    # hardware-marked one that keys the radio. (An unconditional pytest.skip
+    # used to sit here, which tested nothing.)
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "examples"))
+    import hackrf_sink
+    sink = hackrf_sink.HackRFSink(433.92e6, FS, armed=True)
+    sink._dev = object()                       # do not touch a real device
+    sink._open = lambda: None
+    with pytest.raises(NotImplementedError, match="bench"):
+        sink.transmit(np.ones(10, dtype=np.complex64))

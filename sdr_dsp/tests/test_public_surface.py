@@ -169,3 +169,68 @@ def test_every_module_has_a_docstring():
         if not (mod.__doc__ or "").strip():
             missing.append(info.name)
     assert not missing, "modules without a docstring:\n  " + "\n  ".join(missing)
+
+
+# ---------------------------------------------------------------------------
+# dtype policy (see the core/__init__ docstring): IQ out is complex64, real
+# results are float64, for every public function and every input dtype
+# ---------------------------------------------------------------------------
+
+def _dtype_cases():
+    import numpy as np
+    from sdr_dsp.core import design_lowpass
+    taps = design_lowpass(50e3, 1e6, num_taps=31)
+    fs = 1e6
+    S = importlib.import_module("sdr_dsp")
+    iq_out = {   # name -> callable; result must be complex64 for complex input
+        "fir_apply": lambda x: S.fir_apply(x, taps),
+        "fir_apply_centered": lambda x: S.fir_apply_centered(x, taps),
+        "resample_poly": lambda x: S.resample_poly(x, 3, 2),
+        "decimate": lambda x: S.decimate(x, 4),
+        "interpolate": lambda x: S.interpolate(x, 2),
+        "frequency_shift": lambda x: S.frequency_shift(x, 1e3, fs),
+        "remove_dc": S.remove_dc,
+        "normalize": S.normalize,
+        "agc": lambda x: S.agc(x)[0],
+        "channelize": lambda x: S.channelize(x, fs, 100e3, 50e3)[0],
+        "add_noise": lambda x: S.add_noise(x, 20),
+        "apply_channel": lambda x: S.apply_channel(x, sample_rate=fs, snr_db=20),
+        "carrier_recovery": S.carrier_recovery,
+        "symbol_sync": lambda x: S.symbol_sync(x, 8),
+    }
+    real_out = {  # name -> callable; result must be float64 for any input
+        "fm_demod": S.fm_demod,
+        "am_demod": S.am_demod,
+        "deemphasis": lambda x: S.deemphasis(x, fs),
+        "agc gain trace": lambda x: S.agc(x)[1],
+        "matched_filter": lambda x: S.matched_filter(x, taps.astype(np.complex64)),
+        "fir_apply (real in)": lambda x: S.fir_apply(x.real, taps),
+        "resample_poly (real in)": lambda x: S.resample_poly(x.real, 3, 2),
+        "normalize (real in)": lambda x: S.normalize(x.real),
+    }
+    return iq_out, real_out
+
+
+def test_dtype_policy():
+    import numpy as np
+    rng = np.random.default_rng(0)
+    n = 4000
+    c = rng.standard_normal(n) + 1j * rng.standard_normal(n)
+    iq_out, real_out = _dtype_cases()
+    bad = []
+    for name, f in iq_out.items():
+        for dt in (np.complex64, np.complex128):
+            got = np.asarray(f(c.astype(dt))).dtype
+            if got != np.complex64:
+                bad.append(f"{name}({dt.__name__}) -> {got}, want complex64")
+    for name, f in real_out.items():
+        for dt in (np.complex64, np.complex128):
+            got = np.asarray(f(c.astype(dt))).dtype
+            if got != np.float64:
+                bad.append(f"{name}({dt.__name__}) -> {got}, want float64")
+    for name in ("fir_apply (real in)", "resample_poly (real in)", "normalize (real in)"):
+        for dt in (np.float32, np.float64):
+            got = np.asarray(real_out[name](c.real.astype(dt) + 0j)).dtype
+            if got != np.float64:
+                bad.append(f"{name}({dt.__name__}) -> {got}, want float64")
+    assert not bad, "dtype policy violations:\n  " + "\n  ".join(bad)

@@ -18,12 +18,10 @@ defaults:
     # root is one level up.
     working-directory: sdr_dsp
 
-# Pin the hash seed for the whole workflow. A real flake was traced to a
-# fixture seeded from the builtin hash(), which is per-process randomized:
-# some seeds pushed a marginal capture across the health threshold and
-# flipped its verdict ~1 run in 6. The fixture is fixed (it seeds from
-# hashlib now), and this makes any future hash-order dependence deterministic
-# in CI too.
+# Pin the hash seed for the whole workflow: a ~1-in-6 flake was traced to a
+# fixture seeded from the per-process-randomized builtin hash(). The fixture
+# now seeds from hashlib; this keeps any future hash-order dependence
+# deterministic in CI too. Post-mortem: docs/LOG.md 2026-09-23.
 env:
   PYTHONHASHSEED: "0"
 
@@ -142,9 +140,8 @@ jobs:
         run: uv sync
 
       - name: Ruff lint
-        # The two maintenance scripts in docs/dev_handbook/ live outside the
-        # package directory ruff is run from, so they are named explicitly;
-        # left to the default they were never checked and drifted.
+        # docs/dev_handbook/ is outside the package directory ruff runs from,
+        # so it is named explicitly or it is never checked.
         run: uv run ruff check . ../docs/dev_handbook
 
       - name: API handbook is regenerated

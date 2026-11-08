@@ -155,3 +155,75 @@ def test_bank_two_channels_simultaneously():
     top2 = sorted(np.argsort(power)[-2:])
     got = sorted(freqs[i] for i in top2)
     assert abs(got[0] - (-3e6)) < 1 and abs(got[1] - 2e6) < 1
+
+
+# ---------------------------------------------------------------------------
+# oversampled (decim = N//2) mode is a real polyphase bank, not interpolation
+# ---------------------------------------------------------------------------
+
+def _ctone(f_hz, fs, n):
+    return np.exp(2j * np.pi * f_hz * np.arange(n) / fs).astype(np.complex64)
+
+
+@pytest.mark.parametrize("k_ch", [2, 5])
+def test_oversampled_bank_equals_direct_mix_filter_decimate(k_ch):
+    # channel k of the oversampled bank must be exactly "mix down by the
+    # channel center, lowpass with the prototype, keep every (N/2)-th sample"
+    # -- the definition of a channelizer output -- up to a constant phase
+    from sdr_dsp.core import design_lowpass, fir_apply, frequency_shift
+    fs, N, L = 2e6, 8, 12
+    _, _, cf = channelize_bank(np.zeros(N * L * 4, dtype=np.complex64), fs, N)
+    x = _ctone(cf[k_ch] + 37e3, fs, 160_000)
+    chans, rate, _ = channelize_bank(x, fs, N, decim=N // 2, taps_per_channel=L)
+    assert rate == fs / (N // 2)
+    y = chans[k_ch]
+    proto = design_lowpass(fs / (2 * N), fs, num_taps=N * L)
+    ref = fir_apply(frequency_shift(x, -cf[k_ch], fs), proto)[N - 1::N // 2][:len(y)]
+    yy, rr = y[50:len(ref) - 50], ref[50:len(ref) - 50]
+    corr = abs(np.vdot(rr, yy)) / np.sqrt(np.vdot(rr, rr).real * np.vdot(yy, yy).real)
+    assert corr > 0.9999
+    assert np.mean(np.abs(yy)) == pytest.approx(np.mean(np.abs(rr)), rel=1e-3)
+
+
+def test_oversampled_bank_carries_the_transition_band_unaliased():
+    # A tone 1.3x beyond the critically-sampled channel Nyquist (in the
+    # prototype's transition band) FOLDS in the critically-sampled output and
+    # reads at its true offset in the oversampled one. Interpolating the
+    # critically-sampled output (what this mode used to do) cannot do this:
+    # the fold has already happened.
+    fs, N = 2e6, 8
+    _, _, cf = channelize_bank(np.zeros(2000, dtype=np.complex64), fs, N)
+    off = 1.3 * fs / (2 * N)                       # +162.5 kHz
+    x = _ctone(cf[3] + off, fs, 160_000)
+
+    def peak_hz(y, rate):
+        y = y[200:]
+        spec = np.abs(np.fft.fft(y * np.hanning(len(y))))
+        return np.fft.fftfreq(len(y), 1 / rate)[np.argmax(spec)]
+
+    crit, r_crit, _ = channelize_bank(x, fs, N, decim=N)
+    over, r_over, _ = channelize_bank(x, fs, N, decim=N // 2)
+    assert peak_hz(over[3], r_over) == pytest.approx(off, abs=r_over / 2000)
+    folded = peak_hz(crit[3], r_crit)
+    assert abs(folded - off) > fs / (2 * N)        # it is NOT at +162.5 kHz
+    assert folded == pytest.approx(off - r_crit, abs=r_crit / 2000)   # it is at the fold
+
+
+def test_oversampled_bank_isolates_neighbours():
+    fs, N = 2e6, 8
+    _, _, cf = channelize_bank(np.zeros(2000, dtype=np.complex64), fs, N)
+    chans, _, _ = channelize_bank(_ctone(cf[4] + 10e3, fs, 160_000), fs, N, decim=N // 2)
+    levels = 20 * np.log10(np.mean(np.abs(chans[:, 200:]), axis=1) + 1e-12)
+    assert np.argmax(levels) == 4
+    others = np.delete(levels, 4)
+    leak = np.round(others - levels[4], 1)
+    assert np.all(others < levels[4] - 80), f"neighbour leakage: {leak} dB"
+
+
+def test_critically_sampled_output_unchanged_by_the_general_path():
+    # the D = N path must be the bank it always was: same shape, same routing
+    fs, N = 1e6, 4
+    x = _ctone(130e3, fs, 40_000)
+    chans, rate, cf = channelize_bank(x, fs, N)
+    assert chans.shape == (N, len(x) // N) and rate == fs / N
+    assert np.argmax(np.mean(np.abs(chans), axis=1)) == int(np.argmin(np.abs(cf - 130e3)))

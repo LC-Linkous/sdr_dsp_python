@@ -722,6 +722,16 @@ loop_bw, damping: second-order loop filter parameters. Smaller loop_bw =
   slower but steadier lock. These are exposed on purpose.
 order: 2 (BPSK-like) or 4 (QPSK-like) phase symmetry.
 
+Measured behaviour at the defaults (loop_bw 0.01, damping 0.707), on clean
+unit-rate symbols -- these numbers are pinned by tests/test_sync.py:
+  pull-in range (CFO the loop acquires unaided): order 2 up to ~0.02
+    cycles/sample, order 4 up to ~0.01 cycles/sample. Beyond that, remove
+    the bulk of the offset first (estimate_cfo + frequency_shift) and let
+    the loop clean up the residual.
+  lock time for a 0.7 rad phase step: ~50 samples (order 2), ~200 (order 4).
+  amplitude: the Costas detectors are normalized by the input rms, so the
+    loop behaves identically at 0.01x and 100x full scale.
+
 
 **Parameters:**
 
@@ -774,14 +784,21 @@ pass. Returns (channels, new_sample_rate[, center_freqs]):
     center_freqs: (if return_freqs) the center frequency of each channel, in
                   Hz relative to the capture center, ordered low->high.
 
-decim sets the sampling scheme:
+decim sets the sampling scheme (D = decim, must divide N):
     decim = n_channels (default)  -> critically sampled: each channel output
-        at rate/N. Standard and most efficient; channels tile the band with
-        minimal overlap (slight edge aliasing at channel boundaries).
-    decim = n_channels // 2       -> oversampled by 2: cleaner separation
-        between channels at the cost of 2x the output samples.
-Any integer divisor of the prototype length works; the two above are the
-usual choices. Critically-sampled is the default.
+        at rate/N. Standard and most efficient. The channel's transition
+        band (where the prototype rolls off, just outside +/- rate/2N)
+        aliases back into the channel: a signal straddling a boundary is
+        folded, not just attenuated.
+    decim = n_channels // 2       -> oversampled by 2: output at rate/(N/2)
+        per channel, so the transition band is carried unaliased and a
+        channel can be filtered or re-centered downstream without the
+        fold. Costs 2x the output samples. This is a true polyphase
+        oversampled bank (the commutator advances D samples per frame and
+        channel k is rotated by exp(-j*2*pi*k*m*D/N) per frame), not an
+        interpolation of the critically-sampled output -- an earlier
+        version did the latter, which added no alias protection.
+Any divisor of N works; N and N//2 are the usual choices.
 
 The prototype is a lowpass with cutoff at the channel half-width; taps_per_channel
 sets its length (N * taps_per_channel taps total) -- more = sharper channel
@@ -993,9 +1010,13 @@ Lowpass then keep every ``factor``-th sample. OUR code (via resample).
 Single-pole de-emphasis filter for broadcast FM audio. OUR code.
 
 Broadcast FM pre-emphasizes high frequencies before transmission; the
-receiver must de-emphasize them back. A one-pole IIR does it:
-    y[n] = a*x[n] + (1-a)*y[n-1],   a = dt / (tau + dt)
+receiver must de-emphasize them back with a one-pole lowpass whose corner
+is 1/(2*pi*tau). See deemphasis_coefficients for the discretization.
 tau_us: time constant (75 us in the Americas/Korea, 50 us elsewhere).
+
+Returns float64 audio the same length as the input. Stateless (zero
+initial conditions); StreamingDeemphasis carries the filter state across
+blocks.
 
 
 **Parameters:**
@@ -2326,31 +2347,58 @@ Returns complex64 IQ -- the single-sideband analytic signal.
 
 
 
-### `symbol_sync(iq, samples_per_symbol, method='gardner', loop_bw=0.01, damping=0.707, diagnostics=False, csv_path=None, lock_threshold=0.05)`
+### `symbol_sync(iq, samples_per_symbol, method='gardner', loop_bw=0.01, damping=0.707, diagnostics=False, csv_path=None, lock_threshold=None)`
 
 Recover symbol timing: pick the best sampling instant per symbol. OUR code.
 
 Returns the symbol-spaced samples (one complex value per recovered symbol).
 With diagnostics=True, returns (symbols, LoopDiagnostics) where the error is
-the timing-error-detector output and the estimate is the fractional offset.
+the timing-error-detector output in samples and the estimate is the
+fractional sampling offset (tau modulo the nominal sps; it drifts when the
+loop is tracking a symbol-rate error, which is the loop doing its job).
+`lock` / `locked` mean the loop has SETTLED: the rms timing correction it
+applies per symbol, over a 20-symbol window, is below lock_threshold
+samples (default sps/16 -- 0.5 sample at 8 sps, which the loop meets at
+5 dB SNR while still decoding BPSK without error). Lock does not mean a
+signal is present: a narrow loop on pure noise settles too. Establish
+presence separately (capture_health, power detection).
 
 method:
   "gardner"        : Gardner TED -- carrier-independent, needs ~2 sps.
   "early_late"     : early-late gate -- simple, intuitive.
   "mueller_muller" : Mueller & Muller -- 1 sps, decision-aided.
 samples_per_symbol: nominal sps (from estimate_symbol_rate or known rate).
-loop_bw: proportional gain of the timing loop, in samples of correction per
-  unit (power-normalized) TED output. damping: damping ratio of the
-  second-order loop; the integral gain follows from it as (loop_bw/2*zeta)^2,
-  so the loop can track a steady symbol-rate offset without a standing
-  error. Smaller loop_bw = slower but steadier lock.
+loop_bw, damping: normalized loop bandwidth (fraction of the symbol rate)
+  and damping ratio of the second-order loop filter -- the same
+  parametrization as carrier_recovery, so 0.01 means the same thing in
+  both. The loop filter has a proportional path (phase) and an integral
+  path (symbol-rate error), so a steady sps mismatch is tracked out, not
+  carried as a standing error.
 
-The TED output is normalized by the signal's mean power before it drives
-the loop, so the loop behaves the same whether the input is at 0.01 or
-100x full scale; every TED here scales with |x|^2 and an unnormalized loop
-would overshoot and skip symbols on a strong signal. Each correction is
-also clamped to +/- sps/4: a single TED sample can never move the sampling
-instant by more than a quarter symbol.
+How the TED output is conditioned before it drives the loop:
+  * normalized by the signal's mean power -- every TED here scales with
+    |x|^2, so without this a strong input would overshoot and skip symbols;
+  * scaled by the TED's nominal S-curve slope (TED_GAIN below, measured on
+    RRC beta=0.35 pulses after a matched filter), so the error is in units
+    of SAMPLES of timing offset and loop_bw is comparable across methods;
+  * each correction clamped to +/- sps/4.
+
+Measured pull-in -- the symbol-rate error acquired within a 400-symbol
+burst in 10 of 10 random bit patterns (clean RRC BPSK, matched-filtered),
+pinned by tests/test_sync.py:
+                    loop_bw 0.01   0.02    0.05
+    gardner           +/-0.5%    1.0%    2.0%
+    mueller_muller    +/-0.5%    1.5%    3.0%
+    early_late        +/-0.25%   0.5%    unstable -- keep it <= 0.02
+Larger errors are acquired on SOME patterns (Gardner takes 1% at 0.01
+about one burst in five); for a dependable lock either widen the loop or
+hand it a better sps from estimate_symbol_rate. In 5 dB noise all three
+lock on most bursts and cycle-slip on roughly one in ten.
+early_late is the classic early-late gate; on random data its +/-T/4 taps
+see uncancelled ISI from neighbouring symbols (high "self-noise"), so it
+tracks the least and should be read as the teaching baseline. Gardner is
+carrier-phase-independent (use it before carrier recovery); Mueller &
+Muller is decision-directed (use it after, or on a clean constellation).
 
 
 **Parameters:**
@@ -2364,7 +2412,7 @@ instant by more than a quarter symbol.
 | `damping` |  | `0.707` |
 | `diagnostics` |  | `False` |
 | `csv_path` |  | `None` |
-| `lock_threshold` |  | `0.05` |
+| `lock_threshold` |  | `None` |
 
 
 
@@ -3273,6 +3321,16 @@ loop_bw, damping: second-order loop filter parameters. Smaller loop_bw =
   slower but steadier lock. These are exposed on purpose.
 order: 2 (BPSK-like) or 4 (QPSK-like) phase symmetry.
 
+Measured behaviour at the defaults (loop_bw 0.01, damping 0.707), on clean
+unit-rate symbols -- these numbers are pinned by tests/test_sync.py:
+  pull-in range (CFO the loop acquires unaided): order 2 up to ~0.02
+    cycles/sample, order 4 up to ~0.01 cycles/sample. Beyond that, remove
+    the bulk of the offset first (estimate_cfo + frequency_shift) and let
+    the loop clean up the residual.
+  lock time for a 0.7 rad phase step: ~50 samples (order 2), ~200 (order 4).
+  amplitude: the Costas detectors are normalized by the input rms, so the
+    loop behaves identically at 0.01x and 100x full scale.
+
 
 **Parameters:**
 
@@ -3325,14 +3383,21 @@ pass. Returns (channels, new_sample_rate[, center_freqs]):
     center_freqs: (if return_freqs) the center frequency of each channel, in
                   Hz relative to the capture center, ordered low->high.
 
-decim sets the sampling scheme:
+decim sets the sampling scheme (D = decim, must divide N):
     decim = n_channels (default)  -> critically sampled: each channel output
-        at rate/N. Standard and most efficient; channels tile the band with
-        minimal overlap (slight edge aliasing at channel boundaries).
-    decim = n_channels // 2       -> oversampled by 2: cleaner separation
-        between channels at the cost of 2x the output samples.
-Any integer divisor of the prototype length works; the two above are the
-usual choices. Critically-sampled is the default.
+        at rate/N. Standard and most efficient. The channel's transition
+        band (where the prototype rolls off, just outside +/- rate/2N)
+        aliases back into the channel: a signal straddling a boundary is
+        folded, not just attenuated.
+    decim = n_channels // 2       -> oversampled by 2: output at rate/(N/2)
+        per channel, so the transition band is carried unaliased and a
+        channel can be filtered or re-centered downstream without the
+        fold. Costs 2x the output samples. This is a true polyphase
+        oversampled bank (the commutator advances D samples per frame and
+        channel k is rotated by exp(-j*2*pi*k*m*D/N) per frame), not an
+        interpolation of the critically-sampled output -- an earlier
+        version did the latter, which added no alias protection.
+Any divisor of N works; N and N//2 are the usual choices.
 
 The prototype is a lowpass with cutoff at the channel half-width; taps_per_channel
 sets its length (N * taps_per_channel taps total) -- more = sharper channel
@@ -3578,9 +3643,13 @@ Lowpass then keep every ``factor``-th sample. OUR code (via resample).
 Single-pole de-emphasis filter for broadcast FM audio. OUR code.
 
 Broadcast FM pre-emphasizes high frequencies before transmission; the
-receiver must de-emphasize them back. A one-pole IIR does it:
-    y[n] = a*x[n] + (1-a)*y[n-1],   a = dt / (tau + dt)
+receiver must de-emphasize them back with a one-pole lowpass whose corner
+is 1/(2*pi*tau). See deemphasis_coefficients for the discretization.
 tau_us: time constant (75 us in the Americas/Korea, 50 us elsewhere).
+
+Returns float64 audio the same length as the input. Stateless (zero
+initial conditions); StreamingDeemphasis carries the filter state across
+blocks.
 
 
 **Parameters:**
@@ -5467,31 +5536,58 @@ Returns complex64 IQ -- the single-sideband analytic signal.
 
 
 
-### `symbol_sync(iq, samples_per_symbol, method='gardner', loop_bw=0.01, damping=0.707, diagnostics=False, csv_path=None, lock_threshold=0.05)`
+### `symbol_sync(iq, samples_per_symbol, method='gardner', loop_bw=0.01, damping=0.707, diagnostics=False, csv_path=None, lock_threshold=None)`
 
 Recover symbol timing: pick the best sampling instant per symbol. OUR code.
 
 Returns the symbol-spaced samples (one complex value per recovered symbol).
 With diagnostics=True, returns (symbols, LoopDiagnostics) where the error is
-the timing-error-detector output and the estimate is the fractional offset.
+the timing-error-detector output in samples and the estimate is the
+fractional sampling offset (tau modulo the nominal sps; it drifts when the
+loop is tracking a symbol-rate error, which is the loop doing its job).
+`lock` / `locked` mean the loop has SETTLED: the rms timing correction it
+applies per symbol, over a 20-symbol window, is below lock_threshold
+samples (default sps/16 -- 0.5 sample at 8 sps, which the loop meets at
+5 dB SNR while still decoding BPSK without error). Lock does not mean a
+signal is present: a narrow loop on pure noise settles too. Establish
+presence separately (capture_health, power detection).
 
 method:
   "gardner"        : Gardner TED -- carrier-independent, needs ~2 sps.
   "early_late"     : early-late gate -- simple, intuitive.
   "mueller_muller" : Mueller & Muller -- 1 sps, decision-aided.
 samples_per_symbol: nominal sps (from estimate_symbol_rate or known rate).
-loop_bw: proportional gain of the timing loop, in samples of correction per
-  unit (power-normalized) TED output. damping: damping ratio of the
-  second-order loop; the integral gain follows from it as (loop_bw/2*zeta)^2,
-  so the loop can track a steady symbol-rate offset without a standing
-  error. Smaller loop_bw = slower but steadier lock.
+loop_bw, damping: normalized loop bandwidth (fraction of the symbol rate)
+  and damping ratio of the second-order loop filter -- the same
+  parametrization as carrier_recovery, so 0.01 means the same thing in
+  both. The loop filter has a proportional path (phase) and an integral
+  path (symbol-rate error), so a steady sps mismatch is tracked out, not
+  carried as a standing error.
 
-The TED output is normalized by the signal's mean power before it drives
-the loop, so the loop behaves the same whether the input is at 0.01 or
-100x full scale; every TED here scales with |x|^2 and an unnormalized loop
-would overshoot and skip symbols on a strong signal. Each correction is
-also clamped to +/- sps/4: a single TED sample can never move the sampling
-instant by more than a quarter symbol.
+How the TED output is conditioned before it drives the loop:
+  * normalized by the signal's mean power -- every TED here scales with
+    |x|^2, so without this a strong input would overshoot and skip symbols;
+  * scaled by the TED's nominal S-curve slope (TED_GAIN below, measured on
+    RRC beta=0.35 pulses after a matched filter), so the error is in units
+    of SAMPLES of timing offset and loop_bw is comparable across methods;
+  * each correction clamped to +/- sps/4.
+
+Measured pull-in -- the symbol-rate error acquired within a 400-symbol
+burst in 10 of 10 random bit patterns (clean RRC BPSK, matched-filtered),
+pinned by tests/test_sync.py:
+                    loop_bw 0.01   0.02    0.05
+    gardner           +/-0.5%    1.0%    2.0%
+    mueller_muller    +/-0.5%    1.5%    3.0%
+    early_late        +/-0.25%   0.5%    unstable -- keep it <= 0.02
+Larger errors are acquired on SOME patterns (Gardner takes 1% at 0.01
+about one burst in five); for a dependable lock either widen the loop or
+hand it a better sps from estimate_symbol_rate. In 5 dB noise all three
+lock on most bursts and cycle-slip on roughly one in ten.
+early_late is the classic early-late gate; on random data its +/-T/4 taps
+see uncancelled ISI from neighbouring symbols (high "self-noise"), so it
+tracks the least and should be read as the teaching baseline. Gardner is
+carrier-phase-independent (use it before carrier recovery); Mueller &
+Muller is decision-directed (use it after, or on a clean constellation).
 
 
 **Parameters:**
@@ -5505,7 +5601,7 @@ instant by more than a quarter symbol.
 | `damping` |  | `0.707` |
 | `diagnostics` |  | `False` |
 | `csv_path` |  | `None` |
-| `lock_threshold` |  | `0.05` |
+| `lock_threshold` |  | `None` |
 
 
 
@@ -5666,9 +5762,13 @@ differential product (sign gives the bit, magnitude gives confidence).
 Single-pole de-emphasis filter for broadcast FM audio. OUR code.
 
 Broadcast FM pre-emphasizes high frequencies before transmission; the
-receiver must de-emphasize them back. A one-pole IIR does it:
-    y[n] = a*x[n] + (1-a)*y[n-1],   a = dt / (tau + dt)
+receiver must de-emphasize them back with a one-pole lowpass whose corner
+is 1/(2*pi*tau). See deemphasis_coefficients for the discretization.
 tau_us: time constant (75 us in the Americas/Korea, 50 us elsewhere).
+
+Returns float64 audio the same length as the input. Stateless (zero
+initial conditions); StreamingDeemphasis carries the filter state across
+blocks.
 
 
 **Parameters:**
@@ -7643,12 +7743,10 @@ Forget all carried history, e.g. after a retune or a stream restart.
 
 ``deemphasis`` carried across blocks, exactly.
 
-The de-emphasis filter is one pole: y[n] = a*x[n] + r*y[n-1], r = 1 - a.
-It is linear, so its output on a block equals the zero-state response
-(what ``deemphasis`` computes) plus the decaying trace of the state it
-was left in: y_prev * r**(k+1) for k = 0, 1, ... That trace is added here,
-which makes the streamed output identical to the whole-record one rather
-than close to it, with no warm-up region to discard.
+The de-emphasis filter is a first-order IIR (see deemphasis_coefficients);
+its state is carried with scipy's ``lfilter`` ``zi``/``zf`` mechanism, so
+the streamed output is identical to the whole-record one rather than
+close to it, with no warm-up region to discard.
 
 
 **Constructor:** `StreamingDeemphasis(self, sample_rate, tau_us=75.0)`

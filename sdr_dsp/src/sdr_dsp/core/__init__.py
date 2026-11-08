@@ -12,6 +12,24 @@ Two export tiers, on purpose:
   ``fm_pilot_excess_db``), the gain-search engine and models
   (``GainModel``, ``search_gain_model``, ...), and ``get_window``.
 
+Dtype policy (pinned by tests/test_public_surface.py::test_dtype_policy):
+
+* IQ in, IQ out -> ``complex64``. Every function that returns baseband
+  (filters, resamplers, mixers, channelizers, AGC, channel models, recovery
+  loops) returns complex64 whatever complex dtype came in; a complex128 input
+  is processed as complex64. That is the dtype every source produces (8- and
+  16-bit ADCs land in complex64 with headroom to spare) and the one the
+  streaming stages are bit-exact in; keeping one IQ dtype is what lets a
+  streamed run equal a whole-record run sample for sample.
+* Real-valued results -> ``float64``: demodulated audio, envelopes,
+  correlation magnitudes, gain traces, measurements, and any filter or
+  resampler applied to a REAL signal. These are smaller arrays, downstream of
+  the throughput-critical path, and float64 keeps the arithmetic (de-emphasis
+  IIR state, cumulative phase) honest.
+* There is deliberately no "preserve the input dtype" mode: the two rules
+  above are the contract, and a function that needs something else says so
+  in its docstring.
+
 Everything in the second tier is reachable as ``sdr_dsp.core.X``; it is not
 flattened to ``sdr_dsp.X`` because it is about radios and captures rather than
 about signals, and the top-level namespace is kept to what every user of a DSP

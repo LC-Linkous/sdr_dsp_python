@@ -9,6 +9,50 @@ that have hooks, but have not been implemented yet.
 
 
 
+## 2026-11-07 — Sept–Oct 2026 sessions, condensed from the retired root TODO.md
+
+The root `TODO.md` was a session journal from the September 2026 review/repair
+sessions; it has been retired and `docs/TODO.md` is the only TODO. Its open
+items moved there; its completed items are condensed here so the record is not
+lost. Patch numbers refer to the local patch series.
+
+- **Hardware session (2026-09-20).** Preflight PASS at 106.5 MHz (pilot
+  +27.7 dB) after the `capture_array` pipe-corruption fix (0008). Calibrate +
+  full corpus: 17 captures, 15 clean; reference lna=40 vga=2 amp=on, pilot
+  +23 to +30 dB. Gain-ladder "weak" tolerance at single-digit counts fixed in
+  `collect_dev_data.judge_capture` (`max(2.5*target, target+3 counts)`), with
+  synthetic no-hardware tests. Preflight hunts for a quiet frequency below
+  87.5 MHz and blocks a below-band carrier as a quiet pick.
+- **DSP features.** `fm_receiver.py` decimates to 250 kHz before demod (0011);
+  `fsk_demod_nlevel(smooth_samples=)` and the 4-FSK example rewired to the
+  library (0011); stereo decoder (0013); FM CFO estimate/correct, validated on
+  the real 103.7 MHz capture (0017); `transmit_examples.py` + offline
+  round-trip tests through the TXSink seam (0018). Phases A–C of the build
+  plan done; what remains needs hardware.
+- **Code quality.** Unused imports resolved per file (0010); the
+  order-dependent global-RNG flake cured by an autouse seeding fixture (0012)
+  and the real root cause (hash()-seeded fixtures) fixed (0014); legacy
+  global-`np.random` tests migrated to `default_rng` (0014); mypy
+  default-checks green and gated (0014); line endings normalized to LF
+  (`.gitattributes` at the git root, `git add --renormalize .`); lint gate
+  re-greened (0015).
+- **Docs & infra.** Sub-8 Msps warning deduped at the logging layer (0016);
+  CI workflow with the OS x Python matrix, ruff + mypy, hardware tests
+  deselected, `PYTHONHASHSEED` pinned (0014); MODULARITY.md written (since
+  merged into ADDING_AN_SDR.md); `[project.urls]` added. The once-untracked
+  test files, `.github/`, and the TODO itself were confirmed tracked on main.
+
+## 2026-10-24 — Oldest-deps CI leg: every dev dependency needs a lower bound
+
+While preparing 0.2.0 the CI gained an `oldest-deps` leg that syncs with
+`--resolution lowest-direct` to test the oldest numpy/scipy the project
+claims to support. On its first run it also resolved every *unbounded* entry
+in the dev group to the oldest release on PyPI -- it tried matplotlib 0.86.
+Rule since then: every `[dependency-groups]` entry carries a lower bound
+(the comment in `pyproject.toml` points here). Related earlier incident: a
+plain `uv sync` removes extras that were not asked for, which is why the dev
+group carries matplotlib/sounddevice/hackrfpy itself (2026-09-20 entry).
+
 ## 2026-09-25 — Gain search made device-agnostic: GainModel (patch 0022)
 
 Lifted the HackRF-specific gain logic into a `GainModel` abstraction so auto-gain
@@ -62,7 +106,8 @@ result rather than a claim. Suite: 785 → 797 passed.
   porting-record table (HackRF + template filled, RTL-SDR stubbed to copy).
 - **`docs/MODULARITY.md`** (written just before the kit) -- the HAL layer model
   (core / `IQSource`+`TXSink` Protocols / device adapter / hardware) with a
-  diagram and the sample-format normalization table.
+  diagram and the sample-format normalization table. (Merged into
+  `ADDING_AN_SDR.md` 2026-11-07; the file no longer exists.)
 
 ## 2026-09-24 (later) — Typing gate tightened; py.typed made honest (patches 0019–0020)
 

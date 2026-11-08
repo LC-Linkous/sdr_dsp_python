@@ -35,13 +35,12 @@ Issues = "https://github.com/LC-Linkous/sdr_dsp_python/issues"
 
 [project.optional-dependencies]
 # These extras are for DOWNSTREAM INSTALLS of the library (pip install
-# sdr_dsp[plotting]); they are not how the dev environment gets its
-# packages -- see [dependency-groups] below for why that distinction bit us.
+# sdr_dsp[plotting]); the dev environment gets its packages from
+# [dependency-groups] below.
 #
-# Plotting for the analyzer/spectrogram/teaching examples (matplotlib ONLY --
-# it uses a native GUI backend, TkAgg on Windows, which ships with Python.
-# No PyQt5: its wheels don't resolve cleanly on Windows via uv and it isn't
-# required).
+# Plotting for the analyzer/spectrogram/teaching examples. matplotlib only
+# (TkAgg backend ships with Python); no PyQt5, whose wheels don't resolve
+# cleanly on Windows via uv.
 plotting = ["matplotlib>=3.8"]
 # Live audio playback (live_fm_listen.py); other audio examples write a WAV.
 audio = ["sounddevice>=0.4.6"]
@@ -56,15 +55,10 @@ requires = ["uv_build>=0.8.11,<0.9.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
-# Every entry carries a lower bound: the CI oldest-deps leg resolves with
-# --resolution lowest-direct, and an unbounded dependency there means "the
-# oldest release on PyPI" (it tried matplotlib 0.86).
-# THE RULE THAT KEEPS THE DEV ENVIRONMENT STABLE: everything the checked-in
-# examples, tools, and tests can import belongs in this group, not only in an
-# extra. `uv sync` installs dependency-groups but REMOVES extras that weren't
-# asked for -- which is exactly how a plain `uv sync` once uninstalled
-# matplotlib and sounddevice out from under a working checkout. Extras remain
-# for downstream installers; this group is the one the repo itself relies on.
+# Everything the checked-in examples, tools, and tests can import belongs in
+# this group (a plain `uv sync` removes extras that weren't asked for), and
+# every entry carries a lower bound (the oldest-deps CI leg resolves
+# lowest-direct). History: docs/LOG.md 2026-09-20 and 2026-10-24.
 #
 # Non-obvious members:
 #   hackrfpy  the capture-collection scripts import it at module scope, so
@@ -100,14 +94,10 @@ markers = [
 [tool.mypy]
 python_version = "3.11"
 files = ["src/sdr_dsp"]
-# sdr_dsp ships a py.typed marker (src/sdr_dsp/py.typed), so downstream
-# type-checkers use our inline types. The annotation campaign is incremental:
-# check_untyped_defs is ON (function BODIES are type-checked even where the
-# signature isn't annotated yet -- it catches real bugs and needs no
-# annotations), and the strict disallow-untyped flags come on per-module as
-# each module is fully annotated. Enabling the strict flags globally today
-# would report ~350 errors (the whole signature-annotation backlog); doing it
-# module-by-module keeps the gate green while the coverage grows.
+# py.typed is shipped, so downstream type-checkers use our inline types.
+# check_untyped_defs type-checks function BODIES even where the signature is
+# unannotated; the strict disallow-untyped flags come on per module as each
+# is annotated. The annotation backlog is tracked in docs/TODO.md.
 check_untyped_defs = true
 
 [[tool.mypy.overrides]]

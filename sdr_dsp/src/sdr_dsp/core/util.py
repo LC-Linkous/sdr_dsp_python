@@ -52,6 +52,10 @@ def normalize(iq, mode="peak", target=1.0):
     returned unchanged (nothing sensible to scale to).
     """
     iq = np.asarray(iq)
+    if np.iscomplexobj(iq):
+        iq = iq.astype(np.complex64, copy=False)      # library IQ dtype
+    else:
+        iq = iq.astype(np.float64, copy=False)        # library real dtype
     if len(iq) == 0 or mode == "none":
         return iq
     mag = np.abs(iq)
@@ -63,5 +67,4 @@ def normalize(iq, mode="peak", target=1.0):
         raise ValueError(f"unknown normalize mode: {mode!r}")
     if ref == 0.0:
         return iq
-    return (iq * (target / ref)).astype(iq.dtype if np.iscomplexobj(iq)
-                                        else np.float64)
+    return (iq * (target / ref)).astype(iq.dtype)

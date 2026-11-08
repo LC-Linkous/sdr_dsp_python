@@ -15,7 +15,7 @@ import pytest
 from sdr_dsp.core.filters import (design_lowpass, design_bandpass,
                                   design_highpass, fir_apply_centered)
 from sdr_dsp.core.channel import add_noise, add_cfo
-from sdr_dsp.core.channelize import channelize_bank, _oversample_time
+from sdr_dsp.core.channelize import channelize_bank
 from sdr_dsp.core.calibrate import Calibration
 from sdr_dsp.core.demod.analog import (ssb_demod, dsb_sc_demod, cw_decode,
                                        _analytic_phase)
@@ -95,11 +95,13 @@ def test_channelize_bank_without_freqs_returns_pair():
     assert channels.shape[0] == 4 and new_rate == pytest.approx(FS / 4)
 
 
-def test_oversample_time_identity_cases():
-    ch = np.ones((2, 8), dtype=np.complex64)
-    assert _oversample_time(ch, 1) is ch                     # factor 1: no-op
-    short = np.ones((2, 1), dtype=np.complex64)
-    assert _oversample_time(short, 2) is short               # nothing to interpolate
+def test_channelize_bank_oversampled_short_input_and_shape():
+    # fewer than N samples: no frame at all, at the oversampled rate
+    chans, rate, cf = channelize_bank(np.ones(3, dtype=np.complex64), FS, 4, decim=2)
+    assert chans.shape == (4, 0) and rate == pytest.approx(FS / 2) and len(cf) == 4
+    # exactly N samples: one frame; N + decim: two
+    assert channelize_bank(np.ones(4, dtype=np.complex64), FS, 4, decim=2)[0].shape == (4, 1)
+    assert channelize_bank(np.ones(6, dtype=np.complex64), FS, 4, decim=2)[0].shape == (4, 2)
 
 
 # -- calibrate ---------------------------------------------------------------
@@ -468,3 +470,26 @@ def test_fm_pilot_excess_db_none_when_pilot_above_channelized_nyquist():
     # asked for at 400 kHz has no bin to be measured in.
     iq = _tone(1e3, n=1 << 17)
     assert fm_pilot_excess_db(iq, FS, pilot_hz=400e3) is None
+
+
+# -- validation added in patch 4 ---------------------------------------------
+
+def test_rrc_taps_rejects_misordered_or_bad_arguments():
+    from sdr_dsp.core import rrc_taps
+    with pytest.raises(ValueError, match="sps must be a positive integer"):
+        rrc_taps(0.35, 8, 8)          # beta in the sps slot -> used to give NaN taps
+    with pytest.raises(ValueError, match="beta"):
+        rrc_taps(8, 8, 1.5)
+    with pytest.raises(ValueError, match="span_symbols"):
+        rrc_taps(8, 0, 0.35)
+    assert np.isfinite(rrc_taps(8, 8, 0.35)).all()
+
+
+def test_deemphasis_coefficients_validate():
+    from sdr_dsp.core.demod.analog import deemphasis_coefficients
+    with pytest.raises(ValueError, match="> 0"):
+        deemphasis_coefficients(48_000, tau_us=0)
+    with pytest.raises(ValueError, match="Nyquist"):
+        deemphasis_coefficients(2_000, tau_us=75.0)      # corner 2122 Hz > 1 kHz
+    b, a = deemphasis_coefficients(48_000, 75.0)
+    assert len(b) == 2 and len(a) == 2 and a[0] == 1.0

@@ -12,7 +12,7 @@ Two complementary checks:
    would: normalize a foreign sample format to complex64, hand it to the core,
    get a real measurement back -- with nothing device-specific in between.
 
-See docs/ADDING_AN_SDR.md and docs/MODULARITY.md.
+See docs/ADDING_AN_SDR.md.
 """
 
 import ast

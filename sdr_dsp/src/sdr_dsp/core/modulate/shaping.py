@@ -24,6 +24,15 @@ def rrc_taps(sps, span_symbols=8, beta=0.35):
     matched-filter with the same taps on receive (root * root = raised cosine,
     the zero-ISI pulse).
     """
+    if sps != int(sps) or int(sps) < 1:
+        # rrc_taps(0.35, 8, 8) -- beta in the sps slot -- used to become
+        # sps=0 and return an all-NaN filter without a word
+        raise ValueError(f"sps must be a positive integer, got {sps!r} "
+                         "(signature is rrc_taps(sps, span_symbols, beta))")
+    if not 0.0 <= beta <= 1.0:
+        raise ValueError(f"beta must be in [0, 1], got {beta!r}")
+    if int(span_symbols) < 1:
+        raise ValueError(f"span_symbols must be >= 1, got {span_symbols!r}")
     sps = int(sps)
     N = span_symbols * sps
     t = (np.arange(N + 1) - N / 2) / sps   # in symbol periods

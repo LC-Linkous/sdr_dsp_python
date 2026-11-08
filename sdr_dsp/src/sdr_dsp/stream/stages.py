@@ -37,7 +37,6 @@ import numpy as np
 
 from ..core.filters import fir_apply
 from ..core.demod.phase import instantaneous_frequency
-from ..core.demod.analog import deemphasis
 from ..core.resample import resample_poly, _antialias_taps
 
 __all__ = [
@@ -306,32 +305,27 @@ class StreamingResampler:
 class StreamingDeemphasis:
     """``deemphasis`` carried across blocks, exactly.
 
-    The de-emphasis filter is one pole: y[n] = a*x[n] + r*y[n-1], r = 1 - a.
-    It is linear, so its output on a block equals the zero-state response
-    (what ``deemphasis`` computes) plus the decaying trace of the state it
-    was left in: y_prev * r**(k+1) for k = 0, 1, ... That trace is added here,
-    which makes the streamed output identical to the whole-record one rather
-    than close to it, with no warm-up region to discard.
+    The de-emphasis filter is a first-order IIR (see deemphasis_coefficients);
+    its state is carried with scipy's ``lfilter`` ``zi``/``zf`` mechanism, so
+    the streamed output is identical to the whole-record one rather than
+    close to it, with no warm-up region to discard.
     """
 
     def __init__(self, sample_rate, tau_us=75.0):
+        from sdr_dsp.core.demod.analog import deemphasis_coefficients
         self.sample_rate = float(sample_rate)
         self.tau_us = float(tau_us)
-        dt = 1.0 / self.sample_rate
-        self._r = 1.0 - dt / (self.tau_us * 1e-6 + dt)     # same a as deemphasis
-        self._y_prev = 0.0
+        self._b, self._a = deemphasis_coefficients(self.sample_rate, self.tau_us)
+        self._zi = np.zeros(max(len(self._a), len(self._b)) - 1)
 
     def reset(self) -> None:
         """Forget all carried history, e.g. after a retune or a stream restart."""
-        self._y_prev = 0.0
+        self._zi = np.zeros_like(self._zi)
 
     def __call__(self, block):
+        from scipy.signal import lfilter
         block = np.asarray(block, dtype=np.float64)
-        n = block.size
-        if n == 0:
+        if block.size == 0:
             return block
-        out = deemphasis(block, self.sample_rate, tau_us=self.tau_us)
-        if self._y_prev:
-            out = out + self._y_prev * self._r ** np.arange(1, n + 1)
-        self._y_prev = float(out[-1])
+        out, self._zi = lfilter(self._b, self._a, block, zi=self._zi)
         return out

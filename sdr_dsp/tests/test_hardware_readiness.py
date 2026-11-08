@@ -57,13 +57,20 @@ def test_fsk_frame_survives_any_sample_delay(delay):
     assert _recovered(_rx(iq)), f"lost frame at delay={delay}"
 
 
-def test_unpadded_frame_documents_the_edge_hazard():
-    """Without padding, at least one delay phase still recovers (delay 0,
-    the loopback case) -- this pins the reason pad_symbols exists without
-    asserting the failure mode's exact shape."""
-    iq = apply_channel(_tx(pad=0), sample_rate=FS, delay_samples=0,
-                       snr_db=30, seed=2)
-    assert _recovered(_rx(iq))
+def test_unpadded_frame_has_the_edge_hazard_padding_removes():
+    """pad_symbols exists because an UNPADDED frame is lost at some delay
+    phases: the demod's smoothing and the burst gate eat the first/last
+    symbols. Pin the hazard itself -- the same 20-delay sweep that passes
+    with padding must FAIL for at least one delay without it -- not merely
+    that delay 0 (the loopback case, which never failed) still works. If this
+    ever passes for every delay, padding has become unnecessary and the
+    default should be revisited."""
+    lost = [d for d in range(SPS)
+            if not _recovered(_rx(apply_channel(_tx(pad=0), sample_rate=FS,
+                                                delay_samples=d, snr_db=30,
+                                                seed=2)))]
+    assert lost, "unpadded frames now survive every delay: pad_symbols may be redundant"
+    assert 0 not in lost, "the loopback case (delay 0) must still recover unpadded"
 
 
 # -- carrier frequency offset (two radios never share a crystal) -------------
@@ -185,6 +192,10 @@ def _livelink(carry):
 
 
 def test_livelink_frame_split_across_blocks_lost_without_carry():
+    """carry_samples=0 is a legitimate configuration (a link that never sees
+    a frame straddle a block boundary needs no overlap); this shows what it
+    costs when a frame DOES straddle one, so the default's reason is pinned.
+    It is the counterpart of the next test, not a pinned bug."""
     engine, link = _livelink(carry=0)
     iq = _tx()
     mid = len(iq) // 2

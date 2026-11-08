@@ -59,14 +59,21 @@ def channelize_bank(iq, sample_rate, n_channels, decim=None, taps_per_channel=12
         center_freqs: (if return_freqs) the center frequency of each channel, in
                       Hz relative to the capture center, ordered low->high.
 
-    decim sets the sampling scheme:
+    decim sets the sampling scheme (D = decim, must divide N):
         decim = n_channels (default)  -> critically sampled: each channel output
-            at rate/N. Standard and most efficient; channels tile the band with
-            minimal overlap (slight edge aliasing at channel boundaries).
-        decim = n_channels // 2       -> oversampled by 2: cleaner separation
-            between channels at the cost of 2x the output samples.
-    Any integer divisor of the prototype length works; the two above are the
-    usual choices. Critically-sampled is the default.
+            at rate/N. Standard and most efficient. The channel's transition
+            band (where the prototype rolls off, just outside +/- rate/2N)
+            aliases back into the channel: a signal straddling a boundary is
+            folded, not just attenuated.
+        decim = n_channels // 2       -> oversampled by 2: output at rate/(N/2)
+            per channel, so the transition band is carried unaliased and a
+            channel can be filtered or re-centered downstream without the
+            fold. Costs 2x the output samples. This is a true polyphase
+            oversampled bank (the commutator advances D samples per frame and
+            channel k is rotated by exp(-j*2*pi*k*m*D/N) per frame), not an
+            interpolation of the critically-sampled output -- an earlier
+            version did the latter, which added no alias protection.
+    Any divisor of N works; N and N//2 are the usual choices.
 
     The prototype is a lowpass with cutoff at the channel half-width; taps_per_channel
     sets its length (N * taps_per_channel taps total) -- more = sharper channel
@@ -90,57 +97,43 @@ def channelize_bank(iq, sample_rate, n_channels, decim=None, taps_per_channel=12
     proto = design_lowpass(sample_rate / (2 * N), sample_rate, num_taps=ntaps)
     proto = np.asarray(proto, dtype=np.float64)
 
-    # pad input so it splits evenly into length-N input strides
-    n_blocks = len(iq) // N
-    if n_blocks == 0:
+    L = int(taps_per_channel)
+    D = decim
+    # Frame m is referenced to input sample T_m = m*D + N - 1 (for D = N that
+    # is the last sample of input block m, the convention the critically
+    # sampled bank has always used). Frames run while T_m is a real sample.
+    n_frames = (len(iq) - N) // D + 1 if len(iq) >= N else 0
+    if n_frames <= 0:
         empty = np.zeros((N, 0), dtype=np.complex64)
         cf = _center_freqs(sample_rate, N)
-        return (empty, sample_rate / N, cf) if return_freqs else \
-            (empty, sample_rate / N)
-    usable = n_blocks * N
-    x = iq[:usable]
+        return (empty, sample_rate / D, cf) if return_freqs else \
+            (empty, sample_rate / D)
 
     # --- polyphase decomposition -------------------------------------------
-    # Arrange the signal and the prototype into N polyphase branches. Each branch
-    # is a sub-filter; an FFT across the branches yields the N channel outputs.
-    # taps_per_channel taps per branch.
-    L = int(taps_per_channel)
-    # prototype branches: proto reshaped (L, N) so column n is branch n
-    # (proto[n], proto[n+N], proto[n+2N], ...)
-    pb = proto.reshape(L, N)                      # row=tap index, col=branch
-
-    # input branches: feed samples to branches in reverse order (commutator).
-    # reshape the stream into (n_blocks, N); column n is the n-th branch's input.
-    xb = x.reshape(n_blocks, N)
-    # the commutator distributes samples to branches in reverse; flip columns
-    xb = xb[:, ::-1]
-
-    # filter each branch (length-L FIR along the block axis), then FFT across
-    # branches. Build the per-branch filtered output via convolution.
-    # branch n output[m] = sum_l pb[l, n] * xb[m - l, n]
-    out_len = n_blocks
-    filtered = np.zeros((out_len, N), dtype=np.complex64)
+    # Branch n holds prototype taps h[n], h[n+N], h[n+2N], ... (L of them) and
+    # is fed x[T_m - n - l*N], l = 0..L-1. An inverse FFT across the branches
+    # then yields the N channels: channel k of frame m is
+    #     exp(-j*2*pi*k*T_m/N) * sum_n exp(+j*2*pi*k*n/N) * y_n[m],
+    # which is exactly "mix x down by channel k's center, lowpass with the
+    # prototype, take every D-th sample". The constant part of the phase
+    # factor, exp(-j*2*pi*k*(N-1)/N), is dropped (a fixed per-channel phase);
+    # the frame-dependent part exp(-j*2*pi*k*m*D/N) is 1 when D = N and is
+    # applied otherwise.
+    pb = proto.reshape(L, N)                      # row = tap index l, col = branch n
+    xpad = np.concatenate([np.zeros(L * N, dtype=np.complex64), iq])
+    ref = np.arange(n_frames) * D + (N - 1) + L * N          # T_m, shifted by the pad
+    idx = ref[:, None] - np.arange(N)[None, :]               # (n_frames, N): x index for tap l=0
+    filtered = np.zeros((n_frames, N), dtype=np.complex64)
     for tap in range(L):
-        if tap == 0:
-            filtered += xb * pb[0, :][None, :]
-        else:
-            filtered[tap:] += xb[:-tap] * pb[tap, :][None, :]
+        filtered += xpad[idx - tap * N] * pb[tap, :][None, :]
 
-    # FFT across the N branches gives the N channels (one column per channel).
-    # Use the inverse transform so branch index k maps to ascending positive
-    # frequency (matching our low->high label convention); the 1/N scaling is
-    # immaterial to channel routing and consistent across channels.
-    chan = np.fft.ifft(filtered, n=N, axis=1) * N  # (out_len, N)
-    channels = np.ascontiguousarray(chan.T).astype(np.complex64)  # (N, out_len)
-
-    # critically-sampled output is at rate/N already (one output per N inputs).
-    new_rate = sample_rate / N
-    # oversampling (decim = N//2) -> upsample the per-channel time axis by N/decim
-    if decim != N:
-        factor = N // decim
-        # simple linear-phase interpolation of the channel time series
-        channels = _oversample_time(channels, factor)
-        new_rate = sample_rate / decim
+    chan = np.fft.ifft(filtered, n=N, axis=1) * N            # (n_frames, N), channel k in column k
+    if D != N:
+        k = np.arange(N)[None, :]
+        m = np.arange(n_frames)[:, None]
+        chan = chan * np.exp(-2j * np.pi * k * m * D / N)
+    channels = np.ascontiguousarray(chan.T).astype(np.complex64)   # (N, n_frames)
+    new_rate = sample_rate / D
 
     # reorder channels so they run low frequency -> high (fftshift the channel axis)
     channels = np.fft.fftshift(channels, axes=0)
@@ -155,23 +148,3 @@ def _center_freqs(sample_rate, N):
     k = np.arange(N)
     freqs = (k - N // 2) * (sample_rate / N)
     return freqs.astype(np.float64)
-
-
-def _oversample_time(channels, factor):
-    """Upsample each channel's time series by an integer factor (linear interp).
-
-    Used only for the oversampled (decim = N//2) scheme to deliver the higher
-    output rate. Critically-sampled output skips this.
-    """
-    if factor <= 1:
-        return channels
-    n_ch, n = channels.shape
-    if n < 2:
-        return channels
-    old_idx = np.arange(n)
-    new_idx = np.linspace(0, n - 1, n * factor)
-    out = np.empty((n_ch, len(new_idx)), dtype=np.complex64)
-    for c in range(n_ch):
-        out[c].real = np.interp(new_idx, old_idx, channels[c].real)
-        out[c].imag = np.interp(new_idx, old_idx, channels[c].imag)
-    return out

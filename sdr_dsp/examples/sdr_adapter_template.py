@@ -8,7 +8,7 @@ drives WITHOUT ANY CHANGE to `src/sdr_dsp/`. That is the whole modularity
 claim, made concrete: the library is not locked to the HackRF One.
 
 Read docs/ADDING_AN_SDR.md for the full process and the porting-record table,
-and docs/MODULARITY.md for the layer model this fits into.
+and docs/ADDING_AN_SDR.md for the layer model this fits into.
 
 The FOUR things a real adapter must get right (all marked `>>> FILL IN`):
   1. open/tune/start the device (vendor library call)

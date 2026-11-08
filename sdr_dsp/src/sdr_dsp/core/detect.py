@@ -28,7 +28,7 @@ def matched_filter(signal, template):
     if len(template) == 0 or len(template) > len(signal):
         raise ValueError("template must be non-empty and no longer than signal")
     corr = np.correlate(signal, template, mode="valid")
-    return np.abs(corr)
+    return np.abs(corr).astype(np.float64)       # a measurement: library real dtype
 
 
 def detect_peak(signal, template, threshold=None):

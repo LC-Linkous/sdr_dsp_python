@@ -10,7 +10,67 @@ was measured, why a design went the way it did) lives in `docs/LOG.md`.
 
 ## [Unreleased]
 
+### Fixed (loop characterization pass)
+- `carrier_recovery` Costas detectors are normalized by the input rms. They
+  are linear in amplitude (sign(I)*Q is |s|*sin(error)), so the loop gains
+  scaled with the input level: a 100x stronger input ran 100x hotter and
+  lost lock, a 0.01x input never acquired. Decision-directed was unaffected.
+  The pull-in range (0.02 cycles/sample order 2, 0.01 order 4 at
+  loop_bw 0.01) and lock times are now stated in the docstring and pinned.
+- `symbol_sync` could not track a symbol-rate error at all: its loop gains
+  were far too small for the bandwidth they claimed (a 1% sps error was
+  simply free-run, BER 0.37, and the count-only test could not tell). The
+  loop filter now uses the same standard second-order (loop_bw, damping)
+  parametrization as `carrier_recovery`, and each TED's output is divided by
+  its measured S-curve slope (`TED_GAIN`) so the error is in samples and one
+  loop_bw means the same thing for every method.
+- The early-late TED was dead: its S-curve on random data was ~20x weaker
+  than assumed AND inverted, so it could hold nominal timing (the one case
+  tested) but never track. It is now the gate projected onto the current
+  symbol, Re{conj(s) * (late - early)}, with the right sign. Mueller & Muller
+  now uses both rails (the real-only form threw away half of QPSK's timing
+  information).
+- The pull-in table measured over 10 bit patterns is in the `symbol_sync`
+  docstring and pinned by tests: Gardner and M&M take +/-0.5% at loop_bw
+  0.01, 1-1.5% at 0.02, 2-3% at 0.05; early-late half that and unstable at
+  0.05. `LoopDiagnostics.locked` for the timing loop now means "the applied
+  correction has settled" (rms step below `lock_threshold`, default sps/16)
+  -- and the docstring says plainly that it does not establish signal
+  presence; a narrow loop on noise settles too.
+- `rrc_taps(0.35, 8, 8)` -- beta in the sps slot -- used to become sps=0 and
+  return an all-NaN filter silently; arguments are validated.
+- `deemphasis` is discretized with a pre-warped bilinear transform so the
+  -3 dB corner lands exactly on 1/(2*pi*tau). The backward-Euler one-pole it
+  replaces sat 0.5-0.8 dB low at 48 kHz (dt/tau = 0.28 is not small) and
+  made the 75 us and 50 us curves hard to tell apart; no test pinned the
+  constant until now. `deemphasis_coefficients(sample_rate, tau_us)` is the
+  shared source for `deemphasis` and `StreamingDeemphasis` (which now carries
+  state with lfilter zi/zf).
+- `channelize_bank(decim=N//2)` is a true 2x-oversampled polyphase bank: the
+  commutator advances N/2 per frame and channel k is rotated by
+  exp(-j*2*pi*k*m*D/N). It equals a direct mix-filter-decimate to correlation
+  0.9999 and carries the prototype's transition band unaliased (a tone there
+  reads at its true offset; the critically-sampled bank folds it). The
+  previous implementation interpolated the critically-sampled output, which
+  could not do that. `decim = N` output is unchanged.
+- Dtype policy codified and pinned (`core/__init__` docstring,
+  `test_public_surface.py::test_dtype_policy`): IQ out is complex64 (complex128
+  in is processed as complex64), real-valued results are float64.
+  `normalize` (preserved complex128) and `matched_filter` (float32 for
+  complex64 input) were the two outliers and now conform.
+- `StreamingFIR` carries history across a block dtype change (see below).
+
 ### Changed
+- Docs consolidated: root README is a short pointer; `sdr_dsp/README.md` is
+  the canonical install + quickstart (the PyPI page); root `TODO.md` is
+  retired into `docs/TODO.md` (open items) and `docs/LOG.md` (history);
+  `docs/MODULARITY.md` is merged into `docs/ADDING_AN_SDR.md`;
+  `docs/PCAP_CONVERTER_NOTE.md` moves to `docs/notes/`; `docs/README.md`
+  leads with user docs; CONTRIBUTING and the PR template agree (small PRs
+  welcome, features via an issue first); incident-history comments in
+  `pyproject.toml` and `tests.yml` shortened with pointers into LOG.
+- `sdr_dsp/sample_data/hackrf_one/` is ignored; the 150 MB of raw captures
+  move to release assets (see `sample_data/README.md`).
 - `docs/dev_handbook/generate_api_handbook.py` gained `-o FILE` and
   `--check FILE`; the lint CI job now runs `--check` against the checked-in
   handbook and fails when it is stale. The handbook itself is regenerated

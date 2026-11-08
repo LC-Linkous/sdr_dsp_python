@@ -97,25 +97,54 @@ def ssb_demod(iq, sample_rate, sideband="usb", bfo_hz=0.0):
     return np.real(selected).astype(np.float64)
 
 
+def deemphasis_coefficients(sample_rate, tau_us=75.0):
+    """(b, a) of the de-emphasis one-pole, for lfilter. OUR code.
+
+    The analog network is H(s) = 1 / (1 + s*tau), -3 dB at f_c = 1/(2*pi*tau)
+    (2122 Hz for 75 us, 3183 Hz for 50 us). It is discretized with the
+    bilinear transform, PRE-WARPED so the digital -3 dB point lands exactly
+    on f_c:
+        H(z) = (1 + z^-1) / ((1 + K*tau) + (1 - K*tau) z^-1),
+        K*tau = 1 / tan(pi * f_c / sample_rate).
+    The obvious one-pole y = a*x + (1-a)*y_prev with a = dt/(tau+dt) is the
+    backward-Euler form; at 48 kHz, where dt/tau is 0.28, its corner sits
+    0.5-0.8 dB low and the 75 us and 50 us curves blur together. (An earlier
+    version used it; every test that checked "highs are attenuated" passed
+    either way, which is why the constant is now pinned by its corner.)
+    """
+    tau = float(tau_us) * 1e-6
+    fs = float(sample_rate)
+    if tau <= 0 or fs <= 0:
+        raise ValueError("deemphasis: tau_us and sample_rate must be > 0")
+    f_c = 1.0 / (2.0 * np.pi * tau)
+    if f_c >= fs / 2:
+        raise ValueError(
+            f"deemphasis: corner {f_c:.0f} Hz is at/above Nyquist ({fs / 2:.0f} Hz)")
+    k_tau = 1.0 / np.tan(np.pi * f_c / fs)
+    b = np.array([1.0, 1.0]) / (1.0 + k_tau)
+    a = np.array([1.0, (1.0 - k_tau) / (1.0 + k_tau)])
+    return b, a
+
+
 def deemphasis(audio, sample_rate, tau_us=75.0):
     """Single-pole de-emphasis filter for broadcast FM audio. OUR code.
 
     Broadcast FM pre-emphasizes high frequencies before transmission; the
-    receiver must de-emphasize them back. A one-pole IIR does it:
-        y[n] = a*x[n] + (1-a)*y[n-1],   a = dt / (tau + dt)
+    receiver must de-emphasize them back with a one-pole lowpass whose corner
+    is 1/(2*pi*tau). See deemphasis_coefficients for the discretization.
     tau_us: time constant (75 us in the Americas/Korea, 50 us elsewhere).
+
+    Returns float64 audio the same length as the input. Stateless (zero
+    initial conditions); StreamingDeemphasis carries the filter state across
+    blocks.
     """
     audio = np.asarray(audio, dtype=np.float64)
-    tau = tau_us * 1e-6
-    dt = 1.0 / float(sample_rate)
-    a = dt / (tau + dt)
-    # y[n] = a*x[n] + (1-a)*y[n-1] as an lfilter difference equation with
-    # b=[a], a=[1, -(1-a)] and zero initial state -- identical output to the
-    # previous per-sample Python loop, orders of magnitude faster on long
-    # audio. (Filter APPLICATION is normally our own code; a one-pole IIR
-    # recursion cannot be vectorized in numpy without changing the math, so
-    # this is the one place scipy applies a filter for us.)
-    return _sig.lfilter([a], [1.0, -(1.0 - a)], audio)
+    if audio.size == 0:
+        return audio
+    b, a = deemphasis_coefficients(sample_rate, tau_us)
+    # A one-pole IIR recursion cannot be vectorized in numpy without changing
+    # the math; this is the one place scipy applies a filter for us.
+    return _sig.lfilter(b, a, audio)
 
 
 def _analytic_phase(x):

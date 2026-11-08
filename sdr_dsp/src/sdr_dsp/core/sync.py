@@ -74,6 +74,42 @@ def _lock_trace(error, window=200, threshold=0.05):
     return lock, locked
 
 
+def _timing_lock_trace(steps, limit, window=20):
+    """Per-symbol lock for a TIMING loop: the correction it applies has settled.
+
+    `steps` is the timing correction applied at each symbol, in samples (the
+    loop's proportional + integral output). Over a trailing window its rms
+    must be below `limit`. While the loop is pulling in a timing or rate
+    offset the steps are large (up to the sps/4 clamp); once it tracks, they
+    shrink to the TED's residual jitter.
+
+    Why not the TED output: a TED is noisy even when the loop is perfectly
+    locked (data-pattern "self-noise"), and its noise is what the loop filter
+    exists to average out; the STEP is what survives that averaging.
+    Why not the sampling phase (tau mod sps): tracking a rate error makes it
+    drift against the nominal sps, and against the tracked period the modulus
+    is numerically unstable for large tau.
+
+    What this does NOT tell you: whether there is a signal. A narrow loop fed
+    pure noise applies small random steps too, and at low SNR the steps on a
+    real signal are no smaller. Lock here means "the loop has settled"; use
+    capture_health / power detection to establish that something is there.
+    """
+    n = len(steps)
+    if n == 0:
+        return np.zeros(0, dtype=bool), False
+    s2 = np.asarray(steps, dtype=np.float64) ** 2
+    lock = np.zeros(n, dtype=bool)
+    need = max(5, window // 4)
+    limit2 = float(limit) ** 2
+    for i in range(n):
+        lo = max(0, i - window + 1)
+        if i + 1 - lo >= need:
+            lock[i] = float(np.mean(s2[lo:i + 1])) < limit2
+    locked = bool(np.mean(lock[max(0, 3 * n // 4):]) > 0.5) if n >= 4 else False
+    return lock, locked
+
+
 # ---------------------------------------------------------------------------
 # CARRIER RECOVERY
 # ---------------------------------------------------------------------------
@@ -94,6 +130,16 @@ def carrier_recovery(iq, method="costas", order=2, loop_bw=0.01, damping=0.707,
     loop_bw, damping: second-order loop filter parameters. Smaller loop_bw =
       slower but steadier lock. These are exposed on purpose.
     order: 2 (BPSK-like) or 4 (QPSK-like) phase symmetry.
+
+    Measured behaviour at the defaults (loop_bw 0.01, damping 0.707), on clean
+    unit-rate symbols -- these numbers are pinned by tests/test_sync.py:
+      pull-in range (CFO the loop acquires unaided): order 2 up to ~0.02
+        cycles/sample, order 4 up to ~0.01 cycles/sample. Beyond that, remove
+        the bulk of the offset first (estimate_cfo + frequency_shift) and let
+        the loop clean up the residual.
+      lock time for a 0.7 rad phase step: ~50 samples (order 2), ~200 (order 4).
+      amplitude: the Costas detectors are normalized by the input rms, so the
+        loop behaves identically at 0.01x and 100x full scale.
     """
     iq = np.asarray(iq, dtype=np.complex64)
     n = len(iq)
@@ -110,6 +156,15 @@ def carrier_recovery(iq, method="costas", order=2, loop_bw=0.01, damping=0.707,
     alpha = (4.0 * damping * theta) / denom
     beta = (4.0 * theta * theta) / denom
 
+    # The Costas detectors below are LINEAR in the signal amplitude
+    # (sign(I)*Q is |s|*sin(phase error)), so without normalization the loop
+    # gains scale with the input level: a 100x stronger input ran 100x hotter
+    # and lost lock, a 100x weaker one never acquired. Divide by the rms
+    # amplitude so loop_bw means the same thing at any level. The
+    # decision-directed detector is an angle and needs no normalization.
+    rms = float(np.sqrt(np.mean(np.abs(iq) ** 2)))
+    inv_rms = 1.0 / rms if rms > 0 else 1.0
+
     phase = 0.0
     freq = 0.0
     for i in range(n):
@@ -118,10 +173,10 @@ def carrier_recovery(iq, method="costas", order=2, loop_bw=0.01, damping=0.707,
         # phase error detector
         if method == "costas":
             if order == 2:                      # BPSK: sign(I)*Q
-                e = np.sign(np.real(s)) * np.imag(s)
+                e = np.sign(np.real(s)) * np.imag(s) * inv_rms
             else:                               # QPSK order-4
                 e = (np.sign(np.real(s)) * np.imag(s)
-                     - np.sign(np.imag(s)) * np.real(s))
+                     - np.sign(np.imag(s)) * np.real(s)) * inv_rms
         elif method == "decision_directed":
             # nearest constellation point (unit BPSK/QPSK) then phase diff
             if order == 2:
@@ -147,32 +202,70 @@ def carrier_recovery(iq, method="costas", order=2, loop_bw=0.01, damping=0.707,
 # ---------------------------------------------------------------------------
 # SYMBOL TIMING RECOVERY
 # ---------------------------------------------------------------------------
+
+# Nominal S-curve slope of each timing-error detector: mean TED output per
+# sample of timing offset, at unit signal power, measured on RRC (beta 0.35,
+# span 8) BPSK after a matched filter. Dividing the TED output by this puts the
+# loop error in SAMPLES, so one loop_bw gives comparable dynamics across
+# methods. These are nominal: a different pulse shape moves them by tens of
+# percent, which the loop tolerates (it shifts the effective bandwidth, not the
+# sign). tests/test_sync.py re-measures them and fails if they drift by >2x.
+TED_GAIN = {"gardner": 0.13, "early_late": 0.13, "mueller_muller": 0.30}
+
+
 def symbol_sync(iq, samples_per_symbol, method="gardner", loop_bw=0.01,
                 damping=0.707, diagnostics=False, csv_path=None,
-                lock_threshold=0.05):
+                lock_threshold=None):
     """Recover symbol timing: pick the best sampling instant per symbol. OUR code.
 
     Returns the symbol-spaced samples (one complex value per recovered symbol).
     With diagnostics=True, returns (symbols, LoopDiagnostics) where the error is
-    the timing-error-detector output and the estimate is the fractional offset.
+    the timing-error-detector output in samples and the estimate is the
+    fractional sampling offset (tau modulo the nominal sps; it drifts when the
+    loop is tracking a symbol-rate error, which is the loop doing its job).
+    `lock` / `locked` mean the loop has SETTLED: the rms timing correction it
+    applies per symbol, over a 20-symbol window, is below lock_threshold
+    samples (default sps/16 -- 0.5 sample at 8 sps, which the loop meets at
+    5 dB SNR while still decoding BPSK without error). Lock does not mean a
+    signal is present: a narrow loop on pure noise settles too. Establish
+    presence separately (capture_health, power detection).
 
     method:
       "gardner"        : Gardner TED -- carrier-independent, needs ~2 sps.
       "early_late"     : early-late gate -- simple, intuitive.
       "mueller_muller" : Mueller & Muller -- 1 sps, decision-aided.
     samples_per_symbol: nominal sps (from estimate_symbol_rate or known rate).
-    loop_bw: proportional gain of the timing loop, in samples of correction per
-      unit (power-normalized) TED output. damping: damping ratio of the
-      second-order loop; the integral gain follows from it as (loop_bw/2*zeta)^2,
-      so the loop can track a steady symbol-rate offset without a standing
-      error. Smaller loop_bw = slower but steadier lock.
+    loop_bw, damping: normalized loop bandwidth (fraction of the symbol rate)
+      and damping ratio of the second-order loop filter -- the same
+      parametrization as carrier_recovery, so 0.01 means the same thing in
+      both. The loop filter has a proportional path (phase) and an integral
+      path (symbol-rate error), so a steady sps mismatch is tracked out, not
+      carried as a standing error.
 
-    The TED output is normalized by the signal's mean power before it drives
-    the loop, so the loop behaves the same whether the input is at 0.01 or
-    100x full scale; every TED here scales with |x|^2 and an unnormalized loop
-    would overshoot and skip symbols on a strong signal. Each correction is
-    also clamped to +/- sps/4: a single TED sample can never move the sampling
-    instant by more than a quarter symbol.
+    How the TED output is conditioned before it drives the loop:
+      * normalized by the signal's mean power -- every TED here scales with
+        |x|^2, so without this a strong input would overshoot and skip symbols;
+      * scaled by the TED's nominal S-curve slope (TED_GAIN below, measured on
+        RRC beta=0.35 pulses after a matched filter), so the error is in units
+        of SAMPLES of timing offset and loop_bw is comparable across methods;
+      * each correction clamped to +/- sps/4.
+
+    Measured pull-in -- the symbol-rate error acquired within a 400-symbol
+    burst in 10 of 10 random bit patterns (clean RRC BPSK, matched-filtered),
+    pinned by tests/test_sync.py:
+                        loop_bw 0.01   0.02    0.05
+        gardner           +/-0.5%    1.0%    2.0%
+        mueller_muller    +/-0.5%    1.5%    3.0%
+        early_late        +/-0.25%   0.5%    unstable -- keep it <= 0.02
+    Larger errors are acquired on SOME patterns (Gardner takes 1% at 0.01
+    about one burst in five); for a dependable lock either widen the loop or
+    hand it a better sps from estimate_symbol_rate. In 5 dB noise all three
+    lock on most bursts and cycle-slip on roughly one in ten.
+    early_late is the classic early-late gate; on random data its +/-T/4 taps
+    see uncancelled ISI from neighbouring symbols (high "self-noise"), so it
+    tracks the least and should be read as the teaching baseline. Gardner is
+    carrier-phase-independent (use it before carrier recovery); Mueller &
+    Muller is decision-directed (use it after, or on a clean constellation).
     """
     iq = np.asarray(iq, dtype=np.complex64)
     sps = float(samples_per_symbol)
@@ -184,14 +277,18 @@ def symbol_sync(iq, samples_per_symbol, method="gardner", loop_bw=0.01,
                                           np.zeros(0, bool), False)
         return empty
 
-    # amplitude normalization for the TED (see docstring); an all-zero input
-    # has no timing to recover, so leave the scale at 1 and let the loop idle
+    if method not in TED_GAIN:
+        raise ValueError(f"unknown timing method: {method!r}")
+    # power normalization + S-curve gain (see docstring); an all-zero input has
+    # no timing to recover, so leave the scale at 1 and let the loop idle
     power = float(np.mean(np.abs(iq) ** 2))
-    norm = 1.0 / power if power > 0 else 1.0
-    # second-order (PI) loop: proportional gain = loop_bw, integral gain from
-    # the damping ratio (zeta = Kp / (2*sqrt(Ki)))
-    kp = float(loop_bw)
-    ki = (kp / (2.0 * float(damping))) ** 2
+    norm = (1.0 / power if power > 0 else 1.0) / TED_GAIN[method]
+    # second-order loop filter gains from loop_bw + damping (standard form,
+    # identical to carrier_recovery)
+    theta = loop_bw / (damping + 1.0 / (4.0 * damping))
+    denom = 1.0 + 2.0 * damping * theta + theta * theta
+    alpha = (4.0 * damping * theta) / denom      # proportional (timing phase)
+    beta = (4.0 * theta * theta) / denom         # integral (symbol-rate error)
     max_step = sps / 4.0
 
     def interp(pos):
@@ -216,41 +313,51 @@ def symbol_sync(iq, samples_per_symbol, method="gardner", loop_bw=0.01,
     # running estimate of the symbol-period error, in samples per symbol.
     tau = sps
     rate = 0.0
+    steps = []
     while tau < n - 1:
         sample = interp(tau)
+        # Sign convention for every TED: sampling LATE (tau past the symbol
+        # peak) must give a NEGATIVE error, because the loop applies
+        # tau += sps + correction. tests/test_sync.py measures each S-curve.
         if method == "gardner":
             # Gardner TED: midpoint sample between this symbol and the previous
             mid = interp(tau - half)
-            e = (np.real(mid) * (np.real(prev_sym) - np.real(sample))
-                 + np.imag(mid) * (np.imag(prev_sym) - np.imag(sample)))
+            e = float(np.real(np.conj(mid) * (prev_sym - sample)))
         elif method == "early_late":
+            # early-late gate, projected onto the current symbol so the sign
+            # survives random data: late sampling puts the EARLY tap nearer
+            # the peak, so late - early is negative. (An earlier version used
+            # |late| - |early| times sign(I), whose S-curve on random data was
+            # ~20x weaker AND inverted -- the loop could hold nominal timing
+            # but never track a rate error.)
             d = sps / 4.0
             early = interp(tau - d)
             late = interp(tau + d)
-            e = float(np.real((np.abs(late) - np.abs(early))
-                              * np.sign(np.real(sample))))
-        elif method == "mueller_muller":
+            e = float(np.real(np.conj(sample) * (late - early)))
+        else:  # mueller_muller
+            # decision-directed, both rails (the real-only form worked for
+            # BPSK but threw away half of QPSK's timing information)
             dec = np.sign(np.real(sample)) + 1j * np.sign(np.imag(sample))
-            e = float(np.real(prev_decision) * np.real(sample)
-                      - np.real(dec) * np.real(prev_sym))
+            e = float(np.real(np.conj(prev_decision) * sample
+                              - np.conj(dec) * prev_sym))
             prev_decision = dec
-        else:
-            raise ValueError(f"unknown timing method: {method!r}")
 
-        e = float(e) * norm                       # amplitude-independent TED
+        e = e * norm                              # -> samples of timing error
         out.append(sample)
         errs.append(e)
         prev_sym = sample
-        # advance one symbol, corrected by the PI loop filter; the integrator
-        # is bounded so a burst of bad TED samples can't run the rate away
-        rate = float(np.clip(rate + ki * e, -max_step, max_step))
-        step = float(np.clip(rate + kp * e, -max_step, max_step))
+        # advance one symbol, corrected by the loop filter; the integrator is
+        # bounded so a burst of bad TED samples can't run the rate away
+        rate = float(np.clip(rate + beta * e, -max_step, max_step))
+        step = float(np.clip(rate + alpha * e, -max_step, max_step))
         tau += sps + step
+        steps.append(step - rate)        # the correction beyond the tracked rate
         ests.append(tau % sps)
 
     err = np.array(errs, dtype=np.float64)
     est = np.array(ests, dtype=np.float64)
-    lock, locked = _lock_trace(err, window=20, threshold=lock_threshold)
+    limit = sps / 16.0 if lock_threshold is None else float(lock_threshold)
+    lock, locked = _timing_lock_trace(steps, limit, window=20)
     diag = LoopDiagnostics(err, est, lock, locked)
     if csv_path:
         diag.to_csv(csv_path)
