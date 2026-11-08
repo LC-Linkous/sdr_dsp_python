@@ -38,6 +38,7 @@ import numpy as np
 from ..core.filters import fir_apply
 from ..core.demod.phase import instantaneous_frequency
 from ..core.resample import resample_poly, _antialias_taps
+from ..core.spectral import psd
 
 __all__ = [
     "StreamingFIR",
@@ -329,3 +330,65 @@ class StreamingDeemphasis:
             return block
         out, self._zi = lfilter(self._b, self._a, block, zi=self._zi)
         return out
+
+
+
+class StreamingPSD:
+    """``psd`` over a live stream: one averaged spectrum per ``avg`` frames.
+
+    Feed blocks of any size; the stage buffers them and, each time
+    ``avg * nfft`` new samples have arrived, returns ``psd()`` of exactly those
+    samples (the dB array; the frequency axis is ``.freqs``). Otherwise it
+    returns None. The math is ``core.psd`` itself, not a copy, so a stream fed
+    through this stage emits the same numbers ``psd()`` gives on the same
+    samples -- to the bit, not to a tolerance.
+
+    nfft, window, scaling: as for ``psd``; scaling defaults to "dbfs" because
+      a display is the usual consumer (see ``psd`` for the two scales).
+    avg: frames per emitted spectrum (Welch averaging depth). 1 = every frame.
+    sample_rate, center_freq: for the frequency axis. With sample_rate None the
+      axis is in cycles/sample and only "dbfs" scaling is allowed ("density"
+      needs the rate).
+
+    ``reset()`` drops any buffered partial frame -- call it on a retune so a
+    spectrum never straddles two centre frequencies. ``frames_emitted`` counts
+    outputs. Blocks are not dropped: a slow consumer sees every spectrum,
+    later; rate-limit upstream (skip calls) if that is not wanted.
+    """
+
+    def __init__(self, nfft=1024, avg=1, window="hann", scaling="dbfs",
+                 sample_rate=None, center_freq=0.0):
+        if int(avg) < 1:
+            raise ValueError(f"avg must be >= 1, got {avg!r}")
+        if sample_rate is None and scaling == "density":
+            raise ValueError("StreamingPSD: 'density' scaling needs sample_rate")
+        self.nfft = int(nfft)
+        self.avg = int(avg)
+        self.window = window
+        self.scaling = scaling
+        self.sample_rate = None if sample_rate is None else float(sample_rate)
+        self.center_freq = float(center_freq)
+        self._fs = 1.0 if self.sample_rate is None else self.sample_rate
+        self.frames_emitted = 0
+        self._buf = np.zeros(0, dtype=np.complex64)
+        # the axis never changes, so compute it once via psd on a dummy frame
+        self.freqs, _ = psd(np.zeros(self.nfft, dtype=np.complex64), self._fs,
+                            nfft=self.nfft, window=window,
+                            center_freq=self.center_freq, scaling=scaling)
+
+    def reset(self) -> None:
+        """Drop buffered samples (e.g. after a retune). Keeps the axis/config."""
+        self._buf = np.zeros(0, dtype=np.complex64)
+
+    def __call__(self, block):
+        block = np.asarray(block, dtype=np.complex64)
+        if block.size:
+            self._buf = np.concatenate([self._buf, block])
+        need = self.avg * self.nfft
+        if self._buf.size < need:
+            return None
+        chunk, self._buf = self._buf[:need], self._buf[need:]
+        _, spectrum_db = psd(chunk, self._fs, nfft=self.nfft, window=self.window,
+                             center_freq=self.center_freq, scaling=self.scaling)
+        self.frames_emitted += 1
+        return spectrum_db

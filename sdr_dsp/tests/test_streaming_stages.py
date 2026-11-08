@@ -234,3 +234,61 @@ def test_full_fm_chain_in_a_pipeline_matches_whole_record(fm_iq):
     got = np.concatenate(out)
     assert got.shape == whole.shape
     np.testing.assert_allclose(got, whole, atol=1e-5)
+
+
+# ---------------------------------------------------------------------------
+# StreamingPSD
+# ---------------------------------------------------------------------------
+
+def _noisy_tone(n, fs=1e6, seed=0):
+    rng = np.random.default_rng(seed)
+    t = np.arange(n) / fs
+    noise = rng.standard_normal(n) + 1j * rng.standard_normal(n)
+    x = np.exp(2j * np.pi * 123_456.0 * t) + 0.05 * noise
+    return x.astype(np.complex64)
+
+
+@pytest.mark.parametrize("block_sizes", [[777], [1], [4096], [3, 1000, 64, 9999]])
+def test_streaming_psd_equals_psd_on_the_same_samples(block_sizes):
+    from sdr_dsp.core import psd
+    from sdr_dsp.stream import StreamingPSD
+    fs, nfft, avg = 1e6, 1024, 8
+    x = _noisy_tone(nfft * avg * 3 + 500, fs)
+    stage = StreamingPSD(nfft, avg=avg, sample_rate=fs)
+    outs = []
+    i = k = 0
+    while i < len(x):
+        bs = block_sizes[k % len(block_sizes)]
+        r = stage(x[i:i + bs])
+        if r is not None:
+            outs.append(r)
+        i += bs
+        k += 1
+    assert len(outs) == 3 and stage.frames_emitted == 3          # 500 leftover buffered
+    for j, out in enumerate(outs):
+        _, ref = psd(x[j * nfft * avg:(j + 1) * nfft * avg], fs, nfft=nfft, scaling="dbfs")
+        np.testing.assert_array_equal(out, ref)                   # bit-equal, not close
+    np.testing.assert_array_equal(stage.freqs, psd(x[:nfft], fs, nfft=nfft)[0])
+
+
+def test_streaming_psd_reset_scaling_and_validation():
+    from sdr_dsp.stream import StreamingPSD
+    from sdr_dsp.core import psd
+    fs, nfft = 1e6, 256
+    x = _noisy_tone(nfft * 2, fs)
+    stage = StreamingPSD(nfft, avg=1, sample_rate=fs)
+    assert stage(x[:100]) is None
+    stage.reset()                                                 # retune: drop the partial frame
+    assert stage(x[:nfft - 1]) is None                            # 255 buffered, not 355
+    out = stage(x[nfft - 1:nfft])
+    np.testing.assert_array_equal(out, psd(x[:nfft], fs, nfft=nfft, scaling="dbfs")[1])
+    # density scaling needs a sample rate; dbfs does not
+    dens = StreamingPSD(nfft, sample_rate=fs, scaling="density")
+    np.testing.assert_array_equal(dens(x[:nfft]), psd(x[:nfft], fs, nfft=nfft)[1])
+    with pytest.raises(ValueError, match="sample_rate"):
+        StreamingPSD(nfft, scaling="density")
+    with pytest.raises(ValueError, match="avg"):
+        StreamingPSD(nfft, avg=0)
+    rateless = StreamingPSD(nfft)                                 # axis in cycles/sample
+    assert rateless.freqs.min() == pytest.approx(-0.5)
+    assert -1.5 < rateless(x[:nfft]).max() < 0.1          # 0 dBFS less scalloping

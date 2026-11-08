@@ -3,6 +3,7 @@ bin, frequency shifts move it predictably, and measurements are sane.
 """
 
 import numpy as np
+import pytest
 
 from sdr_dsp.core import spectral, mixing, measure
 from helpers.signals import tone, noise
@@ -155,3 +156,38 @@ def test_measure_occupied_bandwidth_wider_for_wider_signal():
     bw_narrow = measure.occupied_bandwidth(narrow, fs)
     bw_wide = measure.occupied_bandwidth(wide, fs)
     assert bw_wide > bw_narrow
+
+
+# ---------------------------------------------------------------------------
+# psd(scaling="dbfs")
+# ---------------------------------------------------------------------------
+
+def test_psd_dbfs_full_scale_tone_reads_zero_at_any_nfft():
+    # a full-scale (|x| = 1) complex tone sitting on a bin is 0 dBFS per bin,
+    # whatever nfft and sample_rate are -- the display scale; the default
+    # "density" scale is untouched and still depends on both
+    fs, n = 1e6, 1024 * 8
+    t = np.arange(n) / fs
+    x = np.exp(2j * np.pi * (fs / 1024 * 37) * t).astype(np.complex64)
+    for nfft in (1024, 4096):
+        _, p = spectral.psd(x, fs, nfft=nfft, scaling="dbfs")
+        assert p.max() == pytest.approx(0.0, abs=0.1)
+    _, p2 = spectral.psd(x, 2 * fs, nfft=1024, scaling="dbfs")
+    assert p2.max() == pytest.approx(0.0, abs=0.1)
+    _, d1 = spectral.psd(x, fs, nfft=1024)
+    _, d2 = spectral.psd(x, fs, nfft=1024, scaling="density")
+    np.testing.assert_array_equal(d1, d2)
+    assert d1.max() != pytest.approx(0.0, abs=1.0)        # density is a density
+
+
+def test_psd_dbfs_scalloping_and_half_scale():
+    fs, n = 1e6, 1024 * 8
+    t = np.arange(n) / fs
+    half_bin = np.exp(2j * np.pi * (fs / 1024 * 37.5) * t).astype(np.complex64)
+    _, p = spectral.psd(half_bin, fs, nfft=1024, scaling="dbfs")
+    assert p.max() == pytest.approx(-1.42, abs=0.1)        # Hann scalloping loss
+    on_bin = 0.5 * np.exp(2j * np.pi * (fs / 1024 * 37) * t).astype(np.complex64)
+    _, p = spectral.psd(on_bin, fs, nfft=1024, scaling="dbfs")
+    assert p.max() == pytest.approx(-6.02, abs=0.1)        # half amplitude
+    with pytest.raises(ValueError, match="scaling"):
+        spectral.psd(on_bin, fs, scaling="watts")

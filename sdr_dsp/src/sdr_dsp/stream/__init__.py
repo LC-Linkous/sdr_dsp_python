@@ -14,8 +14,10 @@ runs on a live source.
 
 from .pipeline import Pipeline, Stage, PipelineStats
 from .stages import (StreamingFIR, StreamingDecimator, StreamingMixer,
-                     StreamingFMDemod, StreamingResampler, StreamingDeemphasis)
+                     StreamingFMDemod, StreamingResampler, StreamingDeemphasis,
+                     StreamingPSD)
 
 __all__ = ["Pipeline", "Stage", "PipelineStats",
            "StreamingFIR", "StreamingDecimator", "StreamingMixer",
-           "StreamingFMDemod", "StreamingResampler", "StreamingDeemphasis"]
+           "StreamingFMDemod", "StreamingResampler", "StreamingDeemphasis",
+           "StreamingPSD"]

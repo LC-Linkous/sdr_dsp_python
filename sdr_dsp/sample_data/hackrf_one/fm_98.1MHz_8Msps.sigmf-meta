@@ -1,0 +1,23 @@
+{
+  "global": {
+    "core:datatype": "ci8",
+    "core:sample_rate": 8000000.0,
+    "core:hw": "HackRF One",
+    "core:version": "1.0.0",
+    "core:recorder": "hackrfpy (hackrf_transfer git-b1dbb47, firmware 2024.02.1 (API:1.08))",
+    "core:description": "Over-the-air broadcast FM, 98.1 MHz at 8 Msps, 5 s, raw ci8 as captured. Health at capture: mean -16.58 dBFS, peak 0.6992, clip 0.0, pilot detected (23.1 dB). Byte-identical to hackrfpy tests/fm_reference/. Distributed as a release asset, not in git; this sidecar is.",
+    "sdr_dsp:sha256": "b4902ff2871bc2262887627a7e54854951e04516e170f1fc1dff2fc45d64da0e",
+    "sdr_dsp:report": "fm_98.1MHz_8Msps.report.json",
+    "hackrf:lna_gain_db": 32,
+    "hackrf:vga_gain_db": 20,
+    "hackrf:amp_enabled": false
+  },
+  "captures": [
+    {
+      "core:sample_start": 0,
+      "core:frequency": 98100000.0,
+      "core:datetime": "2026-09-17T20:29:38+00:00"
+    }
+  ],
+  "annotations": []
+}

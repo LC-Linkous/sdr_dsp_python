@@ -40,12 +40,27 @@ uv run python examples/inspect_capture.py sample_data/fm_2Msps.iq
 
 ## Large raw captures (`hackrf_one/`)
 
-`hackrf_one/` holds the raw ci8 captures the sample above was imported from
-(103.7 MHz and 98.1 MHz at 8 Msps, with their `.report.json` health reports),
-about 150 MB in total and byte-identical to hackrfpy's `tests/fm_reference/`.
-They are being moved out of git to GitHub release assets and will be
-downloaded on demand; nothing in the examples or the default test run needs
-them, only `fm_2Msps.iq`. Until the move lands they are still in the tree.
+`hackrf_one/` is the home of the raw 8 Msps ci8 captures the sample above was
+imported from -- 103.7 MHz and 98.1 MHz, 5 s each, 80 MB each, byte-identical
+to hackrfpy's `tests/fm_reference/`. The `.iq` payloads are **not in git**
+(`.gitignore` excludes them); they are distributed as GitHub release assets.
+What IS in git is everything needed to use a downloaded copy:
+
+| file | what it is |
+|---|---|
+| `fm_98.1MHz_8Msps.sigmf-meta`, `fm_103.7MHz_8Msps.sigmf-meta` | SigMF sidecars: datatype, rate, centre, gains, sha256 of the payload. `FileSource` and `load_iq` read these. |
+| `*.report.json` | the `capture_health` report written at capture time |
+
+To use them: download the `.iq` files from the release assets into this
+directory, next to their sidecars, and check them:
+
+```bash
+sha256sum fm_98.1MHz_8Msps.iq      # must match sdr_dsp:sha256 in the sidecar
+uv run python examples/inspect_capture.py sample_data/hackrf_one/fm_98.1MHz_8Msps.iq
+```
+
+Nothing in the examples or the default test run needs them; only
+`fm_2Msps.iq` is required.
 
 Download: `<release asset URL to be added>`
 

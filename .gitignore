@@ -219,5 +219,8 @@ __marimo__/
 
 # Large raw IQ captures live in GitHub release assets, not in git (150 MB of
 # ci8 that no test or example reads). A local copy downloaded next to the
-# shipped sample must never be re-added by a careless `git add .`.
-sdr_dsp/sample_data/hackrf_one/
+# shipped sample must never be re-added by a careless `git add .`. Only the
+# payloads are ignored: the .sigmf-meta sidecars and .report.json health
+# reports are tiny, are what FileSource needs to interpret a downloaded .iq,
+# and stay in git.
+sdr_dsp/sample_data/hackrf_one/*.iq

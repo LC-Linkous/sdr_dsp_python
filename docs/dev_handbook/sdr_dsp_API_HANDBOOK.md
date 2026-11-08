@@ -1943,15 +1943,27 @@ so the responsibility is yours.
 
 
 
-### `psd(iq, sample_rate, nfft=1024, window='hann', center_freq=0.0)`
+### `psd(iq, sample_rate, nfft=1024, window='hann', center_freq=0.0, scaling='density')`
 
 Power spectral density of a complex signal via Welch averaging. OUR code.
 
 Splits the signal into nfft-length frames, windows each, FFTs (numpy),
 accumulates |X|^2, averages, and scales. Returns (freqs_hz, psd_db).
 
+scaling:   "density" (default) -> dB relative to 1 (unit^2)/Hz: the
+           averaged |FFT|^2 divided by sample_rate * sum(window^2). The
+           level of a tone then depends on nfft and sample_rate (it is a
+           density), which is right for comparing noise floors and for
+           integrating power over a band.
+           "dbfs" -> dB relative to full scale PER BIN: divided by
+           sum(window)^2, so a full-scale complex tone (|x| = 1, the level
+           a HackRF/RTL-SDR int8 sample of +/-127 lands on after /128)
+           sitting on a bin reads 0 dBFS, independent of nfft and
+           sample_rate. This is what a spectrum display wants. A tone
+           between bins reads lower by the window's scalloping loss (up to
+           1.4 dB for Hann).
 freqs_hz:  frequency axis centered on center_freq, fftshifted (low->high).
-psd_db:    10*log10 of the averaged power spectrum.
+psd_db:    10*log10 of the averaged, scaled power spectrum.
 
 Raises ValueError if the signal is shorter than one frame (len(iq) < nfft):
 there is no full frame to transform. Pass a smaller nfft, or pad the signal
@@ -1969,6 +1981,7 @@ occupied_bandwidth, snr_db -- confidently wrong on short inputs.)
 | `nfft` |  | `1024` |
 | `window` |  | `'hann'` |
 | `center_freq` |  | `0.0` |
+| `scaling` |  | `'density'` |
 
 
 
@@ -5038,15 +5051,27 @@ so the responsibility is yours.
 
 
 
-### `psd(iq, sample_rate, nfft=1024, window='hann', center_freq=0.0)`
+### `psd(iq, sample_rate, nfft=1024, window='hann', center_freq=0.0, scaling='density')`
 
 Power spectral density of a complex signal via Welch averaging. OUR code.
 
 Splits the signal into nfft-length frames, windows each, FFTs (numpy),
 accumulates |X|^2, averages, and scales. Returns (freqs_hz, psd_db).
 
+scaling:   "density" (default) -> dB relative to 1 (unit^2)/Hz: the
+           averaged |FFT|^2 divided by sample_rate * sum(window^2). The
+           level of a tone then depends on nfft and sample_rate (it is a
+           density), which is right for comparing noise floors and for
+           integrating power over a band.
+           "dbfs" -> dB relative to full scale PER BIN: divided by
+           sum(window)^2, so a full-scale complex tone (|x| = 1, the level
+           a HackRF/RTL-SDR int8 sample of +/-127 lands on after /128)
+           sitting on a bin reads 0 dBFS, independent of nfft and
+           sample_rate. This is what a spectrum display wants. A tone
+           between bins reads lower by the window's scalloping loss (up to
+           1.4 dB for Hann).
 freqs_hz:  frequency axis centered on center_freq, fftshifted (low->high).
-psd_db:    10*log10 of the averaged power spectrum.
+psd_db:    10*log10 of the averaged, scaled power spectrum.
 
 Raises ValueError if the signal is shorter than one frame (len(iq) < nfft):
 there is no full frame to transform. Pass a smaller nfft, or pad the signal
@@ -5064,6 +5089,7 @@ occupied_bandwidth, snr_db -- confidently wrong on short inputs.)
 | `nfft` |  | `1024` |
 | `window` |  | `'hann'` |
 | `center_freq` |  | `0.0` |
+| `scaling` |  | `'density'` |
 
 
 
@@ -7847,6 +7873,51 @@ continues the LO from where the previous block left it. Output matches
 #### `reset(self) -> 'None'`
 
 Forget all carried history, e.g. after a retune or a stream restart.
+
+
+
+
+### class `StreamingPSD`
+
+``psd`` over a live stream: one averaged spectrum per ``avg`` frames.
+
+Feed blocks of any size; the stage buffers them and, each time
+``avg * nfft`` new samples have arrived, returns ``psd()`` of exactly those
+samples (the dB array; the frequency axis is ``.freqs``). Otherwise it
+returns None. The math is ``core.psd`` itself, not a copy, so a stream fed
+through this stage emits the same numbers ``psd()`` gives on the same
+samples -- to the bit, not to a tolerance.
+
+nfft, window, scaling: as for ``psd``; scaling defaults to "dbfs" because
+  a display is the usual consumer (see ``psd`` for the two scales).
+avg: frames per emitted spectrum (Welch averaging depth). 1 = every frame.
+sample_rate, center_freq: for the frequency axis. With sample_rate None the
+  axis is in cycles/sample and only "dbfs" scaling is allowed ("density"
+  needs the rate).
+
+``reset()`` drops any buffered partial frame -- call it on a retune so a
+spectrum never straddles two centre frequencies. ``frames_emitted`` counts
+outputs. Blocks are not dropped: a slow consumer sees every spectrum,
+later; rate-limit upstream (skip calls) if that is not wanted.
+
+
+**Constructor:** `StreamingPSD(self, nfft=1024, avg=1, window='hann', scaling='dbfs', sample_rate=None, center_freq=0.0)`
+
+| Parameter | Type | Default |
+|---|---|---|
+| `nfft` |  | `1024` |
+| `avg` |  | `1` |
+| `window` |  | `'hann'` |
+| `scaling` |  | `'dbfs'` |
+| `sample_rate` |  | `None` |
+| `center_freq` |  | `0.0` |
+
+
+**Methods:**
+
+#### `reset(self) -> 'None'`
+
+Drop buffered samples (e.g. after a retune). Keeps the axis/config.
 
 
 

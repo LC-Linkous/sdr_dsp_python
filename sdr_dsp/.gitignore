@@ -222,4 +222,5 @@ __marimo__/
 *.sigmf-data
 *.sigmf-meta
 !sample_data/*.sigmf-meta
+!sample_data/hackrf_one/*.sigmf-meta
 dev_data/

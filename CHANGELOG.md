@@ -10,6 +10,28 @@ was measured, why a design went the way it did) lives in `docs/LOG.md`.
 
 ## [Unreleased]
 
+### Added (for downstream consumers, hackrf-web 0.3)
+- `psd(..., scaling="density" | "dbfs")`. Default "density" is unchanged
+  (power/Hz). "dbfs" divides by sum(window)^2 so a full-scale complex tone on
+  a bin reads 0 dBFS per bin regardless of nfft and sample rate -- the
+  spectrum-display scale. Pinned: 0.0 +/- 0.1 dB at two FFT sizes, -1.42 dB
+  Hann scalloping for a half-bin tone, -6.02 dB at half amplitude.
+- `stream.StreamingPSD(nfft, avg=1, window="hann", scaling="dbfs",
+  sample_rate=None, center_freq=0.0)`: buffers blocks of any size and returns
+  `psd()` of each `avg * nfft` samples (else None); `.freqs` is the axis,
+  `reset()` drops a partial frame on retune, `frames_emitted` counts. It calls
+  `core.psd` for the math, so its output is bit-equal to `psd()` on the same
+  samples (tested over four block-size patterns). `sample_rate` is optional
+  because "dbfs" does not need it; "density" does and is refused without it.
+- SigMF sidecars for the two raw 8 Msps captures
+  (`sample_data/hackrf_one/*.sigmf-meta`, with the payload sha256 and the gains
+  from the capture-time health report). The sidecars and `.report.json` files
+  stay in git; only the 80 MB `.iq` payloads are ignored and distributed as
+  release assets, so `FileSource` can read a downloaded copy.
+- Packaging verified: sdist (110 KB) and wheel (135 KB) contain `src/`,
+  LICENSE, README and `pyproject.toml` only -- no `sample_data/`, `examples/`
+  or `tools/`.
+
 ### Fixed (loop characterization pass)
 - `carrier_recovery` Costas detectors are normalized by the input rms. They
   are linear in amplitude (sign(I)*Q is |s|*sin(error)), so the loop gains
