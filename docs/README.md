@@ -18,7 +18,7 @@ Start at the quickstart: [`../sdr_dsp/README.md`](../sdr_dsp/README.md)
 
 | File | Who it is for |
 |---|---|
-| [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | Anyone filing a bug, sharing a capture, or sending a small PR. |
+| [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | Anyone filing a bug, sharing a capture, or wondering why PRs are closed for now. |
 | [`ADDING_AN_SDR.md`](ADDING_AN_SDR.md) | Anyone pointing the library at a radio other than the HackRF: the `IQSource`/`TXSink` seam, the porting process and record. |
 | [`dev_handbook/`](dev_handbook/) | Generated API handbook plus the scripts that produce it (CI checks it is current). |
 
@@ -27,6 +27,7 @@ Start at the quickstart: [`../sdr_dsp/README.md`](../sdr_dsp/README.md)
 | File | Who it is for |
 |---|---|
 | [`TODO.md`](TODO.md) | Open work in priority order, plus known limitations. The LOG's deferrals live here. |
+| [`RELEASING.md`](RELEASING.md) | The maintainer, cutting a version: one-time PyPI setup, the per-release checklist, what is not part of a release. |
 | [`LOG.md`](LOG.md) | The dated development log, newest first: what was tried, measured, and why. |
 | [`notes/`](notes/) | One-off investigation notes (currently the packet-capture converter note). |
 

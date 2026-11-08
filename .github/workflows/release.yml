@@ -1,0 +1,112 @@
+# Publish sdr_dsp to PyPI when a version tag is pushed.
+#
+#   git tag v0.3.0 && git push origin v0.3.0
+#
+# What it guards:
+#   * the tag must equal the version in sdr_dsp/pyproject.toml (a v0.3.1 tag on
+#     a 0.3.0 tree is refused before anything is built);
+#   * the suite, ruff and mypy run once more on the tagged commit -- tags are
+#     cut from a green main, but this is the commit that ships;
+#   * the built wheel and sdist pass `twine check` (PyPI's own metadata rules)
+#     and contain only the package (no sample_data/, examples/, tools/).
+#
+# How it authenticates: PyPI "trusted publishing" (OIDC). There is no API
+# token anywhere in this repo or its secrets. ONE-TIME SETUP on pypi.org,
+# before the first tag: Your projects -> Publishing -> add a pending publisher
+# with owner LC-Linkous, repository sdr_dsp_python, workflow release.yml,
+# environment pypi. docs/RELEASING.md has the full checklist.
+#
+# The two jobs are split so the `pypi` environment (which you can protect with
+# a required reviewer in repo Settings -> Environments) only wraps the publish
+# step, not the tests.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: verify and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdr_dsp
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: sdr_dsp/uv.lock
+
+      - name: Tag matches pyproject version
+        run: |
+          set -e
+          tag="${GITHUB_REF_NAME#v}"
+          ver="$(uv run --no-project --python 3.12 python -c 'import tomllib;print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')"
+          echo "tag=$tag pyproject=$ver"
+          test "$tag" = "$ver" || { echo "::error::tag v$tag does not match pyproject version $ver"; exit 1; }
+
+      - name: Sync (locked)
+        run: uv sync --locked --python 3.12
+
+      - name: Suite, ruff, mypy, handbook on the tagged commit
+        run: |
+          uv run pytest -q
+          uv run ruff check . ../docs/dev_handbook
+          uv run mypy
+          uv run python ../docs/dev_handbook/generate_api_handbook.py --check ../docs/dev_handbook/sdr_dsp_API_HANDBOOK.md
+
+      - name: Build wheel and sdist
+        run: uv build
+
+      - name: Artifacts contain the package only
+        run: |
+          set -e
+          uv run --with twine twine check dist/*
+          # anything outside src/, LICENSE*, README.md, pyproject.toml, PKG-INFO is a packaging regression
+          bad="$(tar tzf dist/*.tar.gz | sed 's|^[^/]*/||' | grep -Ev '^(src(/|$)|LICENSE|README\.md$|pyproject\.toml$|PKG-INFO$)' || true)"
+          if [ -n "$bad" ]; then echo "::error::unexpected files in sdist:"; echo "$bad"; exit 1; fi
+          ls -la dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: sdr_dsp/dist/
+          if-no-files-found: error
+
+  publish:
+    name: publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/sdr-dsp/
+    permissions:
+      id-token: write      # trusted publishing
+      contents: write      # attach the artifacts to the GitHub release
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          print-hash: true
+
+      - name: Attach artifacts to the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: false
+          body: |
+            `pip install sdr-dsp` -- what changed is in
+            [CHANGELOG.md](https://github.com/LC-Linkous/sdr_dsp_python/blob/main/CHANGELOG.md).

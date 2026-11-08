@@ -1,6 +1,6 @@
 [project]
 name = "sdr_dsp"
-version = "0.2.0"
+version = "0.3.0"
 description = "A device-agnostic digital signal processing library for software-defined radio IQ."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -9,7 +9,7 @@ license-files = ["LICENSE*"]
 authors = [{ name = "LC-Linkous" }]
 keywords = ["sdr", "dsp", "iq", "radio", "signal-processing", "hackrf"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -32,6 +32,8 @@ dependencies = [
 Homepage = "https://github.com/LC-Linkous/sdr_dsp_python"
 Repository = "https://github.com/LC-Linkous/sdr_dsp_python"
 Issues = "https://github.com/LC-Linkous/sdr_dsp_python/issues"
+Changelog = "https://github.com/LC-Linkous/sdr_dsp_python/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/LC-Linkous/sdr_dsp_python/blob/main/docs/README.md"
 
 [project.optional-dependencies]
 # These extras are for DOWNSTREAM INSTALLS of the library (pip install
