@@ -77,6 +77,24 @@ def test_streaming_fir_blocks_shorter_than_filter(fm_iq):
     np.testing.assert_allclose(got, fir_apply(fm_iq, taps), atol=2e-6)
 
 
+def test_streaming_fir_carries_history_across_a_dtype_change(fm_iq):
+    # a source that hands over complex64 then complex128 is a caller-side
+    # event, not a new stream; the delay line used to be silently ZEROED on
+    # the dtype change, which put a filter-length click at the switch
+    taps = design_lowpass(30e3, FS, num_taps=129)
+    ref = fir_apply(fm_iq, taps)
+    stage = StreamingFIR(taps)
+    a = stage(fm_iq[:5000].astype(np.complex64))
+    b = stage(fm_iq[5000:].astype(np.complex128))
+    got = np.concatenate([a, b])
+    np.testing.assert_allclose(got, ref, rtol=0, atol=2e-6)
+    # complex -> real would have to discard the imaginary history: refuse
+    with pytest.raises(TypeError, match="complex to real"):
+        stage(np.ones(10, dtype=np.float64))
+    stage.reset()
+    stage(np.ones(10, dtype=np.float64))     # fine after an explicit reset
+
+
 def test_stateless_fir_per_block_is_actually_wrong(fm_iq):
     """The reason the stage exists: the naive pattern fails this same check."""
     taps = design_lowpass(30e3, FS, num_taps=129)

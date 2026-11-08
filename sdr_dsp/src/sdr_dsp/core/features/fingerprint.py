@@ -62,7 +62,11 @@ def fingerprint_vector(
     iq : np.ndarray
         Complex baseband for this capture (ideally post-recovery). Not mutated.
     sample_rate : float
-        Sample rate (Hz).
+        Sample rate (Hz). Accepted for a stable call signature and NOT used
+        by any current feature: every estimator here is sample-rate-free
+        (ratios of powers, a phase variance, a ppm conversion from
+        ``cfo_hz``/``carrier_hz``). It is kept so that a rate-dependent
+        feature can be added without changing every caller.
     carrier_hz : float
         Nominal carrier (Hz), for the ppm conversion.
     cfo_hz : float, default 0.0

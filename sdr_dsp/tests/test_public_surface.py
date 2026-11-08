@@ -47,6 +47,44 @@ def test_all_has_no_duplicates(modname):
     assert not dupes, f"{modname}.__all__ lists twice: {dupes}"
 
 
+# The radio-characterization tier: exported from sdr_dsp.core, deliberately
+# NOT flattened to the top-level package (see the core/__init__ docstring).
+CORE_ONLY = {
+    # device-impairment synthesis
+    "add_iq_imbalance", "add_pa_nonlinearity", "add_phase_noise",
+    "DeviceImpairments", "make_device_impairments", "apply_device_impairments",
+    # fingerprint estimators / feature vector
+    "estimate_iq_imbalance", "iq_image_ratio", "estimate_cfo_ppm",
+    "estimate_phase_noise_variance", "decide_symbols", "error_vector",
+    "evm_stats", "EVM_FEATURE_NAMES", "fingerprint_vector", "FEATURE_NAMES",
+    # capture health / pilot gating
+    "capture_health", "fm_pilot_excess_db",
+    # gain search engine and models
+    "search_gain", "peak_counts", "search_gain_model", "GainStage",
+    "GainModel", "hackrf_gain_model", "rtlsdr_gain_model",
+    # window helper
+    "get_window",
+}
+
+
+def test_export_tiers_are_the_documented_split():
+    # Every core name is either flattened to the top level or in the
+    # documented core-only set -- nothing lands in a tier by accident. A new
+    # core export must be added to sdr_dsp.__all__ OR to CORE_ONLY (and the
+    # core/__init__ docstring), as a decision.
+    import sdr_dsp
+    core_names = set(sdr_dsp.core.__all__)
+    top_names = set(sdr_dsp.__all__)
+    core_only = core_names - top_names
+    assert core_only == CORE_ONLY, (
+        f"unclassified core exports: {sorted(core_only - CORE_ONLY)}; "
+        f"listed as core-only but flattened or gone: {sorted(CORE_ONLY - core_only)}")
+    # and the top level never exports a core name that core itself does not
+    submods = {"core", "io", "sinks", "stream", "link", "Pipeline",
+               "IQSource", "ArraySource", "FileSource"}
+    assert (top_names - submods) <= core_names
+
+
 def test_lazy_submodules_load_and_are_cached():
     for name in ("io", "sinks", "stream", "link"):
         mod = getattr(sdr_dsp, name)

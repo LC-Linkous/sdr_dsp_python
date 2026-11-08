@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate an ASCII file tree of the dcdash project."""
+"""Generate an ASCII file tree of the sdr_dsp_python repo (for the docs)."""
 
 import sys
 from pathlib import Path

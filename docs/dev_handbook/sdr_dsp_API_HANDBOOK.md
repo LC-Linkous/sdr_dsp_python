@@ -101,7 +101,7 @@ the same pipeline code a file or device would drive.
 
 #### `blocks(self) -> 'Iterator[np.ndarray]'`
 
-_No docstring._
+Yield the array in consecutive ``block_size`` slices (last may be short).
 
 
 #### `read(self, n_samples: 'int') -> 'np.ndarray'`
@@ -327,13 +327,20 @@ A source + an ordered chain of block->block stages (and taps).
 Build declaratively and run:
 
     pipe = (Pipeline(source)
-            .add(lambda b: fir_apply(b, taps), "filter")
-            .add(lambda b: fm_demod(b, 75000, fs), "demod")
+            .add(StreamingFIR(taps), "filter")
+            .add(StreamingFMDemod(75000, fs), "demod")
             .tap(lambda b: meter.update(b)))      # live peek, flow unchanged
     audio = pipe.run()                            # or run(sink=write_audio)
 
 Stages transform the block; taps observe it and return nothing (the original
 block continues). Order matters and is preserved.
+
+Use the ``Streaming*`` stages (``sdr_dsp.stream.stages``) for anything with
+memory -- filters, mixers, the FM discriminator, resamplers. A bare core
+function such as ``lambda b: fir_apply(b, taps)`` restarts its delay line
+at every block and clicks at every seam; it is fine only for stages that
+are genuinely per-sample (``to_db``, ``am_demod`` without dc_block, a
+slicer) or for taps.
 
 
 **Constructor:** `Pipeline(self, source)`
@@ -360,6 +367,24 @@ Append a transforming stage (block -> block).
 Return the chain as inspectable text (the pipeline is data).
 
 
+#### `flush(self) -> 'list'`
+
+Drain the look-ahead held inside stages once the stream has ended.
+
+Stages with internal look-ahead (``StreamingResampler``) hold back the
+last few output samples until they know the stream is over; without a
+flush that tail is silently lost. This walks the chain in order: each
+stage that exposes ``flush()`` is asked for its tail, and that tail is
+threaded through every LATER stage (taps included) exactly like a
+normal block -- so a downstream stage with its own look-ahead receives
+the upstream tail before being flushed itself.
+
+Returns the list of non-empty processed tail blocks (usually 0 or 1).
+``run()`` and ``stream()`` call this when the source is exhausted;
+call it yourself only if you drive ``process_block`` by hand.
+Flushing twice is harmless: a drained stage returns nothing.
+
+
 #### `process_block(self, block)`
 
 Thread a single block through every stage. Useful for testing and
@@ -379,6 +404,11 @@ sink:       callable(result_block) -> None. If None, results are
 profile:    if True, also return PipelineStats (per-stage timing).
 max_blocks: stop after this many blocks (useful for live sources).
 
+When the source runs dry the stages are flushed (see ``flush``) and
+any tail is delivered like a final block, so a Pipeline run produces
+the same sample count as the whole-record function. Stopping early via
+``max_blocks`` does NOT flush: the stream was cut, not ended.
+
 Returns the result list (or None if a sink was given); if profile,
 returns (results_or_None, PipelineStats).
 
@@ -395,7 +425,9 @@ Run as a generator, yielding each processed block lazily.
 
 This is the bridge to the generator-chain style: a Pipeline can be
 consumed lazily, so it composes with other generators and stays
-memory-friendly for long/continuous streams.
+memory-friendly for long/continuous streams. Like ``run``, it flushes
+the stages' look-ahead when the source is exhausted (not when cut by
+``max_blocks``) and yields any tail as a final block.
 
 | Parameter | Type | Default |
 |---|---|---|
@@ -619,12 +651,13 @@ decision statistic (useful for confidence / plotting a constellation).
 
 ### `bpsk_modulate(bits, samples_per_symbol=1, pulse_shaping=False, beta=0.35, span_symbols=8, pad_symbols=0)`
 
-BPSK: bit 0 -> +1, bit 1 -> -1 (phase 0 or pi). Inverse of bpsk_demod.
+BPSK: bit 1 -> +1, bit 0 -> -1 (phase 0 or pi). Inverse of bpsk_demod.
 
 Carries one bit per symbol in the carrier phase. With pulse_shaping=False the
 symbols are held rectangular (sps samples each); with pulse_shaping=True they
 are RRC-shaped for a bandlimited spectrum (use a matched RRC filter on
-receive). bpsk_demod recovers bits from the real part's sign.
+receive). bpsk_demod recovers bits from the real part's sign: positive is
+a 1, negative a 0 -- the mapping above is that convention, written out.
 
 bits:               sequence of 0/1.
 samples_per_symbol: samples per symbol (1 = one sample per symbol).
@@ -822,6 +855,33 @@ both are first-class.
 | `a` |  | *required* |
 | `b` |  | *required* |
 | `mode` |  | `'full'` |
+
+
+
+### `correct_fm_cfo(iq, sample_rate, cfo_hz=None, **kwargs)`
+
+Remove a broadcast-FM carrier frequency offset. OUR code.
+
+If ``cfo_hz`` is None it is measured with ``estimate_fm_cfo`` (any keyword
+arguments are forwarded to it). The correction is a frequency shift by
+``-cfo_hz`` -- ``frequency_shift(iq, -cfo_hz, sample_rate)`` -- which brings
+the carrier back to center. Estimating and correcting are separated on
+purpose (``estimate_fm_cfo`` never mutates data), and this is the
+convenience that does both in one call for the common case.
+
+Returns ``(corrected_iq, cfo_hz)`` so the applied correction is visible to
+the caller. When the offset cannot be estimated (capture too short or rate
+too low), returns the input unchanged with ``cfo_hz = 0.0``.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `iq` |  | *required* |
+| `sample_rate` |  | *required* |
+| `cfo_hz` |  | `None` |
+| `kwargs` (**kwargs) |  | *required* |
 
 
 
@@ -1141,6 +1201,62 @@ offset when mark/space time is roughly balanced.
 
 
 
+### `estimate_fm_cfo(iq, sample_rate, *, channel_bw=100000.0, trim_hz=None)`
+
+Estimate a broadcast-FM capture's carrier frequency offset, in Hz.
+
+Method: the phase discriminator's DC term. Under a constant carrier
+offset df, ``angle(x[n] * conj(x[n-1]))`` picks up that same df at every
+sample, while the program audio (the wanted FM message) averages to zero
+over a long window. So the MEAN of the demodulated instantaneous frequency
+IS the carrier offset. This is the fine, accurate estimator for FM, and is
+distinct from ``estimate_cfo``: that one finds where energy sits in the
+passband (a coarse, spread-out measurement for a wideband FM signal),
+whereas this recovers the sub-kHz crystal offset a real receiver must
+correct.
+
+The capture is channelized (lowpass + decimate to the FM channel) before
+discriminating, for exactly the reason ``fm_pilot_excess_db`` documents: a
+discriminator fed the full capture bandwidth is dominated by out-of-channel
+noise and adjacent stations, and the mean of that is meaningless. On the
+channelized signal the mean is the offset.
+
+Why NOT the 19 kHz pilot: with a differential discriminator a carrier
+offset adds a DC term but does NOT move the pilot -- differentiation is
+invariant to a constant frequency shift -- so the pilot's position carries
+no CFO information (a tempting shortcut -- "just read the CFO off the
+pilot" -- that does not work). The pilot's real role here is a presence gate: confirm a
+station is actually there with ``fm_pilot_excess_db`` before trusting this
+number, because the mean of noise is not a carrier offset.
+
+Args:
+    channel_bw: FM channel half-not-needed; used only to size the click
+        trim. Broadcast FM is ~100 kHz half-bandwidth of program content.
+    trim_hz: discriminator "clicks" (phase wraps in deep fades / low SNR)
+        are impulsive outliers that bias a plain mean. Samples whose
+        demodulated frequency exceeds trim_hz in magnitude are dropped
+        before averaging. Default 1.5 * channel_bw keeps the full +/-75 kHz
+        deviation swing while rejecting the near-+/-Nyquist click spikes.
+        Pass None to disable trimming.
+
+Returns the offset in Hz (positive = the signal sits above the tuned
+center), or None when the capture is too short or the rate too low to
+channelize to the FM channel.
+
+OUR code.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `iq` |  | *required* |
+| `sample_rate` |  | *required* |
+| `channel_bw` |  | `100000.0` |
+| `trim_hz` |  | `None` |
+
+
+
 ### `estimate_symbol_rate(bits, sample_rate, min_run=2)`
 
 Estimate samples-per-symbol from the run lengths in a sliced stream.
@@ -1305,9 +1421,13 @@ Demodulate frequency modulation via the phase discriminator. OUR code.
 FM carries the message in instantaneous frequency, so demod IS the
 instantaneous frequency (see instantaneous_frequency). Returns a real array.
 
-If deviation_hz and sample_rate are given, the output is scaled by the peak
-deviation to give roughly normalized audio; otherwise it returns raw
-radians/sample.
+If deviation_hz and sample_rate are both given, the output is scaled by the
+peak deviation to give roughly normalized audio (a tone deviation_hz off
+center reads 1.0); with neither it returns raw radians/sample. Giving one
+without the other is an error: the deviation is in Hz, so it cannot scale
+a rad/sample output, and an earlier version silently returned rad/sample
+in that case -- the caller then had audio ~1e5 times too quiet and no
+indication why.
 
 
 **Parameters:**
@@ -1342,6 +1462,60 @@ Returns unit-magnitude complex64 IQ (FM is constant-envelope).
 | `message` |  | *required* |
 | `deviation_hz` |  | *required* |
 | `sample_rate` |  | *required* |
+
+
+
+### `fm_stereo_decode(composite, sample_rate, pilot_hz=19000.0, audio_bw=15000.0, pilot_bw=1000.0)`
+
+Recover left/right audio from a demodulated FM stereo composite. OUR code.
+
+The input is the MPX baseband -- the real output of ``fm_demod`` at the
+composite rate (>= ~120 kHz so the 38 kHz subcarrier survives), BEFORE
+de-emphasis and audio resampling. Broadcast FM stereo carries:
+
+    composite = (L+R)  +  (L-R)*cos(2*w_p*t)  +  pilot*cos(w_p*t)  [+ RDS]
+
+where w_p is the 19 kHz pilot. (L+R) is the mono sum at baseband (0-15
+kHz); (L-R) is a DSB-SC subcarrier centered at 38 kHz -- exactly twice the
+pilot, and phase-locked to it, which is the whole point of transmitting
+the pilot. Decoding:
+
+  1. Bandpass the pilot at 19 kHz.
+  2. Double its phase to synthesize a UNIT-amplitude 38 kHz reference
+     locked to the subcarrier -- from the pilot's analytic phase, not by
+     squaring (squaring leaves the amplitude and a DC term to clean up).
+     Phase-locking is what makes the coherent detection below work; a
+     free-running 38 kHz oscillator would drift and scramble L-R.
+  3. Coherent-detect the subcarrier: multiply the composite by the 38 kHz
+     reference and lowpass to the audio band. 2 * <mpx * cos(2wt)>
+     recovers (L-R).
+  4. Lowpass the composite directly for (L+R).
+  5. Matrix: L = ((L+R) + (L-R)) / 2, R = ((L+R) - (L-R)) / 2.
+
+Returns (left, right), each real, same length and rate as ``composite``.
+The absolute scale matches ``fm_demod``'s (both are unnormalized); feed
+each channel through ``deemphasis`` and resample to the WAV rate exactly
+as the mono path does, then normalize on write.
+
+De-emphasis is deliberately NOT applied here: it is a separate, opt-in
+stage (like everywhere else in this library), and applying it before the
+matrix would be wrong -- the subcarrier must be detected first.
+
+If the pilot is weak or absent (a mono broadcast, NBFM, or noise), the
+recovered (L-R) is just noise and L ~ R ~ mono; check
+``fm_pilot_excess_db`` first when you need to know whether stereo is
+actually present rather than decoding unconditionally.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `composite` |  | *required* |
+| `sample_rate` |  | *required* |
+| `pilot_hz` |  | `19000.0` |
+| `audio_bw` |  | `15000.0` |
+| `pilot_bw` |  | `1000.0` |
 
 
 
@@ -1420,7 +1594,7 @@ GFSK/MSK well enough for typical ISM-band sensors and pagers.
 
 
 
-### `fsk_demod_nlevel(iq, sample_rate, n_levels=4, thresholds=None)`
+### `fsk_demod_nlevel(iq, sample_rate, n_levels=4, thresholds=None, smooth_samples=0)`
 
 Demodulate N-level FSK (4-FSK, etc.) and CPFSK. OUR code.
 
@@ -1431,9 +1605,19 @@ phase is a transmit-side property; the receiver still reads instantaneous
 frequency.
 
 thresholds: explicit frequency band centers (Hz). If None, the levels are
-spread uniformly across the observed frequency range -- fine for a clean
-capture; pass measured centers for real signals. Returns per-sample symbol
-indices 0..n_levels-1.
+    spread uniformly across the observed frequency range -- fine for a
+    clean capture; pass measured centers for real signals.
+smooth_samples: if > 1, moving-average the instantaneous frequency over
+    this many samples before slicing -- the same cheap matched-filter
+    stand-in fsk_demod offers for the 2-level case, and it matters MORE
+    here: N-level slicing packs the decision bands closer together, so the
+    per-sample discriminator noise that a 2-level sign test shrugs off
+    will scatter symbols across adjacent bands. ~samples_per_symbol/2 is a
+    good value. When None thresholds are used, the percentile band centers
+    are computed from the SMOOTHED frequency too, so the bands match what
+    is being sliced. Off by default -- the per-sample output stays exact.
+
+Returns per-sample symbol indices 0..n_levels-1.
 
 
 **Parameters:**
@@ -1444,6 +1628,7 @@ indices 0..n_levels-1.
 | `sample_rate` |  | *required* |
 | `n_levels` |  | `4` |
 | `thresholds` |  | `None` |
+| `smooth_samples` |  | `0` |
 
 
 
@@ -1747,6 +1932,12 @@ accumulates |X|^2, averages, and scales. Returns (freqs_hz, psd_db).
 freqs_hz:  frequency axis centered on center_freq, fftshifted (low->high).
 psd_db:    10*log10 of the averaged power spectrum.
 
+Raises ValueError if the signal is shorter than one frame (len(iq) < nfft):
+there is no full frame to transform. Pass a smaller nfft, or pad the signal
+yourself if that is what you mean. (An earlier version silently returned a
+flat -200 dB floor here, which made every downstream measurement --
+occupied_bandwidth, snr_db -- confidently wrong on short inputs.)
+
 
 **Parameters:**
 
@@ -1922,13 +2113,28 @@ is never near your signal in the first place. See docs/DC_SPIKE.md.
 
 ### `resample_poly(iq, up, down, half_len=10, window='hamming')`
 
-Rational resample by up/down. OUR implementation (polyphase concept).
+Rational resample by up/down. OUR implementation (polyphase).
 
-Implements the classic upsample -> lowpass -> downsample, with the zero
-insertion and decimation done explicitly and the lowpass applied by our own
-``fir_apply``. Verified ~equal to ``scipy.signal.resample_poly`` in tests.
+A rational resample is: insert (up-1) zeros between samples, lowpass at the
+upsampled rate, keep every down-th sample. Doing it literally filters
+``up`` times more samples than it keeps and multiplies mostly by zeros
+(``_resample_poly_direct`` -- 300x slower than this at 24/125). The
+polyphase form computes only the outputs that survive: every output sample
+sits at one of ``up`` phases of the zero-stuffed grid, and at phase p only
+the taps h[p], h[p+up], h[p+2*up], ... ever meet a non-zero input, so each
+phase is an ordinary convolution of the INPUT with that short sub-filter,
+evaluated at a stride of ``down``. The result is the same filter and the
+same samples as the direct form (tested to 1e-12), at ``1/up`` of the work.
 
-up, down:  resampling ratio (reduced internally).
+The anti-alias filter is designed by scipy (firwin, our implementation
+rule); its group delay is compensated so output aligns with input, and the
+output length is ceil(n * up / down), both matching
+``scipy.signal.resample_poly`` (verified in tests).
+
+up, down:  resampling ratio, as positive INTEGERS (reduced internally).
+           A non-integer is an error, not rounded: resample_poly(x, 2.7, 1)
+           once silently became a 2x resample. For an arbitrary ratio pick
+           an integer pair (e.g. 27/10) or use decimate()/interpolate().
 half_len:  controls filter length / quality.
 
 
@@ -2133,6 +2339,18 @@ method:
   "early_late"     : early-late gate -- simple, intuitive.
   "mueller_muller" : Mueller & Muller -- 1 sps, decision-aided.
 samples_per_symbol: nominal sps (from estimate_symbol_rate or known rate).
+loop_bw: proportional gain of the timing loop, in samples of correction per
+  unit (power-normalized) TED output. damping: damping ratio of the
+  second-order loop; the integral gain follows from it as (loop_bw/2*zeta)^2,
+  so the loop can track a steady symbol-rate offset without a standing
+  error. Smaller loop_bw = slower but steadier lock.
+
+The TED output is normalized by the signal's mean power before it drives
+the loop, so the loop behaves the same whether the input is at 0.01 or
+100x full scale; every TED here scales with |x|^2 and an unnormalized loop
+would overshoot and skip symbols on a strong signal. Each correction is
+also clamped to +/- sps/4: a single TED sample can never move the sampling
+instant by more than a quarter symbol.
 
 
 **Parameters:**
@@ -2363,6 +2581,126 @@ the estimators are tested against.
 
 
 
+### class `GainModel`
+
+A radio's gain, as an ordered set of :class:`GainStage`.
+
+Frontend stages are swept for SNR; the last level stage (or, if there is
+none, the last frontend stage) is walked for ADC level. Escalation on
+clip/too-weak steps the remaining frontend stages in declared order, so
+put the cheaper-to-change stage first (LNA before amp).
+
+
+**Constructor:** `GainModel(self, stages: 'Sequence[GainStage]')`
+
+| Parameter | Type | Default |
+|---|---|---|
+| `stages` | `Sequence[GainStage]` | *required* |
+
+
+**Methods:**
+
+#### `by_name(self, name)`
+
+Return the :class:`GainStage` called ``name``; ``KeyError`` if absent.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `name` |  | *required* |
+
+
+#### `default_frontend(self)`
+
+Each frontend stage at its :meth:`GainStage.default_value`, as a dict.
+
+
+#### `frontend_db(self, combo)`
+
+Total frontend gain in dB for a ``{name: value}`` combo (stages not
+in ``combo`` contribute nothing).
+
+| Parameter | Type | Default |
+|---|---|---|
+| `combo` |  | *required* |
+
+
+#### `frontend_grid(self)`
+
+Every combination of frontend stage settings, as dicts.
+
+
+#### `level_stage(self)`
+
+The stage walked for ADC level: the last level stage, or -- when the
+radio has none -- the last frontend stage (one knob does both).
+
+
+#### `min_settings(self)`
+
+Every stage at its lowest step, as a ``{name: value}`` dict.
+
+
+
+
+### class `GainStage`
+
+One gain control on a radio.
+
+name:    the key the probe expects (e.g. "lna", "vga", "amp", "gain").
+steps:   the legal settings, ascending by gain (device values -- ints/floats
+         of dB, or booleans for an on/off amp).
+role:    "frontend" (improves SNR) or "level" (sets ADC level after SNR).
+db:      value -> dB weight, used to rank "less gain" on ties and to size
+         level moves. Defaults to float(value); an on/off amp passes its
+         own (e.g. 14 dB when True).
+default: the value used when this stage is NOT chosen by a quality sweep
+         (no quality metric available). None means the lowest step.
+
+
+**Constructor:** `GainStage(self, name: 'str', steps: 'tuple', role: 'str', db: 'Callable[..., float]' = <class 'float'>, default: 'object' = None) -> None`
+
+| Parameter | Type | Default |
+|---|---|---|
+| `name` | `str` | *required* |
+| `steps` | `tuple` | *required* |
+| `role` | `str` | *required* |
+| `db` | `Callable[..., float]` | `<class 'float'>` |
+| `default` | `object` | `None` |
+
+
+**Methods:**
+
+#### `db(x=0, /)`
+
+Convert a string or number to a floating-point number, if possible.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `x` |  | `0` |
+
+
+#### `default_value(self)`
+
+The setting used when no quality sweep picks this stage: ``default``
+if given, otherwise the lowest step.
+
+
+#### `min_gap(self)`
+
+Smallest positive spacing between consecutive numeric steps.
+
+
+
+**Attributes:**
+
+- `name`: `str`
+- `steps`: `tuple`
+- `role`: `str`
+- `db`: `Callable[..., float]`
+- `default`: `object`
+
+
+
 ### class `LoopDiagnostics`
 
 Per-sample evidence of a recovery loop's behavior.
@@ -2513,7 +2851,7 @@ set noise -- by the SNR you want, not an arbitrary amplitude.
 
 
 
-### `add_pa_nonlinearity(iq: 'np.ndarray', coeffs: 'np.ndarray | list[complex]') -> 'np.ndarray'`
+### `add_pa_nonlinearity(iq: 'np.ndarray', coeffs: 'np.ndarray | Sequence[complex]') -> 'np.ndarray'`
 
 Apply a memoryless power-amplifier nonlinearity (odd-order polynomial).
 
@@ -2560,7 +2898,7 @@ fall out of band and are not represented here.
 | Parameter | Type | Default |
 |---|---|---|
 | `iq` | `np.ndarray` | *required* |
-| `coeffs` | `np.ndarray | list[complex]` | *required* |
+| `coeffs` | `np.ndarray | Sequence[complex]` | *required* |
 
 
 **Returns:** `np.ndarray`
@@ -2796,12 +3134,13 @@ decision statistic (useful for confidence / plotting a constellation).
 
 ### `bpsk_modulate(bits, samples_per_symbol=1, pulse_shaping=False, beta=0.35, span_symbols=8, pad_symbols=0)`
 
-BPSK: bit 0 -> +1, bit 1 -> -1 (phase 0 or pi). Inverse of bpsk_demod.
+BPSK: bit 1 -> +1, bit 0 -> -1 (phase 0 or pi). Inverse of bpsk_demod.
 
 Carries one bit per symbol in the carrier phase. With pulse_shaping=False the
 symbols are held rectangular (sps samples each); with pulse_shaping=True they
 are RRC-shaped for a bandlimited spectrum (use a matched RRC filter on
-receive). bpsk_demod recovers bits from the real part's sign.
+receive). bpsk_demod recovers bits from the real part's sign: positive is
+a 1, negative a 0 -- the mapping above is that convention, written out.
 
 bits:               sequence of 0/1.
 samples_per_symbol: samples per symbol (1 = one sample per symbol).
@@ -2845,6 +3184,74 @@ The CRC covers the length byte and the payload, so a receiver validates both.
 | `payload` |  | *required* |
 | `sync` |  | `None` |
 | `preamble_bits` |  | `32` |
+
+
+
+### `capture_health(iq, sample_rate, channel_bw=None, adc_bits=8, min_counts=4.0, min_excess_db=3.0, nfft=8192)`
+
+Assess whether a recording actually contains a signal. OUR code.
+
+Answers the question that precedes all DSP: is there anything in this
+file? Nearly every "it ran without errors but the output is silent or
+sounds like hiss" report is a property of the recording -- an antenna
+that wasn't connected, gain set too low, or a capture tuned somewhere
+with nothing on it -- and no amount of processing recovers a signal that
+was never recorded.
+
+Two independent checks:
+
+``adc_counts``
+    How much of the digitizer's range the recording used, recovered by
+    scaling the normalized peak back up by the converter's full scale.
+    A capture peaking at a couple of counts out of 127 is quantization
+    noise; there is no signal in it at any gain setting downstream.
+
+    Measured per component, as max(|I|, |Q|), because I and Q are
+    quantized by separate converters and clipping happens to each of
+    them independently. The complex magnitude |I + jQ| would read up to
+    sqrt(2) higher and can exceed full scale outright -- a sample at
+    I=127, Q=127 is 179 by that measure, which is not a number any 8-bit
+    converter can produce.
+
+``channel_excess_db``
+    Power inside ``channel_bw`` of DC, relative to the outer 20% of the
+    span. A real carrier is a hump standing above its surroundings; a
+    flat spectrum means nothing is there. Skipped when channel_bw is
+    None or the capture is too short to average.
+
+Args:
+    iq:          complex samples normalized to +/-1 (as sources return).
+    sample_rate: Hz, used to place the channel band.
+    channel_bw:  half-width in Hz of the channel of interest. None skips
+                 the spectral check.
+    adc_bits:    converter width; 8 for HackRF's ci8. Counts scale is
+             2**(adc_bits-1) = 128, matching the loader's /128
+             normalization, so a full-scale sample reads as +/-128.
+    min_counts:  ADC counts below which the capture is called empty.
+    min_excess_db: in-band excess below which no carrier is called.
+    nfft:        FFT size for the averaged spectrum.
+
+Returns a dict with ``ok`` (bool), ``adc_counts``, ``channel_excess_db``
+(None if not computed), ``peak_dbfs``, and ``reasons`` (list of strings
+describing each failure, empty when ok).
+
+This is a screening tool, not a detector. A signal far weaker than the
+noise floor in the channel -- spread spectrum below the noise, say --
+will be reported as absent, which is the right answer for "can I demod
+this directly" and the wrong one for "is there anything here at all."
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `iq` |  | *required* |
+| `sample_rate` |  | *required* |
+| `channel_bw` |  | `None` |
+| `adc_bits` |  | `8` |
+| `min_counts` |  | `4.0` |
+| `min_excess_db` |  | `3.0` |
+| `nfft` |  | `8192` |
 
 
 
@@ -2999,6 +3406,33 @@ both are first-class.
 | `a` |  | *required* |
 | `b` |  | *required* |
 | `mode` |  | `'full'` |
+
+
+
+### `correct_fm_cfo(iq, sample_rate, cfo_hz=None, **kwargs)`
+
+Remove a broadcast-FM carrier frequency offset. OUR code.
+
+If ``cfo_hz`` is None it is measured with ``estimate_fm_cfo`` (any keyword
+arguments are forwarded to it). The correction is a frequency shift by
+``-cfo_hz`` -- ``frequency_shift(iq, -cfo_hz, sample_rate)`` -- which brings
+the carrier back to center. Estimating and correcting are separated on
+purpose (``estimate_fm_cfo`` never mutates data), and this is the
+convenience that does both in one call for the common case.
+
+Returns ``(corrected_iq, cfo_hz)`` so the applied correction is visible to
+the caller. When the offset cannot be estimated (capture too short or rate
+too low), returns the input unchanged with ``cfo_hz = 0.0``.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `iq` |  | *required* |
+| `sample_rate` |  | *required* |
+| `cfo_hz` |  | `None` |
+| `kwargs` (**kwargs) |  | *required* |
 
 
 
@@ -3417,6 +3851,62 @@ float
 
 
 
+### `estimate_fm_cfo(iq, sample_rate, *, channel_bw=100000.0, trim_hz=None)`
+
+Estimate a broadcast-FM capture's carrier frequency offset, in Hz.
+
+Method: the phase discriminator's DC term. Under a constant carrier
+offset df, ``angle(x[n] * conj(x[n-1]))`` picks up that same df at every
+sample, while the program audio (the wanted FM message) averages to zero
+over a long window. So the MEAN of the demodulated instantaneous frequency
+IS the carrier offset. This is the fine, accurate estimator for FM, and is
+distinct from ``estimate_cfo``: that one finds where energy sits in the
+passband (a coarse, spread-out measurement for a wideband FM signal),
+whereas this recovers the sub-kHz crystal offset a real receiver must
+correct.
+
+The capture is channelized (lowpass + decimate to the FM channel) before
+discriminating, for exactly the reason ``fm_pilot_excess_db`` documents: a
+discriminator fed the full capture bandwidth is dominated by out-of-channel
+noise and adjacent stations, and the mean of that is meaningless. On the
+channelized signal the mean is the offset.
+
+Why NOT the 19 kHz pilot: with a differential discriminator a carrier
+offset adds a DC term but does NOT move the pilot -- differentiation is
+invariant to a constant frequency shift -- so the pilot's position carries
+no CFO information (a tempting shortcut -- "just read the CFO off the
+pilot" -- that does not work). The pilot's real role here is a presence gate: confirm a
+station is actually there with ``fm_pilot_excess_db`` before trusting this
+number, because the mean of noise is not a carrier offset.
+
+Args:
+    channel_bw: FM channel half-not-needed; used only to size the click
+        trim. Broadcast FM is ~100 kHz half-bandwidth of program content.
+    trim_hz: discriminator "clicks" (phase wraps in deep fades / low SNR)
+        are impulsive outliers that bias a plain mean. Samples whose
+        demodulated frequency exceeds trim_hz in magnitude are dropped
+        before averaging. Default 1.5 * channel_bw keeps the full +/-75 kHz
+        deviation swing while rejecting the near-+/-Nyquist click spikes.
+        Pass None to disable trimming.
+
+Returns the offset in Hz (positive = the signal sits above the tuned
+center), or None when the capture is too short or the rate too low to
+channelize to the FM channel.
+
+OUR code.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `iq` |  | *required* |
+| `sample_rate` |  | *required* |
+| `channel_bw` |  | `100000.0` |
+| `trim_hz` |  | `None` |
+
+
+
 ### `estimate_iq_imbalance(iq: 'np.ndarray') -> 'tuple[float, float]'`
 
 Estimate I/Q gain/phase imbalance from second-order statistics.
@@ -3723,7 +4213,11 @@ Parameters
 iq : np.ndarray
     Complex baseband for this capture (ideally post-recovery). Not mutated.
 sample_rate : float
-    Sample rate (Hz).
+    Sample rate (Hz). Accepted for a stable call signature and NOT used
+    by any current feature: every estimator here is sample-rate-free
+    (ratios of powers, a phase variance, a ppm conversion from
+    ``cfo_hz``/``carrier_hz``). It is kept so that a rate-dependent
+    feature can be added without changing every caller.
 carrier_hz : float
     Nominal carrier (Hz), for the ppm conversion.
 cfo_hz : float, default 0.0
@@ -3803,9 +4297,13 @@ Demodulate frequency modulation via the phase discriminator. OUR code.
 FM carries the message in instantaneous frequency, so demod IS the
 instantaneous frequency (see instantaneous_frequency). Returns a real array.
 
-If deviation_hz and sample_rate are given, the output is scaled by the peak
-deviation to give roughly normalized audio; otherwise it returns raw
-radians/sample.
+If deviation_hz and sample_rate are both given, the output is scaled by the
+peak deviation to give roughly normalized audio (a tone deviation_hz off
+center reads 1.0); with neither it returns raw radians/sample. Giving one
+without the other is an error: the deviation is in Hz, so it cannot scale
+a rad/sample output, and an earlier version silently returned rad/sample
+in that case -- the caller then had audio ~1e5 times too quiet and no
+indication why.
 
 
 **Parameters:**
@@ -3840,6 +4338,101 @@ Returns unit-magnitude complex64 IQ (FM is constant-envelope).
 | `message` |  | *required* |
 | `deviation_hz` |  | *required* |
 | `sample_rate` |  | *required* |
+
+
+
+### `fm_pilot_excess_db(iq, sample_rate, pilot_hz=19000.0, nfft=16384)`
+
+How far the 19 kHz stereo pilot stands above the demodulated noise
+floor, in dB. The decisive "is this an FM broadcast station" check.
+
+The channel-power test in ``capture_health`` answers "is there energy
+here"; this answers the sharper question "is that energy a broadcast FM
+station". Nearly every FM broadcast transmits a 19 kHz pilot at ~9% of
+deviation, and the FM noise floor rises with frequency (the noise
+triangle), so a pilot standing above its own neighborhood is essentially
+impossible to produce from noise. Use it in gain searches and capture
+validation when the target is known to be broadcast FM; skip it for
+narrowband FM (NOAA weather etc.), which has no pilot.
+
+Works directly on baseband IQ: channelizes to the FM channel first,
+then demodulates (phase discriminator) and compares the PSD at pilot_hz
+against the median PSD in the surrounding 15-23 kHz region, pilot bins
+excluded. The channel filter is not optional: a discriminator fed the
+full capture bandwidth is corrupted by out-of-channel noise and adjacent
+stations, and on real wide captures (e.g. 8 Msps) the pilot all but
+disappears from its output -- a real, by-ear-verified broadcast capture
+measured +1.8 dB unfiltered and +20 dB channelized.
+
+Returns dB (positive = pilot present; > ~6 dB is a confident yes), or
+None when the capture is too short (< 4 * nfft demodulated samples) or
+the rate is too low to see the pilot.
+
+OUR code.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `iq` |  | *required* |
+| `sample_rate` |  | *required* |
+| `pilot_hz` |  | `19000.0` |
+| `nfft` |  | `16384` |
+
+
+
+### `fm_stereo_decode(composite, sample_rate, pilot_hz=19000.0, audio_bw=15000.0, pilot_bw=1000.0)`
+
+Recover left/right audio from a demodulated FM stereo composite. OUR code.
+
+The input is the MPX baseband -- the real output of ``fm_demod`` at the
+composite rate (>= ~120 kHz so the 38 kHz subcarrier survives), BEFORE
+de-emphasis and audio resampling. Broadcast FM stereo carries:
+
+    composite = (L+R)  +  (L-R)*cos(2*w_p*t)  +  pilot*cos(w_p*t)  [+ RDS]
+
+where w_p is the 19 kHz pilot. (L+R) is the mono sum at baseband (0-15
+kHz); (L-R) is a DSB-SC subcarrier centered at 38 kHz -- exactly twice the
+pilot, and phase-locked to it, which is the whole point of transmitting
+the pilot. Decoding:
+
+  1. Bandpass the pilot at 19 kHz.
+  2. Double its phase to synthesize a UNIT-amplitude 38 kHz reference
+     locked to the subcarrier -- from the pilot's analytic phase, not by
+     squaring (squaring leaves the amplitude and a DC term to clean up).
+     Phase-locking is what makes the coherent detection below work; a
+     free-running 38 kHz oscillator would drift and scramble L-R.
+  3. Coherent-detect the subcarrier: multiply the composite by the 38 kHz
+     reference and lowpass to the audio band. 2 * <mpx * cos(2wt)>
+     recovers (L-R).
+  4. Lowpass the composite directly for (L+R).
+  5. Matrix: L = ((L+R) + (L-R)) / 2, R = ((L+R) - (L-R)) / 2.
+
+Returns (left, right), each real, same length and rate as ``composite``.
+The absolute scale matches ``fm_demod``'s (both are unnormalized); feed
+each channel through ``deemphasis`` and resample to the WAV rate exactly
+as the mono path does, then normalize on write.
+
+De-emphasis is deliberately NOT applied here: it is a separate, opt-in
+stage (like everywhere else in this library), and applying it before the
+matrix would be wrong -- the subcarrier must be detected first.
+
+If the pilot is weak or absent (a mono broadcast, NBFM, or noise), the
+recovered (L-R) is just noise and L ~ R ~ mono; check
+``fm_pilot_excess_db`` first when you need to know whether stereo is
+actually present rather than decoding unconditionally.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `composite` |  | *required* |
+| `sample_rate` |  | *required* |
+| `pilot_hz` |  | `19000.0` |
+| `audio_bw` |  | `15000.0` |
+| `pilot_bw` |  | `1000.0` |
 
 
 
@@ -3918,7 +4511,7 @@ GFSK/MSK well enough for typical ISM-band sensors and pagers.
 
 
 
-### `fsk_demod_nlevel(iq, sample_rate, n_levels=4, thresholds=None)`
+### `fsk_demod_nlevel(iq, sample_rate, n_levels=4, thresholds=None, smooth_samples=0)`
 
 Demodulate N-level FSK (4-FSK, etc.) and CPFSK. OUR code.
 
@@ -3929,9 +4522,19 @@ phase is a transmit-side property; the receiver still reads instantaneous
 frequency.
 
 thresholds: explicit frequency band centers (Hz). If None, the levels are
-spread uniformly across the observed frequency range -- fine for a clean
-capture; pass measured centers for real signals. Returns per-sample symbol
-indices 0..n_levels-1.
+    spread uniformly across the observed frequency range -- fine for a
+    clean capture; pass measured centers for real signals.
+smooth_samples: if > 1, moving-average the instantaneous frequency over
+    this many samples before slicing -- the same cheap matched-filter
+    stand-in fsk_demod offers for the 2-level case, and it matters MORE
+    here: N-level slicing packs the decision bands closer together, so the
+    per-sample discriminator noise that a 2-level sign test shrugs off
+    will scatter symbols across adjacent bands. ~samples_per_symbol/2 is a
+    good value. When None thresholds are used, the percentile band centers
+    are computed from the SMOOTHED frequency too, so the bands match what
+    is being sliced. Off by default -- the per-sample output stays exact.
+
+Returns per-sample symbol indices 0..n_levels-1.
 
 
 **Parameters:**
@@ -3942,6 +4545,7 @@ indices 0..n_levels-1.
 | `sample_rate` |  | *required* |
 | `n_levels` |  | `4` |
 | `thresholds` |  | `None` |
+| `smooth_samples` |  | `0` |
 
 
 
@@ -3980,6 +4584,45 @@ constant-envelope); the pad regions are silence.
 | `deviation_hz` |  | *required* |
 | `sample_rate` |  | *required* |
 | `pad_symbols` |  | `0` |
+
+
+
+### `get_window(window, n)`
+
+Window vector of length n by name. sdr_dsp's own small set (hann,
+hamming, blackman, boxcar/rect), matching what psd()/spectrogram() use.
+Public so examples and callers don't reach for the underscore alias.
+
+Deliberately numpy-based rather than scipy.signal.get_window: these use
+the symmetric np.* windows the spectral functions are calibrated against,
+not scipy's periodic default, so a window pulled from here matches the
+one psd() applies internally.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `window` |  | *required* |
+| `n` |  | *required* |
+
+
+
+### `hackrf_gain_model(lna_steps=(0, 8, 16, 24, 32, 40), vga_steps=(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62), *, use_amp=True) -> 'GainModel'`
+
+The HackRF One: LNA + optional +14 dB amp (frontend) and VGA (level).
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `lna_steps` |  | `(0, 8, 16, 24, 32, 40)` |
+| `vga_steps` |  | `(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62)` |
+| `use_amp` |  | `True` |
+
+
+**Returns:** `GainModel`
 
 
 
@@ -4271,6 +4914,25 @@ capture). Returns a uint8 array of 0/1.
 
 
 
+### `peak_counts(iq, full_scale=128.0)`
+
+Peak per-component ADC utilization of a normalized capture, in counts.
+
+Per component -- max(|I|, |Q|) -- because I and Q are separate converters
+and each clips on its own; the complex magnitude can read above full
+scale, which no converter can produce. ``full_scale`` matches the
+loader's normalization (``load_iq`` divides int8 by 128).
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `iq` |  | *required* |
+| `full_scale` |  | `128.0` |
+
+
+
 ### `power_dbfs(iq)`
 
 Mean power of a complex signal in dBFS (dB relative to |amp|=1).
@@ -4316,6 +4978,12 @@ accumulates |X|^2, averages, and scales. Returns (freqs_hz, psd_db).
 
 freqs_hz:  frequency axis centered on center_freq, fftshifted (low->high).
 psd_db:    10*log10 of the averaged power spectrum.
+
+Raises ValueError if the signal is shorter than one frame (len(iq) < nfft):
+there is no full frame to transform. Pass a smaller nfft, or pad the signal
+yourself if that is what you mean. (An earlier version silently returned a
+flat -200 dB floor here, which made every downstream measurement --
+occupied_bandwidth, snr_db -- confidently wrong on short inputs.)
 
 
 **Parameters:**
@@ -4492,13 +5160,28 @@ is never near your signal in the first place. See docs/DC_SPIKE.md.
 
 ### `resample_poly(iq, up, down, half_len=10, window='hamming')`
 
-Rational resample by up/down. OUR implementation (polyphase concept).
+Rational resample by up/down. OUR implementation (polyphase).
 
-Implements the classic upsample -> lowpass -> downsample, with the zero
-insertion and decimation done explicitly and the lowpass applied by our own
-``fir_apply``. Verified ~equal to ``scipy.signal.resample_poly`` in tests.
+A rational resample is: insert (up-1) zeros between samples, lowpass at the
+upsampled rate, keep every down-th sample. Doing it literally filters
+``up`` times more samples than it keeps and multiplies mostly by zeros
+(``_resample_poly_direct`` -- 300x slower than this at 24/125). The
+polyphase form computes only the outputs that survive: every output sample
+sits at one of ``up`` phases of the zero-stuffed grid, and at phase p only
+the taps h[p], h[p+up], h[p+2*up], ... ever meet a non-zero input, so each
+phase is an ordinary convolution of the INPUT with that short sub-filter,
+evaluated at a stride of ``down``. The result is the same filter and the
+same samples as the direct form (tested to 1e-12), at ``1/up`` of the work.
 
-up, down:  resampling ratio (reduced internally).
+The anti-alias filter is designed by scipy (firwin, our implementation
+rule); its group delay is compensated so output aligns with input, and the
+output length is ceil(n * up / down), both matching
+``scipy.signal.resample_poly`` (verified in tests).
+
+up, down:  resampling ratio, as positive INTEGERS (reduced internally).
+           A non-integer is an error, not rounded: resample_poly(x, 2.7, 1)
+           once silently became a 2x resample. For an arbitrary ratio pick
+           an integer pair (e.g. 27/10) or use decimate()/interpolate().
 half_len:  controls filter length / quality.
 
 
@@ -4534,6 +5217,26 @@ the zero-ISI pulse).
 | `sps` |  | *required* |
 | `span_symbols` |  | `8` |
 | `beta` |  | `0.35` |
+
+
+
+### `rtlsdr_gain_model(gain_steps=(0.0, 0.9, 1.4, 2.7, 3.7, 7.7, 8.7, 12.5, 14.4, 15.7, 16.6, 19.7, 20.7, 22.9, 25.4, 28.0, 29.7, 32.8, 33.8, 36.4, 37.2, 38.6, 40.2, 42.1, 43.4, 43.9, 44.5, 48.0, 49.6)) -> 'GainModel'`
+
+An RTL-SDR: a SINGLE tuner-gain knob, no separate level stage.
+
+One frontend stage means stage 1 picks the SNR-best gain and stage 2 then
+nudges that SAME knob for level -- the honest behavior for a radio that
+cannot set SNR and level independently.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `gain_steps` |  | `(0.0, 0.9, 1.4, 2.7, 3.7, 7.7, 8.7, 12.5, 14.4, 15.7, 16.6, 19.7, 20.7, 22.9, 25.4, 28.0, 29.7, 32.8, 33.8, 36.4, 37.2, 38.6, 40.2, 42.1, 43.4, 43.9, 44.5, 48.0, 49.6)` |
+
+
+**Returns:** `GainModel`
 
 
 
@@ -4574,6 +5277,80 @@ Returns a uint8 array with one entry per symbol period.
 | `bits` |  | *required* |
 | `samples_per_symbol` |  | *required* |
 | `active` |  | `None` |
+
+
+
+### `search_gain(probe, *, lna_steps=(0, 8, 16, 24, 32, 40), vga_steps=(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62), use_amp=True, quality=None, target=(45.0, 110.0), clip=120.0, full_scale=128.0, max_level_probes=14, min_quality_db=3.0)`
+
+Find (lna, vga, amp) for a usable HackRF capture. Returns a result dict.
+
+A thin wrapper over :func:`search_gain_model` with the HackRF gain model,
+kept for the ``probe(lna, vga, amp)`` callers. Args and semantics are
+unchanged from before the GainModel refactor:
+
+    probe:     ``probe(lna, vga, amp) -> iq`` (a short normalized capture).
+    lna_steps, vga_steps: the hardware's legal gain values, in dB.
+    use_amp:   whether the +14 dB front-end RF amp may be enabled.
+    quality:   optional ``quality(iq) -> float | None`` (dB); when given,
+               the front end is chosen by this score, not by level.
+    target:    (lo, hi) peak-count window the level stage aims for.
+    clip:      counts at/above which a probe is treated as clipping.
+    full_scale: counts scale of a normalized full-scale sample.
+    max_level_probes: probe budget for the level stage.
+    min_quality_db: front-end scores below this count as "nothing detected".
+
+Returns ``{lna, vga, amp, counts, quality_db, status, probes}`` with probes
+a list of ``(lna, vga, amp, counts)`` -- the original shape.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `probe` |  | *required* |
+| `lna_steps` |  | `(0, 8, 16, 24, 32, 40)` |
+| `vga_steps` |  | `(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62)` |
+| `use_amp` |  | `True` |
+| `quality` |  | `None` |
+| `target` |  | `(45.0, 110.0)` |
+| `clip` |  | `120.0` |
+| `full_scale` |  | `128.0` |
+| `max_level_probes` |  | `14` |
+| `min_quality_db` |  | `3.0` |
+
+
+
+### `search_gain_model(probe, model: 'GainModel', *, quality=None, target=(45.0, 110.0), clip=120.0, full_scale=128.0, max_level_probes=14, min_quality_db=3.0)`
+
+Find gain settings for a usable capture on any radio. Returns a dict.
+
+probe:   callable ``probe(settings: dict) -> iq`` returning a short
+         normalized complex capture, where ``settings`` maps each stage's
+         name to a legal value from its ``steps``.
+model:   the radio's :class:`GainModel`.
+quality: optional ``quality(iq) -> float | None`` scoring how much SIGNAL a
+         probe holds, in dB. When given, the front end is chosen by this
+         score, not by level.
+target, clip, full_scale, max_level_probes, min_quality_db: as documented
+         on :func:`search_gain`.
+
+Returns ``{"settings", "counts", "quality_db", "status", "probes"}`` where
+settings is the chosen ``{stage: value}``, status is "ok"|"too_weak"|
+"clipping", and probes is every ``(settings, counts)`` taken.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `probe` |  | *required* |
+| `model` | `GainModel` | *required* |
+| `quality` |  | `None` |
+| `target` |  | `(45.0, 110.0)` |
+| `clip` |  | `120.0` |
+| `full_scale` |  | `128.0` |
+| `max_level_probes` |  | `14` |
+| `min_quality_db` |  | `3.0` |
 
 
 
@@ -4703,6 +5480,18 @@ method:
   "early_late"     : early-late gate -- simple, intuitive.
   "mueller_muller" : Mueller & Muller -- 1 sps, decision-aided.
 samples_per_symbol: nominal sps (from estimate_symbol_rate or known rate).
+loop_bw: proportional gain of the timing loop, in samples of correction per
+  unit (power-normalized) TED output. damping: damping ratio of the
+  second-order loop; the integral gain follows from it as (loop_bw/2*zeta)^2,
+  so the loop can track a steady symbol-rate offset without a standing
+  error. Smaller loop_bw = slower but steadier lock.
+
+The TED output is normalized by the signal's mean power before it drives
+the loop, so the loop behaves the same whether the input is at 0.01 or
+100x full scale; every TED here scales with |x|^2 and an unnormalized loop
+would overshoot and skip symbols on a strong signal. Each correction is
+also clamped to +/- sps/4: a single TED sample can never move the sampling
+instant by more than a quarter symbol.
 
 
 **Parameters:**
@@ -5039,9 +5828,13 @@ Demodulate frequency modulation via the phase discriminator. OUR code.
 FM carries the message in instantaneous frequency, so demod IS the
 instantaneous frequency (see instantaneous_frequency). Returns a real array.
 
-If deviation_hz and sample_rate are given, the output is scaled by the peak
-deviation to give roughly normalized audio; otherwise it returns raw
-radians/sample.
+If deviation_hz and sample_rate are both given, the output is scaled by the
+peak deviation to give roughly normalized audio (a tone deviation_hz off
+center reads 1.0); with neither it returns raw radians/sample. Giving one
+without the other is an error: the deviation is in Hz, so it cannot scale
+a rad/sample output, and an earlier version silently returned rad/sample
+in that case -- the caller then had audio ~1e5 times too quiet and no
+indication why.
 
 
 **Parameters:**
@@ -5051,6 +5844,60 @@ radians/sample.
 | `iq` |  | *required* |
 | `deviation_hz` |  | `None` |
 | `sample_rate` |  | `None` |
+
+
+
+### `fm_stereo_decode(composite, sample_rate, pilot_hz=19000.0, audio_bw=15000.0, pilot_bw=1000.0)`
+
+Recover left/right audio from a demodulated FM stereo composite. OUR code.
+
+The input is the MPX baseband -- the real output of ``fm_demod`` at the
+composite rate (>= ~120 kHz so the 38 kHz subcarrier survives), BEFORE
+de-emphasis and audio resampling. Broadcast FM stereo carries:
+
+    composite = (L+R)  +  (L-R)*cos(2*w_p*t)  +  pilot*cos(w_p*t)  [+ RDS]
+
+where w_p is the 19 kHz pilot. (L+R) is the mono sum at baseband (0-15
+kHz); (L-R) is a DSB-SC subcarrier centered at 38 kHz -- exactly twice the
+pilot, and phase-locked to it, which is the whole point of transmitting
+the pilot. Decoding:
+
+  1. Bandpass the pilot at 19 kHz.
+  2. Double its phase to synthesize a UNIT-amplitude 38 kHz reference
+     locked to the subcarrier -- from the pilot's analytic phase, not by
+     squaring (squaring leaves the amplitude and a DC term to clean up).
+     Phase-locking is what makes the coherent detection below work; a
+     free-running 38 kHz oscillator would drift and scramble L-R.
+  3. Coherent-detect the subcarrier: multiply the composite by the 38 kHz
+     reference and lowpass to the audio band. 2 * <mpx * cos(2wt)>
+     recovers (L-R).
+  4. Lowpass the composite directly for (L+R).
+  5. Matrix: L = ((L+R) + (L-R)) / 2, R = ((L+R) - (L-R)) / 2.
+
+Returns (left, right), each real, same length and rate as ``composite``.
+The absolute scale matches ``fm_demod``'s (both are unnormalized); feed
+each channel through ``deemphasis`` and resample to the WAV rate exactly
+as the mono path does, then normalize on write.
+
+De-emphasis is deliberately NOT applied here: it is a separate, opt-in
+stage (like everywhere else in this library), and applying it before the
+matrix would be wrong -- the subcarrier must be detected first.
+
+If the pilot is weak or absent (a mono broadcast, NBFM, or noise), the
+recovered (L-R) is just noise and L ~ R ~ mono; check
+``fm_pilot_excess_db`` first when you need to know whether stereo is
+actually present rather than decoding unconditionally.
+
+
+**Parameters:**
+
+| Parameter | Type | Default |
+|---|---|---|
+| `composite` |  | *required* |
+| `sample_rate` |  | *required* |
+| `pilot_hz` |  | `19000.0` |
+| `audio_bw` |  | `15000.0` |
+| `pilot_bw` |  | `1000.0` |
 
 
 
@@ -5097,7 +5944,7 @@ GFSK/MSK well enough for typical ISM-band sensors and pagers.
 
 
 
-### `fsk_demod_nlevel(iq, sample_rate, n_levels=4, thresholds=None)`
+### `fsk_demod_nlevel(iq, sample_rate, n_levels=4, thresholds=None, smooth_samples=0)`
 
 Demodulate N-level FSK (4-FSK, etc.) and CPFSK. OUR code.
 
@@ -5108,9 +5955,19 @@ phase is a transmit-side property; the receiver still reads instantaneous
 frequency.
 
 thresholds: explicit frequency band centers (Hz). If None, the levels are
-spread uniformly across the observed frequency range -- fine for a clean
-capture; pass measured centers for real signals. Returns per-sample symbol
-indices 0..n_levels-1.
+    spread uniformly across the observed frequency range -- fine for a
+    clean capture; pass measured centers for real signals.
+smooth_samples: if > 1, moving-average the instantaneous frequency over
+    this many samples before slicing -- the same cheap matched-filter
+    stand-in fsk_demod offers for the 2-level case, and it matters MORE
+    here: N-level slicing packs the decision bands closer together, so the
+    per-sample discriminator noise that a 2-level sign test shrugs off
+    will scatter symbols across adjacent bands. ~samples_per_symbol/2 is a
+    good value. When None thresholds are used, the percentile band centers
+    are computed from the SMOOTHED frequency too, so the bands match what
+    is being sliced. Off by default -- the per-sample output stays exact.
+
+Returns per-sample symbol indices 0..n_levels-1.
 
 
 **Parameters:**
@@ -5121,6 +5978,7 @@ indices 0..n_levels-1.
 | `sample_rate` |  | *required* |
 | `n_levels` |  | `4` |
 | `thresholds` |  | `None` |
+| `smooth_samples` |  | `0` |
 
 
 
@@ -5429,12 +6287,13 @@ Returns complex64 IQ with the message in its magnitude.
 
 ### `bpsk_modulate(bits, samples_per_symbol=1, pulse_shaping=False, beta=0.35, span_symbols=8, pad_symbols=0)`
 
-BPSK: bit 0 -> +1, bit 1 -> -1 (phase 0 or pi). Inverse of bpsk_demod.
+BPSK: bit 1 -> +1, bit 0 -> -1 (phase 0 or pi). Inverse of bpsk_demod.
 
 Carries one bit per symbol in the carrier phase. With pulse_shaping=False the
 symbols are held rectangular (sps samples each); with pulse_shaping=True they
 are RRC-shaped for a bandlimited spectrum (use a matched RRC filter on
-receive). bpsk_demod recovers bits from the real part's sign.
+receive). bpsk_demod recovers bits from the real part's sign: positive is
+a 1, negative a 0 -- the mapping above is that convention, written out.
 
 bits:               sequence of 0/1.
 samples_per_symbol: samples per symbol (1 = one sample per symbol).
@@ -5672,7 +6531,7 @@ filter to spread it into a pulse. Returns a complex64 array sps times longer.
 
 ## core.features — fingerprint extractors
 
-Pure-DSP feature extraction for RF device fingerprinting; classification lives outside the library.
+Device-impairment estimators and the EVM/fingerprint feature vector (also flattened into core; listed here as the unit they form).
 
 Import: `import sdr_dsp.core.features`
 
@@ -5966,7 +6825,11 @@ Parameters
 iq : np.ndarray
     Complex baseband for this capture (ideally post-recovery). Not mutated.
 sample_rate : float
-    Sample rate (Hz).
+    Sample rate (Hz). Accepted for a stable call signature and NOT used
+    by any current feature: every estimator here is sample-rate-free
+    (ratios of powers, a phase variance, a ppm conversion from
+    ``cfo_hz``/``carrier_hz``). It is kept so that a rate-dependent
+    feature can be added without changing every caller.
 carrier_hz : float
     Nominal carrier (Hz), for the ppm conversion.
 cfo_hz : float, default 0.0
@@ -6074,7 +6937,7 @@ the same pipeline code a file or device would drive.
 
 #### `blocks(self) -> 'Iterator[np.ndarray]'`
 
-_No docstring._
+Yield the array in consecutive ``block_size`` slices (last may be short).
 
 
 #### `read(self, n_samples: 'int') -> 'np.ndarray'`
@@ -6322,7 +7185,7 @@ look for "where results go". extra_global lands in the SigMF global object.
 
 
 
-### `write_wav(path, audio, sample_rate, normalize=True, headroom=0.9)`
+### `write_wav(path, audio, sample_rate, normalize=True, headroom=0.9, percentile=99.9)`
 
 Write a real audio array to a mono 16-bit WAV.
 
@@ -6330,6 +7193,19 @@ audio:      real-valued samples (e.g. demodulated output).
 normalize:  scale to use the int16 range (with a little headroom). If
             False, audio is assumed already in [-1, 1].
 headroom:   peak level when normalizing (0.9 = -1 dBFS-ish, avoids clipping).
+percentile: the |audio| percentile treated as "full scale" when
+            normalizing. 100 reproduces plain peak normalization.
+
+Why a percentile instead of the peak: demodulated audio routinely carries
+short transients far above the program material -- filter delay lines
+settling, a phase discriminator fed a near-zero-magnitude sample, an IIR
+starting from a zero accumulator. Dividing by the raw maximum lets one
+such sample set the scale for the whole file, pushing everything else
+toward zero: the file plays as a click followed by near-silence. Scaling
+to a high percentile and clipping the few samples above it keeps the
+program material at a sensible level. Trim known settling regions at the
+source too; this is a backstop, not a substitute.
+
 Returns the path written.
 
 
@@ -6342,6 +7218,7 @@ Returns the path written.
 | `sample_rate` |  | *required* |
 | `normalize` |  | `True` |
 | `headroom` |  | `0.9` |
+| `percentile` |  | `99.9` |
 
 
 
@@ -6568,13 +7445,20 @@ A source + an ordered chain of block->block stages (and taps).
 Build declaratively and run:
 
     pipe = (Pipeline(source)
-            .add(lambda b: fir_apply(b, taps), "filter")
-            .add(lambda b: fm_demod(b, 75000, fs), "demod")
+            .add(StreamingFIR(taps), "filter")
+            .add(StreamingFMDemod(75000, fs), "demod")
             .tap(lambda b: meter.update(b)))      # live peek, flow unchanged
     audio = pipe.run()                            # or run(sink=write_audio)
 
 Stages transform the block; taps observe it and return nothing (the original
 block continues). Order matters and is preserved.
+
+Use the ``Streaming*`` stages (``sdr_dsp.stream.stages``) for anything with
+memory -- filters, mixers, the FM discriminator, resamplers. A bare core
+function such as ``lambda b: fir_apply(b, taps)`` restarts its delay line
+at every block and clicks at every seam; it is fine only for stages that
+are genuinely per-sample (``to_db``, ``am_demod`` without dc_block, a
+slicer) or for taps.
 
 
 **Constructor:** `Pipeline(self, source)`
@@ -6601,6 +7485,24 @@ Append a transforming stage (block -> block).
 Return the chain as inspectable text (the pipeline is data).
 
 
+#### `flush(self) -> 'list'`
+
+Drain the look-ahead held inside stages once the stream has ended.
+
+Stages with internal look-ahead (``StreamingResampler``) hold back the
+last few output samples until they know the stream is over; without a
+flush that tail is silently lost. This walks the chain in order: each
+stage that exposes ``flush()`` is asked for its tail, and that tail is
+threaded through every LATER stage (taps included) exactly like a
+normal block -- so a downstream stage with its own look-ahead receives
+the upstream tail before being flushed itself.
+
+Returns the list of non-empty processed tail blocks (usually 0 or 1).
+``run()`` and ``stream()`` call this when the source is exhausted;
+call it yourself only if you drive ``process_block`` by hand.
+Flushing twice is harmless: a drained stage returns nothing.
+
+
 #### `process_block(self, block)`
 
 Thread a single block through every stage. Useful for testing and
@@ -6620,6 +7522,11 @@ sink:       callable(result_block) -> None. If None, results are
 profile:    if True, also return PipelineStats (per-stage timing).
 max_blocks: stop after this many blocks (useful for live sources).
 
+When the source runs dry the stages are flushed (see ``flush``) and
+any tail is delivered like a final block, so a Pipeline run produces
+the same sample count as the whole-record function. Stopping early via
+``max_blocks`` does NOT flush: the stream was cut, not ended.
+
 Returns the result list (or None if a sink was given); if profile,
 returns (results_or_None, PipelineStats).
 
@@ -6636,7 +7543,9 @@ Run as a generator, yielding each processed block lazily.
 
 This is the bridge to the generator-chain style: a Pipeline can be
 consumed lazily, so it composes with other generators and stays
-memory-friendly for long/continuous streams.
+memory-friendly for long/continuous streams. Like ``run``, it flushes
+the stages' look-ahead when the source is exhausted (not when cut by
+``max_blocks``) and yields any tail as a final block.
 
 | Parameter | Type | Default |
 |---|---|---|
@@ -6700,6 +7609,191 @@ One step in a pipeline: a named block->block operation, or a tap.
 - `name`: `str`
 - `fn`: `Callable`
 - `is_tap`: `bool`
+
+
+
+### class `StreamingDecimator`
+
+Keep every ``factor``-th sample, with the sampling phase carried.
+
+Plain ``block[::factor]`` restarts the phase at each block, so unless every
+block length is a multiple of ``factor`` the output has a different
+(and drifting) sample grid from ``whole[::factor]``. This remembers how
+many samples into the stride the last block ended. No filtering -- put a
+``StreamingFIR`` (or use ``StreamingResampler``) in front of it.
+
+
+**Constructor:** `StreamingDecimator(self, factor)`
+
+| Parameter | Type | Default |
+|---|---|---|
+| `factor` |  | *required* |
+
+
+**Methods:**
+
+#### `reset(self) -> 'None'`
+
+Forget all carried history, e.g. after a retune or a stream restart.
+
+
+
+
+### class `StreamingDeemphasis`
+
+``deemphasis`` carried across blocks, exactly.
+
+The de-emphasis filter is one pole: y[n] = a*x[n] + r*y[n-1], r = 1 - a.
+It is linear, so its output on a block equals the zero-state response
+(what ``deemphasis`` computes) plus the decaying trace of the state it
+was left in: y_prev * r**(k+1) for k = 0, 1, ... That trace is added here,
+which makes the streamed output identical to the whole-record one rather
+than close to it, with no warm-up region to discard.
+
+
+**Constructor:** `StreamingDeemphasis(self, sample_rate, tau_us=75.0)`
+
+| Parameter | Type | Default |
+|---|---|---|
+| `sample_rate` |  | *required* |
+| `tau_us` |  | `75.0` |
+
+
+**Methods:**
+
+#### `reset(self) -> 'None'`
+
+Forget all carried history, e.g. after a retune or a stream restart.
+
+
+
+
+### class `StreamingFIR`
+
+``fir_apply`` with its delay line carried across blocks (overlap-save).
+
+Output for a stream of blocks is identical to ``fir_apply`` on the
+concatenated stream: the previous block's last ``len(taps) - 1`` samples
+are prepended, filtered, and discarded, which is exactly the history a
+causal FIR has at that point.
+
+
+**Constructor:** `StreamingFIR(self, taps)`
+
+| Parameter | Type | Default |
+|---|---|---|
+| `taps` |  | *required* |
+
+
+**Methods:**
+
+#### `reset(self) -> 'None'`
+
+Forget all carried history, e.g. after a retune or a stream restart.
+
+
+
+
+### class `StreamingFMDemod`
+
+``fm_demod`` with the previous sample carried.
+
+The discriminator differences consecutive phases, so the first output of a
+block needs the last input of the block before it. The very first block
+has no predecessor and yields ``len(block) - 1`` samples; every later block
+yields ``len(block)``, so the concatenated stream equals ``fm_demod`` on the
+whole record (which is one shorter than its input).
+
+``deviation_hz`` and ``sample_rate`` follow ``fm_demod``: both given scales
+to roughly normalized audio, otherwise raw radians/sample.
+
+
+**Constructor:** `StreamingFMDemod(self, deviation_hz=None, sample_rate=None)`
+
+| Parameter | Type | Default |
+|---|---|---|
+| `deviation_hz` |  | `None` |
+| `sample_rate` |  | `None` |
+
+
+**Methods:**
+
+#### `reset(self) -> 'None'`
+
+Forget all carried history, e.g. after a retune or a stream restart.
+
+
+
+
+### class `StreamingMixer`
+
+``frequency_shift`` with a phase-continuous local oscillator.
+
+``frequency_shift`` builds its LO from ``t = arange(n) / fs``, so every
+block starts the oscillator at phase 0 -- a phase step at every seam that
+smears energy across the band. This tracks the absolute sample index and
+continues the LO from where the previous block left it. Output matches
+``frequency_shift`` on the whole record.
+
+
+**Constructor:** `StreamingMixer(self, shift_hz, sample_rate)`
+
+| Parameter | Type | Default |
+|---|---|---|
+| `shift_hz` |  | *required* |
+| `sample_rate` |  | *required* |
+
+
+**Methods:**
+
+#### `reset(self) -> 'None'`
+
+Forget all carried history, e.g. after a retune or a stream restart.
+
+
+
+
+### class `StreamingResampler`
+
+``resample_poly`` made block-continuous.
+
+``resample_poly`` is zero-phase: it compensates the anti-alias filter's
+group delay, so an output sample depends on input both behind and AHEAD
+of it. A streaming version therefore needs history on both sides. Past
+context is carried from the previous block; future context is obtained by
+holding the newest samples back until the next block arrives, instead of
+letting the filter see zeros there. The price is ``latency_samples`` of
+input delay (a fraction of a millisecond at audio rates); the payoff is
+output identical to resampling the whole stream at once, apart from the
+held-back tail, which ``flush()`` emits when the stream ends.
+
+``up``/``down`` are the output/input rates (any common factor is removed).
+
+
+**Constructor:** `StreamingResampler(self, up, down, half_len=10, window='hamming')`
+
+| Parameter | Type | Default |
+|---|---|---|
+| `up` |  | *required* |
+| `down` |  | *required* |
+| `half_len` |  | `10` |
+| `window` |  | `'hamming'` |
+
+
+**Methods:**
+
+#### `flush(self)`
+
+Emit the output for samples still held back for look-ahead.
+
+Pads the future with zeros, exactly as ``resample_poly`` does at the
+end of a whole record; call once when the stream ends.
+
+
+#### `reset(self) -> 'None'`
+
+Forget all carried history, e.g. after a retune or a stream restart.
+
 
 
 

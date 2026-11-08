@@ -147,6 +147,17 @@ jobs:
         # left to the default they were never checked and drifted.
         run: uv run ruff check . ../docs/dev_handbook
 
+      - name: API handbook is regenerated
+        # docs/dev_handbook/sdr_dsp_API_HANDBOOK.md is generated from the
+        # source. The generator was only ever run by hand and the checked-in
+        # copy drifted ~1,100 lines behind the code before anyone noticed;
+        # this fails the job when it is stale. Fix: run the printed command
+        # and commit the result. Pinned to this one Python so annotation
+        # repr differences between versions can't make it flap.
+        run: >
+          uv run python ../docs/dev_handbook/generate_api_handbook.py
+          --check ../docs/dev_handbook/sdr_dsp_API_HANDBOOK.md
+
       - name: Mypy
         # Blocking. Not the strict gate hackrfpy runs: sdr_dsp DOES ship a
         # py.typed marker but most signatures are not annotated yet, so this

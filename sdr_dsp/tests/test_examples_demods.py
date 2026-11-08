@@ -1,6 +1,12 @@
 """Tests for the demod example logic (synthetic signal generators + decode
 chains). These guard the EXAMPLES, complementing the core library tests -- they
 catch when an example's signal generation or glue logic breaks.
+
+Every test here imports something from examples/. A test that only calls core
+functions belongs in the core test file for that function (six such tests were
+moved out: they duplicated test_agc / test_modulate / test_framing /
+test_channel / test_detect_extra line for line and tested no example code).
+The example SCRIPTS themselves are run end-to-end by test_examples_run.py.
 """
 
 import sys
@@ -126,25 +132,6 @@ def test_burst_detector_finds_three():
     assert len(bursts) == 3
 
 
-def test_cfo_measures_without_changing_signal():
-    from sdr_dsp.core import estimate_cfo
-    fs = 1e6
-    iq = np.exp(2j * np.pi * 27000 * np.arange(100000) / fs).astype(
-        np.complex64)
-    before = iq.copy()
-    cfo = estimate_cfo(iq, fs)
-    assert abs(cfo - 27000) < fs / 8192        # measured correctly
-    assert np.array_equal(iq, before)          # signal untouched
-
-
-def test_cfo_correction_centers_signal():
-    from sdr_dsp.core import estimate_cfo, frequency_shift
-    fs = 1e6
-    iq = np.exp(2j * np.pi * 35000 * np.arange(100000) / fs).astype(
-        np.complex64)
-    cfo = estimate_cfo(iq, fs)
-    corrected = frequency_shift(iq, -cfo, fs)
-    assert abs(estimate_cfo(corrected, fs)) < fs / 8192
 
 
 def test_differential_psk_demo_ignores_offset():
@@ -194,18 +181,6 @@ def test_power_calibration_workflow():
     assert abs(cal2.power_dbm(ref) - (-30.0)) < 1e-6
 
 
-def test_agc_demo_recoverable():
-    from sdr_dsp.core import agc
-    n = 60000
-    t = np.arange(n)
-    env = 0.5 + 0.45 * np.cos(2 * np.pi * 2.5 * t / n)
-    sig = (env * np.exp(2j * np.pi * 0.05 * t)).astype(np.complex64)
-    adjusted, gain = agc(sig, target=0.5)
-    # the example's headline honesty claim
-    assert np.allclose(adjusted / gain, sig, atol=1e-5)
-    # and it flattens the fade
-    assert np.abs(adjusted)[n // 4:].std() < np.abs(sig)[n // 4:].std()
-
 
 def test_channelizer_example_both_modes():
     import channelizer as ch
@@ -220,43 +195,7 @@ def test_channelizer_example_both_modes():
     assert chans.shape[0] == 8
 
 
-def test_modulate_demo_closes_loop():
-    from sdr_dsp.core import (ook_modulate, ook_envelope, ook_slice,
-                              qpsk_modulate, qpsk_demod)
-    bits = np.random.default_rng(0).integers(0, 2, 100)
-    # OOK loop
-    rec = ook_slice(ook_envelope(ook_modulate(bits, 20)))[::20][:len(bits)]
-    assert np.mean(rec != bits) == 0
-    # QPSK loop
-    qrec, _ = qpsk_demod(qpsk_modulate(bits, 1))
-    assert np.mean(qrec[:len(bits)] != bits) == 0
 
-
-def test_packet_loopback_example():
-    from sdr_dsp.core import (build_frame, find_frames,
-                              ook_modulate, ook_envelope, ook_slice)
-    frame_bits = build_frame(b"ACK 42")
-    sps = 20
-    iq = ook_modulate(frame_bits, sps)
-    rec = np.asarray(ook_slice(ook_envelope(iq))[::sps][:len(frame_bits)],
-                     dtype=np.uint8)
-    found = find_frames(rec)
-    assert found and found[0]["payload"] == b"ACK 42" and found[0]["crc_ok"]
-
-
-def test_channel_sweep_example():
-    from sdr_dsp.core import (build_frame, find_frames, apply_channel,
-                              fsk_modulate, fsk_demod)
-    frame = build_frame(b"CQ DE SDR")
-    sps = 20
-    fs = 1e6
-    iq = fsk_modulate(frame, sps, 50e3, fs)
-    # clean channel -> recovered
-    rx = apply_channel(iq, sample_rate=fs, snr_db=30, seed=1)
-    bits = np.asarray(fsk_demod(rx, fs)[sps // 2::sps][:len(frame)],
-                      dtype=np.uint8)
-    found = find_frames(bits)
-    assert found and found[0]["crc_ok"]
 
 
 def test_two_station_link_example():

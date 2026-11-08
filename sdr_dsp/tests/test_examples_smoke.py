@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-import ast
 import importlib.util
 import re
 import subprocess
@@ -99,11 +98,6 @@ def test_examples_found():
 
 
 @pytest.mark.parametrize("path", EXAMPLES, ids=lambda p: p.name)
-def test_example_parses(path):
-    ast.parse(path.read_text(), filename=str(path))
-
-
-@pytest.mark.parametrize("path", EXAMPLES, ids=lambda p: p.name)
 def test_example_imports_the_installed_package(path):
     """Examples import `sdr_dsp`; they never manipulate sys.path.
 
@@ -147,9 +141,20 @@ def _missing_optional_deps(path):
     return missing
 
 
-@pytest.mark.parametrize("path", EXAMPLES, ids=lambda p: p.name)
+# Only the examples that test_examples_run.py cannot RUN (they need a radio, a
+# sound device, or an interactive window) get the import-only check; for the
+# other ~40 a successful run-to-completion already proves the imports, and
+# re-importing each in its own interpreter cost ~40 s of CI per leg for no
+# extra information. NEEDS_HARDWARE is the single source of that list.
+from test_examples_run import NEEDS_HARDWARE  # noqa: E402
+
+IMPORT_ONLY = sorted(p for p in EXAMPLES if p.name in NEEDS_HARDWARE)
+
+
+@pytest.mark.parametrize("path", IMPORT_ONLY, ids=lambda p: p.name)
 def test_example_imports_cleanly(path, tmp_path):
-    """Import each example under a non-main run name, from a foreign cwd.
+    """Import each not-runnable example under a non-main run name, from a
+    foreign cwd.
 
     Catches broken import lines without executing main(). Run from tmp_path so
     a cwd-relative sys.path entry cannot accidentally rescue a bad import.

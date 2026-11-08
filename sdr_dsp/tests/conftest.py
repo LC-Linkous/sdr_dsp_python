@@ -14,17 +14,13 @@ import pytest
 def _deterministic_global_rng():
     """Seed the legacy global np.random before EVERY test.
 
-    A handful of older tests draw from the global np.random without seeding
-    (test_util, test_sinks, test_io_and_sources). In isolation they pass, but
-    in a full run the global state is whatever prior tests left it, so a
-    tolerance-tight assertion could occasionally land on an unlucky draw --
-    an order-dependent flake that clears on rerun. Seeding here makes every
-    run reproducible regardless of order or selection.
-
-    This is a safety net, not a license: new tests should use an explicit
-    np.random.default_rng(seed) with their own generator, and migrating the
-    three legacy tests to that pattern is tracked in TODO. Seeding globally
-    fixes the flake; explicit generators make the intent local and obvious.
+    A safety net, not a license. Every test now draws from its own
+    np.random.default_rng(seed) (the last three legacy users of the global
+    state were migrated in patch 0014; `grep np.random. tests/` finds only
+    this line). The fixture stays so that if a global draw ever creeps back
+    in -- in a test, a helper, or library code under test -- the run is still
+    reproducible regardless of test order or selection, instead of flaking
+    on whatever state a prior test left behind.
     """
     np.random.seed(1234)
     yield

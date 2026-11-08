@@ -344,8 +344,8 @@ def estimate_fm_cfo(iq, sample_rate, *, channel_bw=100_000.0, trim_hz=None):
     Why NOT the 19 kHz pilot: with a differential discriminator a carrier
     offset adds a DC term but does NOT move the pilot -- differentiation is
     invariant to a constant frequency shift -- so the pilot's position carries
-    no CFO information (this is the trap the TODO's "or the pilot frequency"
-    wording invites). The pilot's real role here is a presence gate: confirm a
+    no CFO information (a tempting shortcut -- "just read the CFO off the
+    pilot" -- that does not work). The pilot's real role here is a presence gate: confirm a
     station is actually there with ``fm_pilot_excess_db`` before trusting this
     number, because the mean of noise is not a carrier offset.
 

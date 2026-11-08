@@ -3,13 +3,26 @@
 
 Walks every public module, function, and class, pulling the REAL signature
 (parameters, defaults, type annotations) and docstring straight from the source,
-so the handbook can never drift from the code. Re-run after any API change.
+so the handbook can never drift from the code -- provided it is re-run. CI runs
+it in --check mode, so a stale checked-in handbook fails the lint job.
 
-Usage:
-    PYTHONPATH=src python3 docs/dev_handbook/generate_api_handbook.py > docs/sdr_dsp_API_HANDBOOK.md
+Usage (from the repo root, with sdr_dsp importable -- `uv run` in sdr_dsp/ or
+PYTHONPATH=sdr_dsp/src):
+    GEN=docs/dev_handbook/generate_api_handbook.py
+    OUT=docs/dev_handbook/sdr_dsp_API_HANDBOOK.md
+    python $GEN                 # to stdout
+    python $GEN -o $OUT         # write the checked-in handbook
+    python $GEN --check $OUT    # exit 0 if the file is current, else 1 + a diff
+                                # (then regenerate with -o and commit)
 """
+import argparse
+import difflib
 import importlib
 import inspect
+import io
+import sys
+from contextlib import redirect_stdout
+from pathlib import Path
 
 # the public surface, in the order we want it documented
 MODULES = [
@@ -18,6 +31,9 @@ MODULES = [
     ("sdr_dsp.core.demod", "core.demod — demodulators", "Recover bits/audio/symbols from IQ."),
     ("sdr_dsp.core.modulate", "core.modulate — modulators",
      "Inverse of demod: bits/symbols -> IQ."),
+    ("sdr_dsp.core.features", "core.features — fingerprint extractors",
+     "Device-impairment estimators and the EVM/fingerprint feature vector "
+     "(also flattened into core; listed here as the unit they form)."),
     ("sdr_dsp.sources", "sources — receive seam", "IQSource protocol and concrete sources."),
     ("sdr_dsp.sinks", "sinks — output & transmit seam", "TXSink protocol, file and plot sinks."),
     ("sdr_dsp.io", "io — file formats", "SigMF load/save, annotations, metadata."),
@@ -205,5 +221,42 @@ def main():
         print("---\n")
 
 
+def render() -> str:
+    """The handbook as one string (what main() prints)."""
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        main()
+    return buf.getvalue()
+
+
+def cli(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("-o", "--output", type=Path,
+                    help="write the handbook here instead of stdout")
+    ap.add_argument("--check", type=Path, metavar="FILE",
+                    help="exit 1 if FILE differs from the generated handbook")
+    args = ap.parse_args(argv)
+    text = render()
+    if args.check is not None:
+        current = args.check.read_text(encoding="utf-8")
+        if current.replace("\r\n", "\n") == text:
+            print(f"{args.check}: up to date ({text.count(chr(10))} lines)")
+            return 0
+        diff = difflib.unified_diff(
+            current.splitlines(), text.splitlines(),
+            fromfile=str(args.check), tofile="generated", lineterm="", n=1)
+        sys.stdout.write("\n".join(list(diff)[:200]) + "\n")
+        print(f"\n{args.check} is STALE: regenerate with\n"
+              f"    python {sys.argv[0]} -o {args.check.as_posix()}",
+              file=sys.stderr)
+        return 1
+    if args.output is not None:
+        args.output.write_text(text, encoding="utf-8", newline="\n")
+        print(f"wrote {args.output} ({text.count(chr(10))} lines)", file=sys.stderr)
+        return 0
+    sys.stdout.write(text)
+    return 0
+
+
 if __name__ == "__main__":
-    main()
+    sys.exit(cli())

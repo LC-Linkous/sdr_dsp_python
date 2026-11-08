@@ -1,4 +1,23 @@
-"""Pure DSP core: arrays in, arrays out. Never imports sources or sinks."""
+"""Pure DSP core: arrays in, arrays out. Never imports sources or sinks.
+
+Two export tiers, on purpose:
+
+* ``sdr_dsp.<name>`` (the top-level package) re-exports the SIGNAL-PROCESSING
+  surface: filters, resampling, spectral, mixing, measurement, mod/demod,
+  framing, channel simulation, recovery loops, AGC, calibration.
+* ``sdr_dsp.core.<name>`` additionally exports the RADIO-CHARACTERIZATION
+  layer: device-impairment synthesis (``add_iq_imbalance``, ...,
+  ``DeviceImpairments``), the fingerprint estimators and feature vector
+  (``core.features``), capture-health / pilot gating (``capture_health``,
+  ``fm_pilot_excess_db``), the gain-search engine and models
+  (``GainModel``, ``search_gain_model``, ...), and ``get_window``.
+
+Everything in the second tier is reachable as ``sdr_dsp.core.X``; it is not
+flattened to ``sdr_dsp.X`` because it is about radios and captures rather than
+about signals, and the top-level namespace is kept to what every user of a DSP
+library expects to find there. ``tests/test_public_surface.py`` pins the split
+so a new name lands in a tier by decision, not by accident.
+"""
 
 from .util import to_db, from_db, normalize, DB_EPSILON
 from .filters import (

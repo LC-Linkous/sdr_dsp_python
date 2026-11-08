@@ -78,12 +78,13 @@ def fsk_modulate(bits, samples_per_symbol, deviation_hz, sample_rate,
 
 def bpsk_modulate(bits, samples_per_symbol=1, pulse_shaping=False,
                   beta=0.35, span_symbols=8, pad_symbols=0):
-    """BPSK: bit 0 -> +1, bit 1 -> -1 (phase 0 or pi). Inverse of bpsk_demod.
+    """BPSK: bit 1 -> +1, bit 0 -> -1 (phase 0 or pi). Inverse of bpsk_demod.
 
     Carries one bit per symbol in the carrier phase. With pulse_shaping=False the
     symbols are held rectangular (sps samples each); with pulse_shaping=True they
     are RRC-shaped for a bandlimited spectrum (use a matched RRC filter on
-    receive). bpsk_demod recovers bits from the real part's sign.
+    receive). bpsk_demod recovers bits from the real part's sign: positive is
+    a 1, negative a 0 -- the mapping above is that convention, written out.
 
     bits:               sequence of 0/1.
     samples_per_symbol: samples per symbol (1 = one sample per symbol).

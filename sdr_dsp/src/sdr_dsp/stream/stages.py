@@ -82,8 +82,20 @@ class StreamingFIR:
     def __call__(self, block):
         block = np.asarray(block)
         m = len(self.taps) - 1
-        if self._tail is None or self._tail.dtype != block.dtype:
+        if self._tail is None:
             self._tail = np.zeros(m, dtype=block.dtype)
+        elif self._tail.dtype != block.dtype:
+            # A dtype change mid-stream is a caller-side event (a source that
+            # switched from complex64 to complex128, say). Carry the history
+            # across it rather than silently zeroing it -- that reset put a
+            # filter-length click into the output at the switch -- but refuse
+            # to throw away an imaginary part.
+            if np.iscomplexobj(self._tail) and not np.iscomplexobj(block):
+                raise TypeError(
+                    "StreamingFIR: stream changed from complex to real "
+                    f"({self._tail.dtype} -> {block.dtype}); call reset() if "
+                    "this is a new stream")
+            self._tail = self._tail.astype(block.dtype)
         if block.size == 0:
             return block
         out = fir_apply(np.concatenate([self._tail, block]), self.taps)[m:]

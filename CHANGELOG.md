@@ -11,6 +11,33 @@ was measured, why a design went the way it did) lives in `docs/LOG.md`.
 ## [Unreleased]
 
 ### Changed
+- `docs/dev_handbook/generate_api_handbook.py` gained `-o FILE` and
+  `--check FILE`; the lint CI job now runs `--check` against the checked-in
+  handbook and fails when it is stale. The handbook itself is regenerated
+  (8,160 lines; the checked-in copy had drifted ~1,100 lines behind the code)
+  and the `core.features` section the generator had lost is back.
+- `StreamingFIR` carries its delay line across a block dtype change
+  (complex64 -> complex128, say) instead of silently zeroing it, which put a
+  filter-length click into the output at the switch; a complex -> real change
+  raises `TypeError` rather than discarding the imaginary history (call
+  `reset()` for a genuinely new stream).
+- The two-tier export split is now documented and pinned: `sdr_dsp.X` is the
+  signal-processing surface; the radio-characterization layer (impairment
+  synthesis, fingerprint features, capture health, gain-search engine and
+  models, `get_window`) is `sdr_dsp.core.X` only. `core/__init__.py` says why
+  and `test_public_surface.py` fails if a new name lands in a tier by accident.
+- Test suite trimmed by 92 tests with no loss of coverage: the per-example
+  `ast.parse` check (pyflakes already parses every file), the per-example
+  subprocess import check for the ~40 examples that `test_examples_run.py`
+  runs end to end (now only the 8 hardware/interactive examples get it), and
+  six tests in `test_examples_demods.py` that imported no example code and
+  duplicated core tests line for line.
+- Docstrings: `bpsk_modulate` stated the bit->sign mapping backwards (it is
+  bit 1 -> +1, matching `bpsk_demod`); `fingerprint_vector` now says its
+  `sample_rate` argument is accepted for signature stability and unused;
+  `tests/conftest.py` no longer points at a TODO item closed in patch 0014;
+  a `measure.py` docstring no longer cites TODO wording that exists in neither
+  TODO; `tree_map.py` no longer claims to belong to another project.
 - `fm_demod` raises `ValueError` when given `deviation_hz` without
   `sample_rate` or vice versa. It used to fall through to the raw rad/sample
   output silently, leaving the caller with audio ~1e5x too quiet and no hint.
