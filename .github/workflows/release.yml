@@ -1,6 +1,15 @@
-# Publish sdr_dsp to PyPI when a version tag is pushed.
+# Publish sdr_dsp to PyPI when a version tag is pushed, or by hand.
 #
 #   git tag v0.3.0 && git push origin v0.3.0
+#
+# Manual runs (Actions -> release -> Run workflow) take a ref and a `publish`
+# switch. With `publish` off (the default) the run is a REHEARSAL on any ref
+# -- `main`, a branch, a SHA: it runs every guard below, builds, twine-checks
+# and uploads the wheel + sdist as a workflow artifact, and stops. Nothing
+# reaches PyPI. With `publish` on, the ref must be an existing v* tag that
+# matches pyproject; it then makes the same release the tag push would have
+# (use it to retry a failed publish, or to release deliberately rather than on
+# push).
 #
 # What it guards:
 #   * the tag must equal the version in sdr_dsp/pyproject.toml (a v0.3.1 tag on
@@ -25,6 +34,24 @@ name: release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Ref to build: a branch or SHA for a rehearsal, a v* tag to publish"
+        required: false
+        default: main
+        type: string
+      publish:
+        description: "Publish to PyPI + GitHub release (requires a v* tag ref; off = rehearsal)"
+        required: false
+        default: false
+        type: boolean
+
+env:
+  # The ref under release: the pushed tag, or whatever the manual form said.
+  RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref_name }}
+  # Publishing happens on a tag push, or on a manual run that asked for it.
+  PUBLISH: ${{ github.event_name == 'push' || inputs.publish == true }}
 
 permissions:
   contents: read
@@ -38,19 +65,28 @@ jobs:
         working-directory: sdr_dsp
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_REF }}
 
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
           cache-dependency-glob: sdr_dsp/uv.lock
 
-      - name: Tag matches pyproject version
+      - name: Ref is publishable (tag matches pyproject version)
         run: |
           set -e
-          tag="${GITHUB_REF_NAME#v}"
           ver="$(uv run --no-project --python 3.12 python -c 'import tomllib;print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')"
-          echo "tag=$tag pyproject=$ver"
-          test "$tag" = "$ver" || { echo "::error::tag v$tag does not match pyproject version $ver"; exit 1; }
+          echo "ref=$RELEASE_REF pyproject=$ver publish=$PUBLISH commit=$(git rev-parse --short HEAD)"
+          case "$RELEASE_REF" in
+            v[0-9]*)
+              test "${RELEASE_REF#v}" = "$ver" || { echo "::error::tag $RELEASE_REF does not match pyproject version $ver"; exit 1; } ;;
+            *)
+              if [ "$PUBLISH" = "true" ]; then
+                echo "::error::publish requires a v* tag ref, got '$RELEASE_REF'"; exit 1
+              fi
+              echo "::notice::rehearsal on '$RELEASE_REF' (not a tag): building $ver, publishing nothing" ;;
+          esac
 
       - name: Sync (locked)
         run: uv sync --locked --python 3.12
@@ -83,6 +119,9 @@ jobs:
   publish:
     name: publish to PyPI
     needs: build
+    # A tag push always publishes; a manual run only when asked (and the
+    # build job has already refused publish=true on a non-tag ref).
+    if: github.event_name == 'push' || inputs.publish == true
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -105,6 +144,7 @@ jobs:
       - name: Attach artifacts to the GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_REF }}
           files: dist/*
           generate_release_notes: false
           body: |

@@ -95,4 +95,4 @@ audio = fm_demod(fir_apply(iq, design_lowpass(100e3, fs)),
 
 *The documentation is being AI-summarized to fix spelling and make the
 development easier to follow. All mistakes are human, and will likely take a
-revision or two to fix experimentally.*
+revision or two to fix experimentally. This package is currently pre-version 1.x*

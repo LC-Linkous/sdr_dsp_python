@@ -49,20 +49,29 @@ package is published as `sdr-dsp` (PyPI normalises the underscore).
 5. **Commit and push to `main`; wait for `tests.yml` to go green** on the
    full matrix. The release workflow re-runs the suite on one cell, not the
    matrix, so the matrix run on `main` is the real multi-platform gate.
-6. **Tag and push the tag:**
+6. **Rehearse the release on `main`** (optional but cheap): *Actions →
+   release → Run workflow*, ref `main`, `publish` **unchecked**. The run
+   performs every guard the real release will (suite, ruff, mypy, handbook
+   `--check`, build, `twine check`, sdist contents) on that commit and
+   uploads the wheel + sdist as a workflow artifact named `dist`; nothing is
+   published and no tag is needed. Download it and `pip install` the wheel
+   into a fresh venv to see the exact bytes that would ship. The only check
+   it cannot do without a tag is tag == version, which step 7 does.
+7. **Tag and push the tag:**
    ```sh
    git tag -a vX.Y.Z -m "sdr_dsp X.Y.Z"
    git push origin vX.Y.Z
    ```
-   `release.yml` then: checks the tag against `pyproject`, re-runs
-   suite/ruff/mypy/handbook on the tagged commit, builds, `twine check`s,
-   verifies the sdist holds only `src/`, LICENSE, README and `pyproject`,
-   publishes, and attaches the wheel and sdist to a GitHub release for the
-   tag. If the `pypi` environment has a reviewer, approve it in the Actions
-   tab when it pauses.
-7. **Confirm:** `pip install sdr-dsp==X.Y.Z` in a fresh venv;
+   `release.yml` then: checks the tag against `pyproject`, re-runs the
+   guards on the tagged commit, publishes via trusted publishing, and
+   attaches the wheel and sdist to a GitHub release for the tag. If the
+   `pypi` environment has a reviewer, approve it in the Actions tab when it
+   pauses. To publish by hand instead (or to retry after a failed publish
+   job), *Run workflow* with ref `vX.Y.Z` and `publish` **checked**; the
+   workflow refuses `publish` on anything that is not a `v*` tag.
+8. **Confirm:** `pip install sdr-dsp==X.Y.Z` in a fresh venv;
    `python -c "import sdr_dsp; print(sdr_dsp.__version__)"`.
-8. **After the first release only:** remove the "once the first PyPI release
+9. **After the first release only:** remove the "once the first PyPI release
    is cut" hedges in `README.md` and `sdr_dsp/README.md`.
 
 ## Things that are deliberately NOT part of a code release
