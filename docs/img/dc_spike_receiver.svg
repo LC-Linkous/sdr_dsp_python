@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 300" width="760" height="300" font-family="Helvetica, Arial, sans-serif" font-size="13">
+  <title>Zero-IF receiver: LO leakage self-mixes to a DC spike at the center of the baseband spectrum</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#333"/>
+    </marker>
+    <marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#c0392b"/>
+    </marker>
+  </defs>
+  <rect width="760" height="300" fill="#fff"/>
+
+  <!-- antenna -->
+  <g stroke="#333" stroke-width="2" fill="none">
+    <line x1="40" y1="150" x2="40" y2="90"/>
+    <path d="M 20 90 L 40 110 L 60 90"/>
+    <line x1="40" y1="150" x2="120" y2="150" marker-end="url(#arrow)"/>
+  </g>
+  <text x="40" y="175" text-anchor="middle" fill="#333">RF in</text>
+
+  <!-- mixer -->
+  <g stroke="#333" stroke-width="2" fill="#fff">
+    <circle cx="150" cy="150" r="26"/>
+    <line x1="132" y1="132" x2="168" y2="168"/>
+    <line x1="168" y1="132" x2="132" y2="168"/>
+  </g>
+  <text x="150" y="105" text-anchor="middle" fill="#333">mixer</text>
+
+  <!-- LO -->
+  <g stroke="#333" stroke-width="2" fill="#fff">
+    <circle cx="150" cy="240" r="22"/>
+    <path d="M 136 240 q 7 -12 14 0 t 14 0" stroke-width="1.5"/>
+    <line x1="150" y1="218" x2="150" y2="176" marker-end="url(#arrow)"/>
+  </g>
+  <text x="190" y="245" fill="#333">LO at f_center</text>
+
+  <!-- leakage path -->
+  <path d="M 150 215 C 100 215 90 150 125 150" stroke="#c0392b" stroke-width="2" stroke-dasharray="5 4" fill="none" marker-end="url(#arrow-red)"/>
+  <text x="20" y="262" fill="#c0392b" font-size="12">LO leakage back</text>
+  <text x="20" y="276" fill="#c0392b" font-size="12">into the RF port</text>
+
+  <!-- baseband chain -->
+  <g stroke="#333" stroke-width="2" fill="none">
+    <line x1="176" y1="150" x2="230" y2="150" marker-end="url(#arrow)"/>
+    <rect x="232" y="130" width="70" height="40" fill="#fff"/>
+    <line x1="302" y1="150" x2="356" y2="150" marker-end="url(#arrow)"/>
+    <rect x="358" y="130" width="60" height="40" fill="#fff"/>
+    <line x1="418" y1="150" x2="470" y2="150" marker-end="url(#arrow)"/>
+  </g>
+  <text x="267" y="155" text-anchor="middle" fill="#333">amp / LPF</text>
+  <text x="388" y="155" text-anchor="middle" fill="#333">ADC</text>
+  <text x="267" y="190" text-anchor="middle" fill="#777" font-size="11">+ analog DC offsets</text>
+
+  <!-- spectrum plot -->
+  <g transform="translate(480,60)">
+    <rect x="0" y="0" width="260" height="190" fill="#fafafa" stroke="#ccc"/>
+    <!-- axes -->
+    <line x1="20" y1="160" x2="245" y2="160" stroke="#333" stroke-width="1.5"/>
+    <line x1="20" y1="160" x2="20" y2="20" stroke="#333" stroke-width="1.5"/>
+    <!-- noise floor -->
+    <polyline points="20,140 35,136 50,142 65,138 80,141 95,137 110,140 125,138 140,141 155,137 170,140 185,138 200,141 215,137 230,140 245,138" stroke="#888" stroke-width="1.5" fill="none"/>
+    <!-- signal (off-center, broader) -->
+    <path d="M 165 140 C 175 110 185 100 192 100 C 199 100 209 110 219 140" stroke="#2e7d32" stroke-width="2" fill="none"/>
+    <text x="192" y="92" text-anchor="middle" fill="#2e7d32" font-size="11">your signal</text>
+    <!-- DC spike at center -->
+    <line x1="132" y1="140" x2="132" y2="30" stroke="#c0392b" stroke-width="3"/>
+    <text x="132" y="24" text-anchor="middle" fill="#c0392b" font-size="11" font-weight="bold">DC spike</text>
+    <!-- labels -->
+    <text x="132" y="176" text-anchor="middle" fill="#333" font-size="11">0 Hz = f_center</text>
+    <text x="30" y="176" fill="#555" font-size="10">-fs/2</text>
+    <text x="222" y="176" fill="#555" font-size="10">+fs/2</text>
+    <text x="8" y="16" fill="#555" font-size="10">dB</text>
+  </g>
+  <text x="610" y="275" text-anchor="middle" fill="#333" font-size="12">the spike is always at the tuned frequency</text>
+</svg>

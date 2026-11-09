@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 290" width="960" height="290" font-family="Helvetica, Arial, sans-serif" font-size="12">
+  <title>Three panels: dead-on tuning puts the spike in the signal; offset capture separates them; tune_to_baseband recenters the signal with the spike moved aside</title>
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#333"/>
+    </marker>
+  </defs>
+  <rect width="900" height="290" fill="#fff"/>
+
+  <!-- panel template: 260 wide, origin at translate -->
+  <!-- Panel 1: dead-on -->
+  <g transform="translate(20,30)">
+    <text x="130" y="0" text-anchor="middle" fill="#333" font-weight="bold">1. Tuned dead-on</text>
+    <rect x="0" y="12" width="260" height="190" fill="#fafafa" stroke="#ccc"/>
+    <line x1="20" y1="172" x2="245" y2="172" stroke="#333" stroke-width="1.5"/>
+    <line x1="20" y1="172" x2="20" y2="32" stroke="#333" stroke-width="1.5"/>
+    <polyline points="20,152 40,148 60,154 80,150 100,153 120,149 140,152 160,150 180,153 200,149 220,152 245,150" stroke="#888" stroke-width="1.5" fill="none"/>
+    <path d="M 105 152 C 115 115 125 105 132 105 C 139 105 149 115 159 152" stroke="#2e7d32" stroke-width="2" fill="none"/>
+    <line x1="132" y1="152" x2="132" y2="42" stroke="#c0392b" stroke-width="3"/>
+    <text x="132" y="188" text-anchor="middle" fill="#333" font-size="11">0 Hz</text>
+    <text x="132" y="222" text-anchor="middle" fill="#c0392b" font-size="11">spike sits inside the signal</text>
+  </g>
+
+  <!-- Panel 2: offset capture -->
+  <g transform="translate(320,30)">
+    <text x="130" y="0" text-anchor="middle" fill="#333" font-weight="bold">2. Capture 150 kHz low</text>
+    <rect x="0" y="12" width="260" height="190" fill="#fafafa" stroke="#ccc"/>
+    <line x1="20" y1="172" x2="245" y2="172" stroke="#333" stroke-width="1.5"/>
+    <line x1="20" y1="172" x2="20" y2="32" stroke="#333" stroke-width="1.5"/>
+    <polyline points="20,152 40,148 60,154 80,150 100,153 120,149 140,152 160,150 180,153 200,149 220,152 245,150" stroke="#888" stroke-width="1.5" fill="none"/>
+    <!-- spike at center -->
+    <line x1="132" y1="152" x2="132" y2="42" stroke="#c0392b" stroke-width="3"/>
+    <text x="132" y="188" text-anchor="middle" fill="#333" font-size="11">0 Hz</text>
+    <!-- signal at +150 kHz -->
+    <path d="M 183 152 C 193 115 203 105 210 105 C 217 105 227 115 237 152" stroke="#2e7d32" stroke-width="2" fill="none"/>
+    <text x="210" y="188" text-anchor="middle" fill="#2e7d32" font-size="11">+150 kHz</text>
+    <text x="132" y="222" text-anchor="middle" fill="#333" font-size="11">signal and spike are now apart</text>
+  </g>
+
+  <!-- arrow between 2 and 3 -->
+  <g transform="translate(592,120)">
+    <line x1="0" y1="0" x2="76" y2="0" stroke="#333" stroke-width="2" marker-end="url(#arr)"/>
+  </g>
+  <text x="630" y="108" text-anchor="middle" fill="#333" font-size="10" font-family="monospace">tune_to_</text><text x="630" y="140" text-anchor="middle" fill="#333" font-size="10" font-family="monospace">baseband</text>
+
+  <!-- Panel 3: after software mix -->
+  <g transform="translate(680,30)">
+    <text x="130" y="0" text-anchor="middle" fill="#333" font-weight="bold">3. After the software mix</text>
+    <rect x="0" y="12" width="260" height="190" fill="#fafafa" stroke="#ccc"/>
+    <line x1="20" y1="172" x2="245" y2="172" stroke="#333" stroke-width="1.5"/>
+    <line x1="20" y1="172" x2="20" y2="32" stroke="#333" stroke-width="1.5"/>
+    <polyline points="20,152 40,148 60,154 80,150 100,153 120,149 140,152 160,150 180,153 200,149 220,152 245,150" stroke="#888" stroke-width="1.5" fill="none"/>
+    <!-- signal now at 0 -->
+    <path d="M 105 152 C 115 115 125 105 132 105 C 139 105 149 115 159 152" stroke="#2e7d32" stroke-width="2" fill="none"/>
+    <text x="132" y="188" text-anchor="middle" fill="#2e7d32" font-size="11">0 Hz</text>
+    <!-- spike moved to -150 kHz -->
+    <line x1="54" y1="152" x2="54" y2="42" stroke="#c0392b" stroke-width="3"/>
+    <text x="54" y="188" text-anchor="middle" fill="#c0392b" font-size="11">-150 kHz</text>
+    <!-- filter passband -->
+    <rect x="92" y="36" width="80" height="116" fill="#2e7d32" fill-opacity="0.08" stroke="#2e7d32" stroke-dasharray="4 3"/>
+    <text x="132" y="222" text-anchor="middle" fill="#333" font-size="11">low-pass keeps the signal, drops the spike</text>
+  </g>
+</svg>

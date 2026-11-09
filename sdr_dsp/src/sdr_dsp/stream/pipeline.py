@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Self
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Self, overload
 
 import numpy as np
 
@@ -150,6 +150,46 @@ class Pipeline:
             if len(x):
                 tails.append(x)
         return tails
+
+    @overload
+    def run(
+        self,
+        sink: None = None,
+        profile: Literal[False] = False,
+        max_blocks: int | None = None,
+    ) -> list[np.ndarray]: ...
+
+    @overload
+    def run(
+        self,
+        sink: Callable[[np.ndarray], Any],
+        profile: Literal[False] = False,
+        max_blocks: int | None = None,
+    ) -> None: ...
+
+    @overload
+    def run(
+        self,
+        sink: None = None,
+        profile: Literal[True] = ...,
+        max_blocks: int | None = None,
+    ) -> tuple[list[np.ndarray], PipelineStats]: ...
+
+    @overload
+    def run(
+        self,
+        sink: Callable[[np.ndarray], Any],
+        profile: Literal[True] = ...,
+        max_blocks: int | None = None,
+    ) -> tuple[None, PipelineStats]: ...
+
+    @overload
+    def run(
+        self,
+        sink: Callable[[np.ndarray], Any] | None = None,
+        profile: bool = ...,
+        max_blocks: int | None = None,
+    ) -> list[np.ndarray] | None | tuple[list[np.ndarray] | None, PipelineStats]: ...
 
     def run(
         self,

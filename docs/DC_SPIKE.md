@@ -65,7 +65,7 @@ from sdr_dsp import tune_to_baseband
 fs = 2e6
 hw_center = 433.77e6            # tune 150 kHz LOW of the target
 # ... capture iq at hw_center ...
-iq = tune_to_baseband(iq, offset_hz=150e3, sample_rate=fs)
+iq = tune_to_baseband(iq, sample_rate=fs, offset_hz=150e3)
 # signal now at 0 Hz; the DC spike is at -150 kHz — filter or ignore
 ```
 

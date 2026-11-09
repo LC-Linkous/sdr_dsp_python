@@ -20,7 +20,7 @@ from __future__ import annotations
 import csv
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal, overload
 
 import numpy as np
 from ._validate import one_of, positive
@@ -120,6 +120,45 @@ def _timing_lock_trace(
 # ---------------------------------------------------------------------------
 # CARRIER RECOVERY
 # ---------------------------------------------------------------------------
+@overload
+def carrier_recovery(
+    iq: Any,
+    method: str = "costas",
+    order: int = 2,
+    loop_bw: float = 0.01,
+    damping: float = 0.707,
+    diagnostics: Literal[False] = False,
+    csv_path: str | os.PathLike[str] | None = None,
+    lock_threshold: float = 0.05,
+) -> np.ndarray: ...
+
+
+@overload
+def carrier_recovery(
+    iq: Any,
+    method: str = "costas",
+    order: int = 2,
+    loop_bw: float = 0.01,
+    damping: float = 0.707,
+    diagnostics: Literal[True] = ...,
+    csv_path: str | os.PathLike[str] | None = None,
+    lock_threshold: float = 0.05,
+) -> tuple[np.ndarray, LoopDiagnostics]: ...
+
+
+@overload
+def carrier_recovery(
+    iq: Any,
+    method: str = "costas",
+    order: int = 2,
+    loop_bw: float = 0.01,
+    damping: float = 0.707,
+    diagnostics: bool = ...,
+    csv_path: str | os.PathLike[str] | None = None,
+    lock_threshold: float = 0.05,
+) -> np.ndarray | tuple[np.ndarray, LoopDiagnostics]: ...
+
+
 def carrier_recovery(
     iq: Any,
     method: str = "costas",
@@ -231,6 +270,45 @@ def carrier_recovery(
 # percent, which the loop tolerates (it shifts the effective bandwidth, not the
 # sign). tests/test_sync.py re-measures them and fails if they drift by >2x.
 TED_GAIN = {"gardner": 0.13, "early_late": 0.13, "mueller_muller": 0.30}
+
+
+@overload
+def symbol_sync(
+    iq: Any,
+    samples_per_symbol: float,
+    method: str = "gardner",
+    loop_bw: float = 0.01,
+    damping: float = 0.707,
+    diagnostics: Literal[False] = False,
+    csv_path: str | os.PathLike[str] | None = None,
+    lock_threshold: float | None = None,
+) -> np.ndarray: ...
+
+
+@overload
+def symbol_sync(
+    iq: Any,
+    samples_per_symbol: float,
+    method: str = "gardner",
+    loop_bw: float = 0.01,
+    damping: float = 0.707,
+    diagnostics: Literal[True] = ...,
+    csv_path: str | os.PathLike[str] | None = None,
+    lock_threshold: float | None = None,
+) -> tuple[np.ndarray, LoopDiagnostics]: ...
+
+
+@overload
+def symbol_sync(
+    iq: Any,
+    samples_per_symbol: float,
+    method: str = "gardner",
+    loop_bw: float = 0.01,
+    damping: float = 0.707,
+    diagnostics: bool = ...,
+    csv_path: str | os.PathLike[str] | None = None,
+    lock_threshold: float | None = None,
+) -> np.ndarray | tuple[np.ndarray, LoopDiagnostics]: ...
 
 
 def symbol_sync(

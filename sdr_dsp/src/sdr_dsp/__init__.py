@@ -10,7 +10,7 @@ you provide the hardware.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import core as core  # noqa: F401  (importable attribute; not in __all__)
 from .core import (
@@ -62,6 +62,13 @@ except ImportError:                       # pragma: no cover
 # partially initialized when `stream` was pulled in). Lazy access keeps
 # `sdr_dsp.io`, `sdr_dsp.sinks`, `sdr_dsp.stream`, `sdr_dsp.link`, and `sdr_dsp.Pipeline` working
 # identically while removing the fragility.
+# Type checkers do not run __getattr__, so without this they would see
+# `sdr_dsp.Pipeline` as Any; the block is never executed at runtime.
+if TYPE_CHECKING:
+    from . import io as io, link as link, sinks as sinks, stream as stream
+    from .stream import Pipeline as Pipeline
+
+
 def __getattr__(name: str) -> Any:
     if name in ("io", "sinks", "stream", "link"):
         import importlib
