@@ -98,7 +98,7 @@ def main():
         ("noise only        ", ref + noise),
         ("+ imbalance 0.5/3 ", add_iq_imbalance(ref, 0.5, 3.0) + noise),
         ("+ PA compression  ", add_pa_nonlinearity(ref, [1.0, -0.08 + 0.02j]) + noise),
-        ("+ phase noise 200 ", add_phase_noise(ref, 200.0, fs, seed=2) + noise),
+        ("+ phase noise 200 ", add_phase_noise(ref, fs, 200.0, seed=2) + noise),
     ]
     # show a few of the most telling moments
     idx = {name: i for i, name in enumerate(EVM_FEATURE_NAMES)}

@@ -43,7 +43,7 @@ def main():
         n = min(len(a), len(b))
         return np.corrcoef(a[trim:n-trim], b[trim:n-trim])[0, 1]
 
-    fm_rec = fm_demod(fm_modulate(msg, 75e3, fs), 75e3, fs)
+    fm_rec = fm_demod(fm_modulate(msg, fs, 75e3), fs, 75e3)
     am_rec = am_demod(am_modulate(msg, 0.5))
     print(f"[analog] FM  message recovered, correlation {corr(msg, fm_rec):.4f}")
     print(f"[analog] AM  message recovered, correlation {corr(msg, am_rec):.4f}")

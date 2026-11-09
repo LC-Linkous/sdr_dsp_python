@@ -79,12 +79,12 @@ CLIP_COUNTS = 120.0
 
 
 # Presets chosen to exercise sdr_dsp's demodulators against real signals.
-# `channel_bw` is the half-width used for the carrier-presence check, and
+# `channel_bw_hz` is the half-width used for the carrier-presence check, and
 # should match roughly what a receiver would filter down to.
 BANDS = {
     "fm": {
         "center": 98_000_000, "sweep": (88_000_000, 108_000_000),
-        "channel_bw": 100_000, "sample_rate": 2e6, "seconds": 0.5,
+        "channel_bw_hz": 100_000, "sample_rate": 2e6, "seconds": 0.5,
         "desc": "FM broadcast -- wideband FM, exercises fm_receiver.py",
         "quality": "pilot",
         "expect_signal": True,
@@ -92,7 +92,7 @@ BANDS = {
     },
     "wx": {
         "center": 162_450_000, "sweep": (162_375_000, 162_575_000),
-        "channel_bw": 12_500, "sample_rate": 2e6, "seconds": 1.0,
+        "channel_bw_hz": 12_500, "sample_rate": 2e6, "seconds": 1.0,
         "desc": "NOAA weather radio -- narrowband FM voice, always on",
         "quality": "channel",
         "expect_signal": True,
@@ -102,7 +102,7 @@ BANDS = {
     },
     "airband": {
         "center": 124_000_000, "sweep": (118_000_000, 137_000_000),
-        "channel_bw": 8_000, "sample_rate": 2e6, "seconds": 2.0,
+        "channel_bw_hz": 8_000, "sample_rate": 2e6, "seconds": 2.0,
         "desc": "VHF airband -- AM voice, exercises am_receiver.py",
         "expect_signal": False,
         "note": ("Bursty: only occupied while an aircraft or tower is "
@@ -111,7 +111,7 @@ BANDS = {
     },
     "ism433": {
         "center": 433_920_000, "sweep": (433_000_000, 435_000_000),
-        "channel_bw": 200_000, "sample_rate": 2e6, "seconds": 2.0,
+        "channel_bw_hz": 200_000, "sample_rate": 2e6, "seconds": 2.0,
         "desc": "433 MHz ISM -- OOK/ASK devices, exercises ook_decoder.py",
         "expect_signal": False,
         "note": ("Short bursts from sensors, remotes, and TPMS. Empty "
@@ -120,14 +120,14 @@ BANDS = {
     },
     "ism915": {
         "center": 915_000_000, "sweep": (902_000_000, 928_000_000),
-        "channel_bw": 500_000, "sample_rate": 2e6, "seconds": 2.0,
+        "channel_bw_hz": 500_000, "sample_rate": 2e6, "seconds": 2.0,
         "desc": "915 MHz ISM -- frequency hoppers, exercises fhss_visualizer",
         "expect_signal": False,
         "note": "US band. Hopping traffic is intermittent by nature.",
     },
     "noise": {
         "center": 250_000_000, "sweep": None,
-        "channel_bw": 100_000, "sample_rate": 2e6, "seconds": 0.5,
+        "channel_bw_hz": 100_000, "sample_rate": 2e6, "seconds": 0.5,
         "desc": "deliberate noise-floor reference (no signal expected)",
         "expect_signal": False,
         "skip_gain_search": True,
@@ -180,7 +180,7 @@ def find_gain(h, band, args):
     elif qkind == "channel":
         def quality(iq):
             hres = capture_health(iq, args.sample_rate,
-                                  channel_bw=band["channel_bw"])
+                                  channel_bw_hz=band["channel_bw_hz"])
             return hres["channel_excess_db"]
     else:
         quality = None
@@ -245,7 +245,7 @@ def collect_band(h, name, args):
 
     # ---- validate what we actually got ----
     iq = load_iq(str(iq_path))
-    health = capture_health(iq, sr, channel_bw=band["channel_bw"])
+    health = capture_health(iq, sr, channel_bw_hz=band["channel_bw_hz"])
     size_mb = iq_path.stat().st_size / 1e6
     print(f"   wrote {iq_path.name} ({size_mb:.1f} MB, {len(iq):,} samples)")
     print(f"   peak {health['adc_counts']:.1f}/127 counts, channel "

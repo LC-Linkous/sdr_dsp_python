@@ -95,11 +95,11 @@ at the repo root is condensed into `LOG.md` (entry "Sept-Oct 2026 sessions").
 
 ## Tooling / typing
 
-- [ ] mypy strict + `py.typed` honesty: the marker ships but most signatures
-      are unannotated (~350 errors under `disallow_untyped_defs`). Enable the
-      strict flags per module as each is annotated; until then the marker
-      overpromises, exactly the hackrfpy pre-1.1.0 situation. Do it after the
-      feature work so annotations aren't rewritten as APIs move.
+- [x] mypy strict + `py.typed` honesty: every function in the package is
+      annotated and `disallow_untyped_defs` / `disallow_incomplete_defs` are
+      on for the whole package in `pyproject.toml` (0.3.0). Loose "array-like"
+      inputs are `Any` on purpose; outputs are `np.ndarray`. Remaining
+      strictness (`warn_return_any`, `no_implicit_reexport`) is not planned.
 - [x] Line-ending normalization: the index was already LF-clean
       (`git ls-files --eol`); CI now guards it. No renormalize commit needed.
 
@@ -152,8 +152,6 @@ keep in view.
   region- and location-specific.
 - **Synthetic RDS is not real RDS.** `make_synthetic_sample`'s 57 kHz carrier
   is random bits with no group framing. Do not use it as RDS ground truth.
-- **`py.typed` overpromises** until the annotation campaign above lands;
-  downstream mypy sees `Any` for much of the API.
 - **Rare-flake vigilance.** The hash()-seeded fixture flake is fixed and CI
   pins `PYTHONHASHSEED`, but any new test using unseeded randomness or the
   builtin `hash()` for seeding can reintroduce it. Seed with

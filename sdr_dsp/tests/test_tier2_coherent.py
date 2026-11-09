@@ -103,3 +103,20 @@ def test_qpsk_end_to_end_through_recovery():
         f"symbol_sync ({err:.4f}) no better than naive stride ({best_stride:.4f})")
     # and carrier recovery must matter too: without it the constellation spins
     assert cleanliness(symbol_sync(imp, sps, method="gardner")) > 0.3
+
+
+def test_psk8_bit_mapping_is_gray_and_sector_consistent():
+    # the eight ideal points, walked counter-clockwise: consecutive sectors'
+    # 3-bit labels differ in exactly one bit, all eight labels are distinct,
+    # and the reported sector matches the point. A sector-swap mutation that
+    # broke the Gray property passed every existing test (they checked only
+    # the sector index and bit count).
+    labels = []
+    for k in range(8):
+        pt = np.exp(1j * k * np.pi / 4).astype(np.complex64)          # sector k at k*45 deg
+        bits, sector = psk8_demod(np.array([pt]))
+        assert int(sector[0]) == k
+        labels.append(tuple(int(b) for b in bits))
+    assert len(set(labels)) == 8
+    for a, b in zip(labels, labels[1:] + labels[:1], strict=True):
+        assert sum(x != y for x, y in zip(a, b, strict=True)) == 1, f"{a} -> {b}"

@@ -67,7 +67,7 @@ def test_pa_linear_is_identity(proper_signal):
 
 
 def test_phase_noise_zero_linewidth_is_identity(proper_signal):
-    out = add_phase_noise(proper_signal, 0.0, 1e6)
+    out = add_phase_noise(proper_signal, 1e6, 0.0)
     assert np.allclose(out, proper_signal)
 
 
@@ -130,8 +130,8 @@ def test_cfo_ppm_conversion():
 
 def test_phase_noise_variance_monotonic(proper_signal):
     """Higher linewidth -> larger measured phase-error variance."""
-    low = add_phase_noise(proper_signal, 10.0, 1e6, seed=1)
-    high = add_phase_noise(proper_signal, 500.0, 1e6, seed=1)
+    low = add_phase_noise(proper_signal, 1e6, 10.0, seed=1)
+    high = add_phase_noise(proper_signal, 1e6, 500.0, seed=1)
     v_low = estimate_phase_noise_variance(low, reference=proper_signal)
     v_high = estimate_phase_noise_variance(high, reference=proper_signal)
     assert v_high > v_low
@@ -328,3 +328,10 @@ def test_flattened_core_api():
     for fn in (fingerprint_vector, iq_image_ratio,
                make_device_impairments, apply_device_impairments):
         assert callable(fn)
+
+
+def test_estimate_iq_imbalance_of_nothing_is_zero_without_warnings():
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert estimate_iq_imbalance(np.zeros(0, dtype=np.complex64)) == (0.0, 0.0)

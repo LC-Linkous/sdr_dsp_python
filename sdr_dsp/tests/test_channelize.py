@@ -178,7 +178,7 @@ def test_oversampled_bank_equals_direct_mix_filter_decimate(k_ch):
     assert rate == fs / (N // 2)
     y = chans[k_ch]
     proto = design_lowpass(fs / (2 * N), fs, num_taps=N * L)
-    ref = fir_apply(frequency_shift(x, -cf[k_ch], fs), proto)[N - 1::N // 2][:len(y)]
+    ref = fir_apply(frequency_shift(x, fs, -cf[k_ch]), proto)[N - 1::N // 2][:len(y)]
     yy, rr = y[50:len(ref) - 50], ref[50:len(ref) - 50]
     corr = abs(np.vdot(rr, yy)) / np.sqrt(np.vdot(rr, rr).real * np.vdot(yy, yy).real)
     assert corr > 0.9999

@@ -104,3 +104,12 @@ def test_bpsk_recovers_bits():
     rec = [1 if bits[i*spb:(i+1)*spb].mean() > 0.5 else 0
            for i in range(len(bits_in))]
     assert rec == bits_in
+
+
+def test_fsk_demod_smoothing_window_longer_than_signal_keeps_length():
+    # np.convolve(mode="same") returns max(M, N): a smoothing window longer
+    # than the signal used to LENGTHEN the output, and sample_symbols then
+    # emitted phantom symbols
+    iq = np.exp(1j * np.cumsum(np.full(5, 0.2))).astype(np.complex64)
+    out = fsk_demod(iq, 1e6, smooth_samples=50)
+    assert len(out) == len(iq) - 1

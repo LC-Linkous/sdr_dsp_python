@@ -20,20 +20,41 @@ core.snr_db; set cfo_hz here, measure it with core.estimate_cfo.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 
-def add_noise(iq, snr_db, rng=None):
+def add_noise(
+    iq: Any,
+    snr_db: float,
+    seed: int | None = None,
+    rng: np.random.Generator | None = None,
+) -> np.ndarray:
     """Add complex AWGN at a specified SNR (dB) relative to the signal. OUR code.
 
     Measures the signal's mean power, computes the noise power for the requested
     SNR, and adds complex Gaussian noise at that level. This is the honest way to
     set noise -- by the SNR you want, not an arbitrary amplitude.
+
+    seed: int for a reproducible draw, as apply_channel / add_phase_noise take
+          it. rng: an existing np.random.Generator to draw from instead (one
+          of the two; rng wins if both are given). Neither -> fresh entropy.
     """
     iq = np.asarray(iq, dtype=np.complex64)
     if len(iq) == 0:
         return iq
-    rng = rng or np.random.default_rng()
+    if isinstance(snr_db, str):
+        raise TypeError(f"snr_db must be a number in dB, got the string {snr_db!r}")
+    try:
+        snr_db = float(snr_db)
+    except (TypeError, ValueError):
+        raise TypeError(f"snr_db must be a number in dB, got {snr_db!r}") from None
+    if rng is None:
+        rng = np.random.default_rng(seed)
+    elif not isinstance(rng, np.random.Generator):
+        raise TypeError("rng must be a numpy Generator (use seed= for an int), "
+                        f"got {type(rng).__name__}")
     sig_power = float(np.mean(np.abs(iq) ** 2))
     if sig_power <= 0:
         return iq
@@ -43,7 +64,7 @@ def add_noise(iq, snr_db, rng=None):
     return (iq + noise).astype(np.complex64)
 
 
-def add_cfo(iq, cfo_hz, sample_rate):
+def add_cfo(iq: Any, sample_rate: float, cfo_hz: float) -> np.ndarray:
     """Apply a carrier frequency offset (Hz). OUR code.
 
     Multiplies by a complex exponential at cfo_hz -- the rotation a real link
@@ -58,7 +79,7 @@ def add_cfo(iq, cfo_hz, sample_rate):
     return (iq * np.exp(2j * np.pi * cfo_hz * t)).astype(np.complex64)
 
 
-def add_delay(iq, delay_samples):
+def add_delay(iq: Any, delay_samples: int) -> np.ndarray:
     """Delay the signal by an integer number of samples (zero-pad the front).
 
     Models propagation delay / a late frame start. The output is the same length
@@ -76,8 +97,16 @@ def add_delay(iq, delay_samples):
         if d < len(iq) else np.zeros(len(iq), dtype=np.complex64)
 
 
-def apply_channel(iq, sample_rate=None, snr_db=None, cfo_hz=None,
-                  delay_samples=0, scale=1.0, phase=0.0, seed=None):
+def apply_channel(
+    iq: Any,
+    sample_rate: float | None = None,
+    snr_db: float | None = None,
+    cfo_hz: float | None = None,
+    delay_samples: int = 0,
+    scale: float = 1.0,
+    phase: float = 0.0,
+    seed: int | None = None,
+) -> np.ndarray:
     """Pass a signal through a simulated channel. OUR code.
 
     Applies, in order: delay -> scale/phase -> CFO -> noise. Every impairment is
@@ -106,7 +135,7 @@ def apply_channel(iq, sample_rate=None, snr_db=None, cfo_hz=None,
     if cfo_hz:
         if sample_rate is None:
             raise ValueError("cfo_hz requires sample_rate")
-        out = add_cfo(out, cfo_hz, sample_rate)
+        out = add_cfo(out, sample_rate, cfo_hz)
     if snr_db is not None:
         out = add_noise(out, snr_db, rng=rng)
     return out.astype(np.complex64)

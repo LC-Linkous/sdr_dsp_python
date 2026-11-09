@@ -120,14 +120,14 @@ def test_streaming_decimator_survives_blocks_smaller_than_factor():
 # --- mixer ----------------------------------------------------------------
 
 def test_streaming_mixer_is_phase_continuous(fm_iq):
-    ref = frequency_shift(fm_iq, -37_500.0, FS)
+    ref = frequency_shift(fm_iq, FS, -37_500.0)
     got = _run(StreamingMixer(-37_500.0, FS), fm_iq)
     np.testing.assert_allclose(got, ref, atol=5e-6)
 
 
 def test_naive_mixer_per_block_has_phase_steps(fm_iq):
-    ref = frequency_shift(fm_iq, -37_500.0, FS)
-    naive = np.concatenate([frequency_shift(b, -37_500.0, FS)
+    ref = frequency_shift(fm_iq, FS, -37_500.0)
+    naive = np.concatenate([frequency_shift(b, FS, -37_500.0)
                             for b in _blocks(fm_iq)])
     assert not np.allclose(naive, ref, atol=1e-3)
 
@@ -135,7 +135,7 @@ def test_naive_mixer_per_block_has_phase_steps(fm_iq):
 # --- FM demod -------------------------------------------------------------
 
 def test_streaming_fm_demod_matches_whole_record(fm_iq):
-    ref = fm_demod(fm_iq, 20e3, FS)
+    ref = fm_demod(fm_iq, FS, 20e3)
     got = _run(StreamingFMDemod(20e3, FS), fm_iq)
     assert got.shape == ref.shape        # whole record is one shorter than input
     np.testing.assert_allclose(got, ref, atol=1e-9)
@@ -220,7 +220,7 @@ def test_full_fm_chain_in_a_pipeline_matches_whole_record(fm_iq):
     inter = FS / dec
 
     whole = fir_apply(fm_iq, taps)[::dec]
-    whole = fm_demod(whole, 20e3, inter)
+    whole = fm_demod(whole, inter, 20e3)
     whole = resample_poly(whole, 48_000, int(inter))
 
     rs = StreamingResampler(48_000, int(inter))
@@ -306,3 +306,24 @@ def test_streaming_psd_retune_relabels_axis_and_keeps_buffer():
     assert stage(x[300:]) is not None                     # 300 + 212 = 512 = avg*nfft
     stage.retune(102e6, drop_buffer=True)                 # RF retune: start clean
     assert stage(x[:nfft * 2 - 1]) is None and stage.center_freq == 102e6
+
+
+def test_streaming_psd_drains_every_complete_frame_per_call():
+    # a block larger than avg*nfft must yield ALL the spectra it completes,
+    # not one; the buffer never holds a full frame between calls. (A first
+    # version emitted one per call and a 64k-block stream leaked ~63k samples
+    # per call without bound.)
+    from sdr_dsp.stream import StreamingPSD
+    from sdr_dsp.core import psd
+    x = _noisy_tone(65536 * 3, 1e6)
+    stage = StreamingPSD(1024, avg=1, sample_rate=1e6)
+    newest = stage(x[:65536])
+    assert len(stage.last_batch) == 64 and stage.frames_emitted == 64
+    assert stage._buf.size == 0
+    np.testing.assert_array_equal(newest, stage.last_batch[-1])
+    first_ref = psd(x[:1024], 1e6, nfft=1024, scaling="dbfs")[1]
+    np.testing.assert_array_equal(stage.last_batch[0], first_ref)
+    assert stage(x[65536:65536 + 100]) is None and stage.last_batch == []
+    for _ in range(50):
+        stage(x[:65536])
+    assert stage._buf.size < 1024

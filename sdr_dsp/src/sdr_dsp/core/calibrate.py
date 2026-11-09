@@ -30,9 +30,11 @@ needs it.
 from __future__ import annotations
 
 import json
+import os
 import warnings
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
+from typing import Any
 
 from .measure import power_dbfs
 
@@ -41,7 +43,7 @@ from .measure import power_dbfs
 DEFAULT_DRIFT_WARN_HZ = 5e6
 
 
-def power_dbm(iq, cal_offset_db):
+def power_dbm(iq: Any, cal_offset_db: float) -> float:
     """Absolute power in dBm = power_dbfs(iq) + cal_offset_db. OUR code.
 
     The one-off, stateless form: you supply the calibration offset directly.
@@ -53,7 +55,12 @@ def power_dbm(iq, cal_offset_db):
     confidently-wrong dBm out -- there is no way for this function to check that,
     so the responsibility is yours.
     """
-    return power_dbfs(iq) + float(cal_offset_db)
+    try:
+        offset = float(cal_offset_db)
+    except (TypeError, ValueError):
+        raise TypeError(f"cal_offset_db must be a number in dB (from compute_cal_offset or a "
+                        f"Calibration), got {cal_offset_db!r}") from None
+    return power_dbfs(iq) + offset
 
 
 @dataclass
@@ -72,19 +79,21 @@ class Calibration:
     """
     offset_db: float
     frequency_hz: float | None = None
-    conditions: dict = field(default_factory=dict)
+    conditions: dict[str, Any] = field(default_factory=dict)
     notes: str = ""
     measured_at: str = ""
     drift_warn_hz: float = DEFAULT_DRIFT_WARN_HZ
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         self.offset_db = float(self.offset_db)
         if self.frequency_hz is not None:
             self.frequency_hz = float(self.frequency_hz)
         if not self.measured_at:
             self.measured_at = datetime.now(timezone.utc).isoformat()
 
-    def power_dbm(self, iq, at_frequency_hz=None, warn=True):
+    def power_dbm(
+        self, iq: Any, at_frequency_hz: float | None = None, warn: bool = True
+    ) -> float:
         """Absolute power of `iq` in dBm, using this calibration's offset.
 
         at_frequency_hz: the frequency `iq` was captured at, if known. When both
@@ -110,14 +119,14 @@ class Calibration:
         return power_dbfs(iq) + self.offset_db
 
     # -- persistence --------------------------------------------------------
-    def save(self, path):
+    def save(self, path: str | os.PathLike[str]) -> str:
         """Write the calibration to a human-readable JSON file."""
         with open(path, "w") as f:
             json.dump(asdict(self), f, indent=2)
         return str(path)
 
     @classmethod
-    def load(cls, path):
+    def load(cls, path: str | os.PathLike[str]) -> Calibration:
         """Load a calibration saved by `save`."""
         with open(path, "r") as f:
             d = json.load(f)
@@ -126,15 +135,21 @@ class Calibration:
                  "measured_at", "drift_warn_hz"}
         return cls(**{k: v for k, v in d.items() if k in known})
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         f = f"{self.frequency_hz/1e6:g}MHz" if self.frequency_hz else "no-freq"
         return (f"Calibration(offset={self.offset_db:+.1f}dB @ {f}"
                 + (f", {len(self.conditions)} conditions)" if self.conditions
                    else ")"))
 
 
-def compute_cal_offset(iq, known_dbm, frequency_hz=None, conditions=None,
-                       notes="", drift_warn_hz=DEFAULT_DRIFT_WARN_HZ):
+def compute_cal_offset(
+    iq: Any,
+    known_dbm: float,
+    frequency_hz: float | None = None,
+    conditions: dict[str, Any] | None = None,
+    notes: str = "",
+    drift_warn_hz: float = DEFAULT_DRIFT_WARN_HZ,
+) -> Calibration:
     """Derive a calibration from a measurement of a KNOWN-power reference.
 
     Feed in `iq` captured from a calibrated source whose true power is

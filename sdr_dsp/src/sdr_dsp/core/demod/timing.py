@@ -6,10 +6,13 @@ recovery in core.sync). Good for clean bursts where pulse widths are reliable.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
+from .._validate import bits as _bits, positive, positive_int
 
 
-def edges(bits):
+def edges(bits: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Indices where a 0/1 stream transitions, and the run lengths. OUR code.
 
     Returns (transition_indices, run_lengths, run_values): the sample index of
@@ -17,7 +20,7 @@ def edges(bits):
     0 or 1. The building block for recovering symbol timing from a sliced
     on/off stream.
     """
-    bits = np.asarray(bits, dtype=np.uint8)
+    bits = _bits("bits", bits)
     if len(bits) == 0:
         return np.array([], dtype=int), np.array([], dtype=int), \
             np.array([], dtype=np.uint8)
@@ -28,7 +31,7 @@ def edges(bits):
     return change, run_lengths, run_values
 
 
-def estimate_symbol_rate(bits, sample_rate, min_run=2):
+def estimate_symbol_rate(bits: Any, sample_rate: float, min_run: int = 2) -> tuple[float, float]:
     """Estimate samples-per-symbol from the run lengths in a sliced stream.
 
     The shortest on/off run is (usually) one symbol period. OUR code. Returns
@@ -61,16 +64,14 @@ def estimate_symbol_rate(bits, sample_rate, min_run=2):
     return spb, (sample_rate / spb if spb else 0.0)
 
 
-def slice_to_symbols(bits, samples_per_symbol):
+def slice_to_symbols(bits: Any, samples_per_symbol: float) -> np.ndarray:
     """Collapse an over-sampled 0/1 stream into one bit per symbol. OUR code.
 
     Given the samples-per-symbol, walk each run and emit its value repeated
     round(run_length / spb) times. Returns a uint8 array of symbol bits.
     """
+    spb = positive("samples_per_symbol", samples_per_symbol)
     _, run_lengths, run_values = edges(bits)
-    spb = float(samples_per_symbol)
-    if spb <= 0:
-        return np.asarray(bits, dtype=np.uint8)
     out = []
     for length, val in zip(run_lengths, run_values, strict=True):
         count = max(1, int(round(length / spb)))
@@ -79,7 +80,7 @@ def slice_to_symbols(bits, samples_per_symbol):
 
 
 
-def sample_symbols(bits, samples_per_symbol, active=None):
+def sample_symbols(bits: Any, samples_per_symbol: int, active: Any | None = None) -> np.ndarray:
     """Decimate an over-sampled 0/1 stream to symbols at the RIGHT phase. OUR code.
 
     A per-sample bit stream (from fsk_demod / ook_slice) carries each symbol
@@ -107,8 +108,8 @@ def sample_symbols(bits, samples_per_symbol, active=None):
 
     Returns a uint8 array with one entry per symbol period.
     """
-    bits = np.asarray(bits, dtype=np.uint8)
-    sps = int(samples_per_symbol)
+    bits = _bits("bits", bits)
+    sps = positive_int("samples_per_symbol", samples_per_symbol)
     if sps <= 1 or len(bits) == 0:
         return bits
     phase = sps // 2

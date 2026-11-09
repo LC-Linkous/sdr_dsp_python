@@ -18,9 +18,12 @@ in how these loops behave; they are not hidden.
 from __future__ import annotations
 
 import csv
+import os
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
+from ._validate import one_of, positive
 
 
 @dataclass
@@ -40,7 +43,7 @@ class LoopDiagnostics:
     lock: np.ndarray
     locked: bool = False
 
-    def to_csv(self, path):
+    def to_csv(self, path: str | os.PathLike[str]) -> str:
         """Write the per-sample diagnostics to a CSV (sample, error, estimate,
         lock). Useful for plotting convergence outside the library."""
         with open(path, "w", newline="") as f:
@@ -52,7 +55,9 @@ class LoopDiagnostics:
         return str(path)
 
 
-def _lock_trace(error, window=200, threshold=0.05):
+def _lock_trace(
+    error: np.ndarray, window: int = 200, threshold: float = 0.05
+) -> tuple[np.ndarray, bool]:
     """Per-sample lock: error variance over a trailing window below threshold.
 
     Returns (lock_trace_bool, locked_summary). The summary checks the final
@@ -74,7 +79,9 @@ def _lock_trace(error, window=200, threshold=0.05):
     return lock, locked
 
 
-def _timing_lock_trace(steps, limit, window=20):
+def _timing_lock_trace(
+    steps: Any, limit: float, window: int = 20
+) -> tuple[np.ndarray, bool]:
     """Per-symbol lock for a TIMING loop: the correction it applies has settled.
 
     `steps` is the timing correction applied at each symbol, in samples (the
@@ -113,8 +120,16 @@ def _timing_lock_trace(steps, limit, window=20):
 # ---------------------------------------------------------------------------
 # CARRIER RECOVERY
 # ---------------------------------------------------------------------------
-def carrier_recovery(iq, method="costas", order=2, loop_bw=0.01, damping=0.707,
-                     diagnostics=False, csv_path=None, lock_threshold=0.05):
+def carrier_recovery(
+    iq: Any,
+    method: str = "costas",
+    order: int = 2,
+    loop_bw: float = 0.01,
+    damping: float = 0.707,
+    diagnostics: bool = False,
+    csv_path: str | os.PathLike[str] | None = None,
+    lock_threshold: float = 0.05,
+) -> np.ndarray | tuple[np.ndarray, LoopDiagnostics]:
     """Track and remove residual carrier phase/frequency offset. OUR code.
 
     Returns a phase-corrected copy of iq (constellation de-rotated). With
@@ -141,6 +156,11 @@ def carrier_recovery(iq, method="costas", order=2, loop_bw=0.01, damping=0.707,
       amplitude: the Costas detectors are normalized by the input rms, so the
         loop behaves identically at 0.01x and 100x full scale.
     """
+    one_of("method", method, ("costas", "decision_directed"))
+    if order not in (2, 4):
+        raise ValueError(f"order must be 2 (BPSK-like) or 4 (QPSK-like), got {order!r}")
+    positive("loop_bw", loop_bw)
+    positive("damping", damping)
     iq = np.asarray(iq, dtype=np.complex64)
     n = len(iq)
     out = np.empty(n, dtype=np.complex64)
@@ -185,7 +205,7 @@ def carrier_recovery(iq, method="costas", order=2, loop_bw=0.01, damping=0.707,
                 dec = (np.sign(np.real(s)) + 1j * np.sign(np.imag(s)))
             e = np.angle(s * np.conj(dec))
         else:
-            raise ValueError(f"unknown carrier method: {method!r}")
+            raise ValueError(f"method must be 'costas' or 'decision_directed', got {method!r}")
 
         err[i] = e
         freq += beta * e
@@ -213,9 +233,16 @@ def carrier_recovery(iq, method="costas", order=2, loop_bw=0.01, damping=0.707,
 TED_GAIN = {"gardner": 0.13, "early_late": 0.13, "mueller_muller": 0.30}
 
 
-def symbol_sync(iq, samples_per_symbol, method="gardner", loop_bw=0.01,
-                damping=0.707, diagnostics=False, csv_path=None,
-                lock_threshold=None):
+def symbol_sync(
+    iq: Any,
+    samples_per_symbol: float,
+    method: str = "gardner",
+    loop_bw: float = 0.01,
+    damping: float = 0.707,
+    diagnostics: bool = False,
+    csv_path: str | os.PathLike[str] | None = None,
+    lock_threshold: float | None = None,
+) -> np.ndarray | tuple[np.ndarray, LoopDiagnostics]:
     """Recover symbol timing: pick the best sampling instant per symbol. OUR code.
 
     Returns the symbol-spaced samples (one complex value per recovered symbol).
@@ -267,8 +294,11 @@ def symbol_sync(iq, samples_per_symbol, method="gardner", loop_bw=0.01,
     carrier-phase-independent (use it before carrier recovery); Mueller &
     Muller is decision-directed (use it after, or on a clean constellation).
     """
+    one_of("method", method, tuple(TED_GAIN))
+    sps = positive("samples_per_symbol", samples_per_symbol)
+    positive("loop_bw", loop_bw)
+    positive("damping", damping)
     iq = np.asarray(iq, dtype=np.complex64)
-    sps = float(samples_per_symbol)
     n = len(iq)
     if n < 2 * sps:
         empty = np.zeros(0, dtype=np.complex64)
@@ -277,8 +307,6 @@ def symbol_sync(iq, samples_per_symbol, method="gardner", loop_bw=0.01,
                                           np.zeros(0, bool), False)
         return empty
 
-    if method not in TED_GAIN:
-        raise ValueError(f"unknown timing method: {method!r}")
     # power normalization + S-curve gain (see docstring); an all-zero input has
     # no timing to recover, so leave the scale at 1 and let the loop idle
     power = float(np.mean(np.abs(iq) ** 2))
@@ -291,7 +319,7 @@ def symbol_sync(iq, samples_per_symbol, method="gardner", loop_bw=0.01,
     beta = (4.0 * theta * theta) / denom         # integral (symbol-rate error)
     max_step = sps / 4.0
 
-    def interp(pos):
+    def interp(pos: float) -> Any:
         # linear interpolation at fractional sample position pos
         idx = int(np.floor(pos))
         frac = pos - idx

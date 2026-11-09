@@ -69,7 +69,7 @@ def main():
         except Exception as e:                                # noqa: BLE001
             print(f"{rate / 1e6:9.0f} M | capture failed: {e}")
             continue
-        health = capture_health(iq, rate, channel_bw=100e3)
+        health = capture_health(iq, rate, channel_bw_hz=100e3)
         p_native = fm_pilot_excess_db(iq, rate)
         dec, dec_rate = to_2msps(iq, rate)
         p_dec = fm_pilot_excess_db(dec, dec_rate)

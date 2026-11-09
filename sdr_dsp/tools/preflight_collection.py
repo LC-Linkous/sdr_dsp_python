@@ -159,7 +159,7 @@ def score_station(h, freq_hz):
                     quality=lambda iq: fm_pilot_excess_db(iq, SAMPLE_RATE))
     iq = probe_capture(h, freq_hz, SAMPLE_RATE, int(SAMPLE_RATE * 0.2),
                        lna=r["lna"], vga=r["vga"], amp=r["amp"])
-    health = capture_health(iq, SAMPLE_RATE, channel_bw=CHANNEL_BW)
+    health = capture_health(iq, SAMPLE_RATE, channel_bw_hz=CHANNEL_BW)
     pilot = fm_pilot_excess_db(iq, SAMPLE_RATE)
     # Refine the frequency from the capture itself: sweep bins rarely sit on
     # a channel, so find where the carrier's energy actually is (within
@@ -187,7 +187,7 @@ def verify_quiet(h, freq_hz):
     """A quiet frequency must FAIL the health check at moderate gain."""
     iq = probe_capture(h, freq_hz, SAMPLE_RATE, int(SAMPLE_RATE * 0.2),
                        lna=24, vga=30, amp=False)
-    health = capture_health(iq, SAMPLE_RATE, channel_bw=CHANNEL_BW)
+    health = capture_health(iq, SAMPLE_RATE, channel_bw_hz=CHANNEL_BW)
     pilot = fm_pilot_excess_db(iq, SAMPLE_RATE)
     quiet = (not health["ok"]) and (pilot is None or pilot < PILOT_OK_DB)
     return quiet, health, pilot

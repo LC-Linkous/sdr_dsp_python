@@ -6,10 +6,12 @@ it and so frequency can be analyzed directly (Doppler, drift, chirps).
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 
-def instantaneous_phase(iq, unwrap=True):
+def instantaneous_phase(iq: Any, unwrap: bool = True) -> np.ndarray:
     """The phase angle of each complex sample. OUR code.
 
     Returns the per-sample phase in radians. With unwrap=True the 2*pi jumps are
@@ -21,7 +23,7 @@ def instantaneous_phase(iq, unwrap=True):
     return np.unwrap(phase) if unwrap else phase
 
 
-def instantaneous_frequency(iq, sample_rate=None):
+def instantaneous_frequency(iq: Any, sample_rate: float | None = None) -> np.ndarray:
     """The instantaneous frequency of a complex signal. OUR code.
 
     Computed by the phase discriminator: the phase change between consecutive

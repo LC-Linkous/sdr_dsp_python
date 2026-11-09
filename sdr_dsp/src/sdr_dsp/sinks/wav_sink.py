@@ -6,13 +6,20 @@ Takes a real float array (demodulated audio), normalizes, and writes int16 PCM.
 
 from __future__ import annotations
 
+import os
 import wave
 
 import numpy as np
 
 
-def write_wav(path, audio, sample_rate, normalize=True, headroom=0.9,
-              percentile=99.9):
+def write_wav(
+    path: str | os.PathLike[str],
+    audio: np.ndarray,
+    sample_rate: float,
+    normalize: bool = True,
+    headroom: float = 0.9,
+    percentile: float = 99.9,
+) -> str:
     """Write a real audio array to a mono 16-bit WAV.
 
     audio:      real-valued samples (e.g. demodulated output).

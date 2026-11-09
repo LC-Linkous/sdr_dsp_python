@@ -133,8 +133,8 @@ def add_pa_nonlinearity(iq: np.ndarray,
 
 def add_phase_noise(
     iq: np.ndarray,
-    linewidth_hz: float,
     sample_rate: float,
+    linewidth_hz: float,
     seed: int | None = None,
 ) -> np.ndarray:
     """Apply oscillator phase noise as a Wiener (random-walk) phase process.
@@ -257,7 +257,7 @@ def apply_device_impairments(
     x = np.asarray(iq, dtype=np.complex64)
     x = add_pa_nonlinearity(x, device.pa_coeffs)
     x = add_iq_imbalance(x, device.iq_gain_db, device.iq_phase_deg)
-    x = add_phase_noise(x, device.phase_noise_hz, sample_rate, seed=seed)
+    x = add_phase_noise(x, sample_rate, device.phase_noise_hz, seed=seed)
     cfo_hz = device.cfo_ppm * 1e-6 * carrier_hz
     n = np.arange(x.shape[0], dtype=np.float64)
     x = x * np.exp(1j * 2.0 * np.pi * cfo_hz * n / float(sample_rate))

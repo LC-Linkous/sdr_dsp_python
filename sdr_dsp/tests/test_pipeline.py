@@ -24,9 +24,9 @@ def test_pipeline_matches_manual():
     src = ArraySource(iq, fs, block_size=len(iq))   # one block
     pipe = (Pipeline(src)
             .add(lambda b: fir_apply(b, taps), "filter")
-            .add(lambda b: fm_demod(b, 75000, fs), "demod"))
+            .add(lambda b: fm_demod(b, fs, 75000), "demod"))
     out = np.concatenate(pipe.run())
-    manual = fm_demod(fir_apply(iq, taps), 75000, fs)
+    manual = fm_demod(fir_apply(iq, taps), fs, 75000)
     assert np.allclose(out, manual, atol=1e-6)
 
 

@@ -9,10 +9,12 @@ correctness lives, and it is the library's own code.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 
-def get_window(window, n):
+def get_window(window: str | np.ndarray | None, n: int) -> np.ndarray:
     """Window vector of length n by name. sdr_dsp's own small set (hann,
     hamming, blackman, boxcar/rect), matching what psd()/spectrogram() use.
     Public so examples and callers don't reach for the underscore alias.
@@ -26,22 +28,31 @@ def get_window(window, n):
         return np.ones(n)
     if isinstance(window, np.ndarray):
         return window
-    return {
+    table = {
         "hann": np.hanning,
         "hanning": np.hanning,
         "hamming": np.hamming,
         "blackman": np.blackman,
         "rect": lambda m: np.ones(m),
         "boxcar": lambda m: np.ones(m),
-    }[window](n)
+    }
+    if window not in table:
+        raise ValueError(f"window must be one of {sorted(table)} or an array, got {window!r}")
+    return table[window](n)
 
 
 # internal callers predate the public name; keep the alias
 _get_window = get_window
 
 
-def psd(iq, sample_rate, nfft=1024, window="hann", center_freq=0.0,
-        scaling="density"):
+def psd(
+    iq: Any,
+    sample_rate: float,
+    nfft: int = 1024,
+    window: str | np.ndarray | None = "hann",
+    center_freq: float = 0.0,
+    scaling: str = "density",
+) -> tuple[np.ndarray, np.ndarray]:
     """Power spectral density of a complex signal via Welch averaging. OUR code.
 
     Splits the signal into nfft-length frames, windows each, FFTs (numpy),
@@ -101,8 +112,14 @@ def psd(iq, sample_rate, nfft=1024, window="hann", center_freq=0.0,
     return freqs, psd_db
 
 
-def spectrogram(iq, sample_rate, nfft=1024, overlap=0.5, window="hann",
-                center_freq=0.0):
+def spectrogram(
+    iq: Any,
+    sample_rate: float,
+    nfft: int = 1024,
+    overlap: float = 0.5,
+    window: str | np.ndarray | None = "hann",
+    center_freq: float = 0.0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Time-frequency spectrogram. OUR code (numpy FFT per frame).
 
     Returns (freqs_hz, times_s, sxx_db) where sxx_db has shape

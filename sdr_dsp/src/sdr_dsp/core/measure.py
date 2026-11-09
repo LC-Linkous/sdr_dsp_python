@@ -6,12 +6,15 @@ for a dB reference. None of this is in scipy -- it is radio-specific.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 from .spectral import psd
+from ._validate import pair
 
 
-def power_dbfs(iq):
+def power_dbfs(iq: Any) -> float:
     """Mean power of a complex signal in dBFS (dB relative to |amp|=1)."""
     iq = np.asarray(iq)
     if len(iq) == 0:
@@ -21,7 +24,7 @@ def power_dbfs(iq):
     return 10.0 * np.log10(p + 1e-20)
 
 
-def snr_db(iq, sample_rate, signal_band_hz, nfft=1024):
+def snr_db(iq: Any, sample_rate: float, signal_band_hz: Any, nfft: int = 1024) -> float:
     """Estimate SNR by comparing in-band power to out-of-band (noise) power.
 
     signal_band_hz: (low, high) frequency range (relative to center) holding
@@ -30,7 +33,7 @@ def snr_db(iq, sample_rate, signal_band_hz, nfft=1024):
     """
     freqs, psd_db = psd(iq, sample_rate, nfft=nfft, window="hann")
     psd_lin = 10.0 ** (psd_db / 10.0)
-    lo, hi = signal_band_hz
+    lo, hi = pair("signal_band_hz", signal_band_hz)
     in_band = (freqs >= lo) & (freqs <= hi)
     if not in_band.any() or in_band.all():
         raise ValueError("signal_band must cover part (not all) of the span")
@@ -39,8 +42,22 @@ def snr_db(iq, sample_rate, signal_band_hz, nfft=1024):
     return 10.0 * np.log10(sig_p / (noise_p + 1e-20))
 
 
-def capture_health(iq, sample_rate, channel_bw=None, adc_bits=8,
-                   min_counts=4.0, min_excess_db=3.0, nfft=8192):
+# Machine-readable verdicts, worst first. The first failing check in this
+# order is the verdict; `reasons` still lists every failure.
+HEALTH_VERDICTS = ("clipping", "under_driven", "stuck_dc", "no_carrier", "ok")
+
+
+def capture_health(
+    iq: Any,
+    sample_rate: float,
+    channel_bw_hz: float | None = None,
+    adc_bits: int = 8,
+    min_counts: float = 4.0,
+    min_excess_db: float = 3.0,
+    nfft: int = 8192,
+    max_clip_fraction: float = 1e-3,
+    max_dc_ratio: float = 1.0,
+) -> dict[str, Any]:
     """Assess whether a recording actually contains a signal. OUR code.
 
     Answers the question that precedes all DSP: is there anything in this
@@ -50,7 +67,17 @@ def capture_health(iq, sample_rate, channel_bw=None, adc_bits=8,
     with nothing on it -- and no amount of processing recovers a signal that
     was never recorded.
 
-    Two independent checks:
+    Four independent checks, each with its threshold HERE so that every
+    consumer (the gain search, the collection tools, a bridge gating a
+    recording) applies the same one rather than re-deriving it:
+
+    ``clip_fraction``
+        Fraction of samples with |I| or |Q| at the converter's last code on
+        either rail (+127 or -128 for 8 bits; the threshold is
+        (full_scale - 1) / full_scale in normalized units). Clipping destroys information the way
+        under-driving does not -- it cannot be undone downstream -- so it
+        is the worst verdict. ``max_clip_fraction`` 1e-3 (0.1%) tolerates
+        the occasional spike a strong adjacent signal produces.
 
     ``adc_counts``
         How much of the digitizer's range the recording used, recovered by
@@ -66,15 +93,24 @@ def capture_health(iq, sample_rate, channel_bw=None, adc_bits=8,
         converter can produce.
 
     ``channel_excess_db``
-        Power inside ``channel_bw`` of DC, relative to the outer 20% of the
+        Power inside ``channel_bw_hz`` of DC, relative to the outer 20% of the
         span. A real carrier is a hump standing above its surroundings; a
-        flat spectrum means nothing is there. Skipped when channel_bw is
+        flat spectrum means nothing is there. Skipped when channel_bw_hz is
         None or the capture is too short to average.
+
+    ``dc_ratio``
+        |mean| of the complex samples over the rms of what is left after the
+        mean is removed: DC power against everything-else power. A
+        direct-conversion receiver always has SOME DC (the HackRF's spike;
+        see docs/DC_SPIKE.md, typically a few % of rms), so a small ratio is
+        normal. A ratio above ``max_dc_ratio`` (1.0: more DC than signal) is
+        a stuck or saturated front end, a muted stream, or a capture of
+        nothing but the LO -- the "stuck_dc" verdict.
 
     Args:
         iq:          complex samples normalized to +/-1 (as sources return).
         sample_rate: Hz, used to place the channel band.
-        channel_bw:  half-width in Hz of the channel of interest. None skips
+        channel_bw_hz:  half-width in Hz of the channel of interest. None skips
                      the spectral check.
         adc_bits:    converter width; 8 for HackRF's ci8. Counts scale is
                  2**(adc_bits-1) = 128, matching the loader's /128
@@ -83,9 +119,16 @@ def capture_health(iq, sample_rate, channel_bw=None, adc_bits=8,
         min_excess_db: in-band excess below which no carrier is called.
         nfft:        FFT size for the averaged spectrum.
 
-    Returns a dict with ``ok`` (bool), ``adc_counts``, ``channel_excess_db``
-    (None if not computed), ``peak_dbfs``, and ``reasons`` (list of strings
-    describing each failure, empty when ok).
+    Returns a dict with:
+      ``verdict``  one of HEALTH_VERDICTS -- "clipping", "under_driven",
+                   "stuck_dc", "no_carrier" or "ok" -- the WORST failing
+                   check, in that order. Key off this, not off the numbers.
+      ``ok``       ``verdict == "ok"``.
+      ``clip_fraction``, ``adc_counts``, ``peak_dbfs``, ``dc_offset`` (|mean|,
+                   normalized units), ``dc_ratio``, ``channel_excess_db``
+                   (None when channel_bw_hz is None or the capture is shorter
+                   than 4 * nfft -- "not computed", never "no carrier").
+      ``reasons``  one sentence per failing check, empty when ok.
 
     This is a screening tool, not a detector. A signal far weaker than the
     noise floor in the channel -- spread spectrum below the noise, say --
@@ -94,22 +137,58 @@ def capture_health(iq, sample_rate, channel_bw=None, adc_bits=8,
     """
     iq = np.asarray(iq)
     full_scale = float(2 ** (adc_bits - 1))
-    reasons = []
+    reasons: list[str] = []
+    failed: list[str] = []                      # verdict names, appended in check order
 
     if iq.size == 0:
-        return {"ok": False, "adc_counts": 0.0, "channel_excess_db": None,
-                "peak_dbfs": float("-inf"), "reasons": ["capture is empty"]}
+        return {"verdict": "under_driven", "ok": False, "clip_fraction": 0.0,
+                "adc_counts": 0.0, "peak_dbfs": float("-inf"),
+                "dc_offset": 0.0, "dc_ratio": 0.0, "channel_excess_db": None,
+                "reasons": ["capture is empty"]}
 
-    peak = float(max(np.max(np.abs(iq.real)), np.max(np.abs(iq.imag))))
+    re_abs = np.abs(iq.real)
+    im_abs = np.abs(iq.imag)
+    # The converter's last codes, in normalized units. Two's complement is
+    # asymmetric: for 8 bits the rails are -128 (-> -1.0 exactly) and +127
+    # (-> 0.9921875), so each rail gets its own threshold: |x| >= 127/128
+    # would also count -127, one code short of the negative rail. A small
+    # epsilon absorbs float32 rounding of the /128. (A first version used a
+    # single full_scale - 0.5 level, which only ever saw the negative rail --
+    # a capture pinned at +127 on every sample read as stuck DC, not clipping.)
+    pos_rail = (full_scale - 1.0) / full_scale - 1e-6      # +127/128
+    neg_rail = -1.0 + 1e-6                                  # -128/128
+    re_, im_ = iq.real, iq.imag
+    clipped = np.count_nonzero((re_ >= pos_rail) | (re_ <= neg_rail)
+                               | (im_ >= pos_rail) | (im_ <= neg_rail))
+    clip_fraction = clipped / iq.size
+    if clip_fraction > max_clip_fraction:
+        failed.append("clipping")
+        reasons.append(
+            f"{100 * clip_fraction:.2f}% of samples sit at the converter's "
+            f"full-scale code: the front end is clipping, lower the gain "
+            f"(this cannot be repaired downstream)")
+
+    peak = float(max(np.max(re_abs), np.max(im_abs)))
     adc_counts = peak * full_scale
     if adc_counts < min_counts:
+        failed.append("under_driven")
         reasons.append(
             f"capture peaks at ~{adc_counts:.1f} of {full_scale:.0f} ADC "
             f"counts, which is the noise floor: check the antenna, raise "
             f"gain, and confirm the tuned frequency")
 
+    mean = complex(np.mean(iq))
+    dc_offset = abs(mean)
+    ac_rms = float(np.sqrt(np.mean(np.abs(iq - mean) ** 2)))
+    dc_ratio = dc_offset / ac_rms if ac_rms > 0 else (float("inf") if dc_offset > 0 else 0.0)
+    if dc_ratio > max_dc_ratio:
+        failed.append("stuck_dc")
+        reasons.append(
+            f"DC is {dc_ratio:.1f}x the rms of everything else: a stuck or "
+            f"saturated front end, a muted stream, or a capture of the LO alone")
+
     excess = None
-    if channel_bw is not None and sample_rate > 0:
+    if channel_bw_hz is not None and sample_rate > 0:
         nseg = min(64, iq.size // nfft)
         if nseg >= 4:
             win = np.hanning(nfft)
@@ -129,26 +208,33 @@ def capture_health(iq, sample_rate, channel_bw=None, adc_bits=8,
             # reference robust to an adjacent station landing in the annulus,
             # and averaging happens in linear power (a dB-domain mean is a
             # geometric mean, biased low for spiky spectra).
-            in_band = np.abs(freqs) <= channel_bw
-            ref_band = ((np.abs(freqs) >= 1.5 * channel_bw)
+            in_band = np.abs(freqs) <= channel_bw_hz
+            ref_band = ((np.abs(freqs) >= 1.5 * channel_bw_hz)
                         & (np.abs(freqs) <= 0.35 * sample_rate))
             if in_band.any() and ref_band.any():
                 excess = float(
                     10.0 * np.log10(psd_lin[in_band].mean() + 1e-30)
                     - 10.0 * np.log10(np.median(psd_lin[ref_band]) + 1e-30))
                 if excess < min_excess_db:
+                    failed.append("no_carrier")
                     reasons.append(
                         f"channel is only {excess:+.1f} dB above the "
                         f"surrounding noise floor, so no carrier is present: "
                         f"demodulating this yields noise, not signal")
 
-    return {"ok": not reasons, "adc_counts": adc_counts,
-            "channel_excess_db": excess,
+    verdict = next((v for v in HEALTH_VERDICTS if v in failed), "ok")
+    return {"verdict": verdict, "ok": verdict == "ok",
+            "clip_fraction": clip_fraction,
+            "adc_counts": adc_counts,
             "peak_dbfs": 20.0 * np.log10(peak + 1e-20),
+            "dc_offset": dc_offset, "dc_ratio": dc_ratio,
+            "channel_excess_db": excess,
             "reasons": reasons}
 
 
-def fm_pilot_excess_db(iq, sample_rate, pilot_hz=19_000.0, nfft=16384):
+def fm_pilot_excess_db(
+    iq: Any, sample_rate: float, pilot_hz: float = 19_000.0, nfft: int = 16384
+) -> float | None:
     """How far the 19 kHz stereo pilot stands above the demodulated noise
     floor, in dB. The decisive "is this an FM broadcast station" check.
 
@@ -208,31 +294,56 @@ def fm_pilot_excess_db(iq, sample_rate, pilot_hz=19_000.0, nfft=16384):
             & ~pilot)
     if not pilot.any() or not hood.any():
         return None
-    return float(10.0 * np.log10(acc[pilot].max() + 1e-30)
+    # numpy's stubs lose the no-argument .max() -> scalar overload after a
+    # boolean-mask index; the call is fine at runtime
+    return float(10.0 * np.log10(acc[pilot].max() + 1e-30)  # type: ignore[call-overload]
                  - 10.0 * np.log10(np.median(acc[hood]) + 1e-30))
 
 
-def occupied_bandwidth(iq, sample_rate, fraction=0.99, nfft=1024):
-    """Bandwidth containing ``fraction`` of the total power (e.g. 99%).
+def occupied_bandwidth(
+    iq: Any, sample_rate: float, fraction: float = 0.99, nfft: int = 1024
+) -> float:
+    """Bandwidth containing ``fraction`` of the total power (e.g. 99%). OUR code.
 
-    Returns bandwidth in Hz. Integrates the PSD and finds the central band
-    holding the requested fraction of total power.
+    The standard occupied-bandwidth definition: from the averaged PSD, the
+    frequency interval between the point where the cumulative power (low to
+    high frequency) reaches (1 - fraction)/2 of the total and the point where
+    it reaches 1 - (1 - fraction)/2. It is computed WHEREVER the signal sits in
+    the span -- a tone at +100 kHz has the bandwidth of a tone, not of a
+    200 kHz band around DC. (An earlier version integrated outward from 0 Hz,
+    which assumed the signal was centred and reported 203 kHz for that tone,
+    and 1.47 MHz for a 200 kHz FM station tuned off centre.)
+
+    Returns the bandwidth in Hz, quantized to the PSD's bin spacing
+    (sample_rate / nfft). Raises ValueError for fraction outside (0, 1].
     """
+    if not 0.0 < fraction <= 1.0:
+        raise ValueError(f"fraction must be in (0, 1], got {fraction!r}")
+    if len(np.asarray(iq)) < nfft:
+        raise ValueError(f"occupied_bandwidth needs at least nfft={nfft} samples, got "
+                         f"{len(np.asarray(iq))}; pass a smaller nfft")
     freqs, psd_db = psd(iq, sample_rate, nfft=nfft, window="hann")
     p = 10.0 ** (psd_db / 10.0)
     total = float(np.sum(p))
     if total <= 0:
         return 0.0
-    # cumulative from the spectrum center outward
-    order = np.argsort(np.abs(freqs))  # nearest-to-center first
-    cum = np.cumsum(p[order])
-    idx = np.searchsorted(cum, fraction * total)
-    idx = min(idx, len(order) - 1)
-    bw = 2.0 * float(np.abs(freqs[order][idx]))
-    return bw
+    cum = np.cumsum(p) / total
+    tail = (1.0 - fraction) / 2.0
+    lo = int(np.searchsorted(cum, tail))                 # first bin past the lower tail
+    hi = int(np.searchsorted(cum, 1.0 - tail))           # first bin reaching the upper edge
+    lo = min(max(lo, 0), len(freqs) - 1)
+    hi = min(max(hi, lo), len(freqs) - 1)
+    bin_hz = float(sample_rate) / nfft
+    return float(freqs[hi] - freqs[lo]) + bin_hz
 
 
-def find_bursts(iq, sample_rate=None, threshold=None, min_gap=0, min_len=1):
+def find_bursts(
+    iq: Any,
+    sample_rate: float | None = None,
+    threshold: float | None = None,
+    min_gap: int = 0,
+    min_len: int = 1,
+) -> list[tuple[int, int]]:
     """Find where signal energy is present: burst start/stop indices. OUR code.
 
     Thresholds the magnitude envelope and returns the spans where it's above the
@@ -292,7 +403,7 @@ def find_bursts(iq, sample_rate=None, threshold=None, min_gap=0, min_len=1):
     return spans
 
 
-def estimate_cfo(iq, sample_rate, nfft=None):
+def estimate_cfo(iq: Any, sample_rate: float, nfft: int | None = None) -> float:
     """Estimate a signal's carrier frequency offset from band center. OUR code.
 
     Finds the dominant spectral component -- where the signal actually sits
@@ -322,7 +433,13 @@ def estimate_cfo(iq, sample_rate, nfft=None):
     return float(freqs[int(np.argmax(spec))])
 
 
-def estimate_fm_cfo(iq, sample_rate, *, channel_bw=100_000.0, trim_hz=None):
+def estimate_fm_cfo(
+    iq: Any,
+    sample_rate: float,
+    *,
+    channel_bw_hz: float = 100_000.0,
+    trim_hz: float | None = None,
+) -> float | None:
     """Estimate a broadcast-FM capture's carrier frequency offset, in Hz.
 
     Method: the phase discriminator's DC term. Under a constant carrier
@@ -350,12 +467,12 @@ def estimate_fm_cfo(iq, sample_rate, *, channel_bw=100_000.0, trim_hz=None):
     number, because the mean of noise is not a carrier offset.
 
     Args:
-        channel_bw: FM channel half-not-needed; used only to size the click
+        channel_bw_hz: FM channel half-not-needed; used only to size the click
             trim. Broadcast FM is ~100 kHz half-bandwidth of program content.
         trim_hz: discriminator "clicks" (phase wraps in deep fades / low SNR)
             are impulsive outliers that bias a plain mean. Samples whose
             demodulated frequency exceeds trim_hz in magnitude are dropped
-            before averaging. Default 1.5 * channel_bw keeps the full +/-75 kHz
+            before averaging. Default 1.5 * channel_bw_hz keeps the full +/-75 kHz
             deviation swing while rejecting the near-+/-Nyquist click spikes.
             Pass None to disable trimming.
 
@@ -366,7 +483,7 @@ def estimate_fm_cfo(iq, sample_rate, *, channel_bw=100_000.0, trim_hz=None):
     OUR code.
     """
     iq = np.asarray(iq, dtype=np.complex64)
-    if sample_rate <= 4.0 * channel_bw or iq.size < 4096:
+    if sample_rate <= 4.0 * channel_bw_hz or iq.size < 4096:
         return None
     # Channelize to the FM channel, mirroring fm_pilot_excess_db: lowpass and
     # decimate to ~500 kSps before discriminating so out-of-channel energy
@@ -382,7 +499,7 @@ def estimate_fm_cfo(iq, sample_rate, *, channel_bw=100_000.0, trim_hz=None):
     # phase discriminator -> instantaneous frequency in Hz
     inst_hz = (np.angle(iq[1:] * np.conj(iq[:-1])).astype(np.float64)
                * sample_rate / (2.0 * np.pi))
-    trim = 1.5 * float(channel_bw) if trim_hz is None else float(trim_hz)
+    trim = 1.5 * float(channel_bw_hz) if trim_hz is None else float(trim_hz)
     if trim > 0:
         keep = np.abs(inst_hz) <= trim
         if keep.any():
@@ -392,7 +509,9 @@ def estimate_fm_cfo(iq, sample_rate, *, channel_bw=100_000.0, trim_hz=None):
     return float(np.mean(inst_hz))
 
 
-def correct_fm_cfo(iq, sample_rate, cfo_hz=None, **kwargs):
+def correct_fm_cfo(
+    iq: Any, sample_rate: float, cfo_hz: float | None = None, **kwargs: Any
+) -> tuple[np.ndarray, float]:
     """Remove a broadcast-FM carrier frequency offset. OUR code.
 
     If ``cfo_hz`` is None it is measured with ``estimate_fm_cfo`` (any keyword
@@ -411,4 +530,4 @@ def correct_fm_cfo(iq, sample_rate, cfo_hz=None, **kwargs):
     if cfo_hz is None:
         return np.asarray(iq, dtype=np.complex64), 0.0
     from .mixing import frequency_shift
-    return frequency_shift(iq, -float(cfo_hz), sample_rate), float(cfo_hz)
+    return frequency_shift(iq, sample_rate, -float(cfo_hz)), float(cfo_hz)

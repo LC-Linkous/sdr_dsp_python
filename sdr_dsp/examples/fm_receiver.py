@@ -81,11 +81,11 @@ def main():
     # 2. tune the station to baseband if it's offset in the capture
     if args.tune != 0.0:
         print(f"[*] tuning {args.tune/1e3:g} kHz to baseband")
-        iq = frequency_shift(iq, -args.tune, fs)
+        iq = frequency_shift(iq, fs, -args.tune)
 
     # health check runs after tuning, so it inspects the channel we'll demod
     if not args.no_check:
-        health = capture_health(iq, fs, channel_bw=args.audio_bw)
+        health = capture_health(iq, fs, channel_bw_hz=args.audio_bw)
         pilot_db = fm_pilot_excess_db(iq, fs)
         if health["ok"]:
             print(f"[*] capture peaks at ~{health['adc_counts']:.0f} of 128 "

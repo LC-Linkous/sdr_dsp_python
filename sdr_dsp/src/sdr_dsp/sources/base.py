@@ -41,11 +41,18 @@ class ArraySource:
     the same pipeline code a file or device would drive.
     """
 
-    def __init__(self, iq: np.ndarray, sample_rate: float,
-                 center_freq: float = 0.0, block_size: int = 65536):
+    def __init__(
+        self,
+        iq: np.ndarray,
+        sample_rate: float,
+        center_freq: float = 0.0,
+        block_size: int = 65536,
+    ) -> None:
         self.iq = np.asarray(iq, dtype=np.complex64)
         self.sample_rate = float(sample_rate)
         self.center_freq = float(center_freq)
+        if int(block_size) < 1:
+            raise ValueError(f"block_size must be >= 1, got {block_size!r}")
         self.block_size = int(block_size)
 
     def blocks(self) -> Iterator[np.ndarray]:
@@ -58,6 +65,6 @@ class ArraySource:
         """Return the whole array (or the first n_samples)."""
         return self.iq[:int(n_samples)]
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (f"ArraySource({len(self.iq):,} samples @ "
                 f"{self.sample_rate/1e6:g} Msps)")

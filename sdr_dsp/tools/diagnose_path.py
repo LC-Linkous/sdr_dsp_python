@@ -66,7 +66,7 @@ def carrier_offset_hz(iq, rate, span=600e3, nfft=8192):
 
 
 def measure(tag, iq, rate):
-    h = capture_health(iq, rate, channel_bw=100e3)
+    h = capture_health(iq, rate, channel_bw_hz=100e3)
     p = fm_pilot_excess_db(iq, rate)
     off = carrier_offset_hz(iq, rate)
     ptxt = "  n/a" if p is None else f"{p:+5.1f}"

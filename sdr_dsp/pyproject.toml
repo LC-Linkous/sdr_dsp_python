@@ -97,10 +97,11 @@ markers = [
 python_version = "3.11"
 files = ["src/sdr_dsp"]
 # py.typed is shipped, so downstream type-checkers use our inline types.
-# check_untyped_defs type-checks function BODIES even where the signature is
-# unannotated; the strict disallow-untyped flags come on per module as each
-# is annotated. The annotation backlog is tracked in docs/TODO.md.
+# Every function is annotated (0.3.0); the two disallow flags keep it that
+# way -- a new unannotated def fails the lint job.
 check_untyped_defs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
 
 [[tool.mypy.overrides]]
 # scipy ships no type stubs; we use it for filter design and as a test oracle.

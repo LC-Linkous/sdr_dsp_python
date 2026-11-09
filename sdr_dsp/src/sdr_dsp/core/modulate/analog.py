@@ -7,10 +7,12 @@ they're tested: demod(modulate(msg)) recovers msg.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 
-def fm_modulate(message, deviation_hz, sample_rate):
+def fm_modulate(message: Any, sample_rate: float, deviation_hz: float) -> np.ndarray:
     """FM-modulate a real message into IQ. Inverse of fm_demod. OUR code.
 
     Frequency modulation encodes the message in the carrier's instantaneous
@@ -29,7 +31,7 @@ def fm_modulate(message, deviation_hz, sample_rate):
     return np.exp(1j * phase).astype(np.complex64)
 
 
-def am_modulate(message, modulation_index=0.5):
+def am_modulate(message: Any, modulation_index: float = 0.5) -> np.ndarray:
     """AM-modulate a real message into IQ. Inverse of am_demod. OUR code.
 
     Amplitude modulation rides the message on the carrier envelope:
@@ -47,7 +49,7 @@ def am_modulate(message, modulation_index=0.5):
     return envelope.astype(np.complex64)   # baseband carrier = constant 1
 
 
-def ssb_modulate(message, sideband="usb"):
+def ssb_modulate(message: Any, sideband: str = "usb") -> np.ndarray:
     """SSB-modulate a real message into IQ. Inverse of ssb_demod. OUR code.
 
     Single-sideband keeps one sideband of the message's analytic signal and

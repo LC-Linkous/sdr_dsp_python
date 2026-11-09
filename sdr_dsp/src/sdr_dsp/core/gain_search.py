@@ -44,7 +44,7 @@ from __future__ import annotations
 
 import itertools
 from dataclasses import dataclass
-from typing import Callable, Sequence
+from typing import Any, Callable, Iterator, Sequence
 
 import numpy as np
 
@@ -58,7 +58,7 @@ DEFAULT_RTLSDR_GAIN_STEPS = (
     43.9, 44.5, 48.0, 49.6)
 
 
-def peak_counts(iq, full_scale=128.0):
+def peak_counts(iq: Any, full_scale: float = 128.0) -> float:
     """Peak per-component ADC utilization of a normalized capture, in counts.
 
     Per component -- max(|I|, |Q|) -- because I and Q are separate converters
@@ -73,7 +73,7 @@ def peak_counts(iq, full_scale=128.0):
                      np.max(np.abs(iq.imag)))) * float(full_scale)
 
 
-def _snap(value, steps):
+def _snap(value: float, steps: Sequence[Any]) -> Any:
     return min(steps, key=lambda s: abs(s - value))
 
 
@@ -96,23 +96,23 @@ class GainStage:
     """
 
     name: str
-    steps: tuple
+    steps: tuple[Any, ...]
     role: str
     db: Callable[..., float] = float
     default: object = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.role not in ("frontend", "level"):
             raise ValueError(f"role must be 'frontend' or 'level', got {self.role!r}")
         if not self.steps:
             raise ValueError(f"stage {self.name!r} has no steps")
 
-    def default_value(self):
+    def default_value(self) -> Any:
         """The setting used when no quality sweep picks this stage: ``default``
         if given, otherwise the lowest step."""
         return self.steps[0] if self.default is None else self.default
 
-    def min_gap(self):
+    def min_gap(self) -> float:
         """Smallest positive spacing between consecutive numeric steps."""
         nums = [s for s in self.steps if isinstance(s, (int, float))
                 and not isinstance(s, bool)]
@@ -129,29 +129,29 @@ class GainModel:
     put the cheaper-to-change stage first (LNA before amp).
     """
 
-    def __init__(self, stages: Sequence[GainStage]):
+    def __init__(self, stages: Sequence[GainStage]) -> None:
         self.stages = tuple(stages)
         if not self.stages:
             raise ValueError("a GainModel needs at least one stage")
         self.frontend = tuple(s for s in self.stages if s.role == "frontend")
         self.level = tuple(s for s in self.stages if s.role == "level")
 
-    def by_name(self, name):
+    def by_name(self, name: str) -> GainStage:
         """Return the :class:`GainStage` called ``name``; ``KeyError`` if absent."""
         for s in self.stages:
             if s.name == name:
                 return s
         raise KeyError(name)
 
-    def min_settings(self):
+    def min_settings(self) -> dict[str, Any]:
         """Every stage at its lowest step, as a ``{name: value}`` dict."""
         return {s.name: s.steps[0] for s in self.stages}
 
-    def default_frontend(self):
+    def default_frontend(self) -> dict[str, Any]:
         """Each frontend stage at its :meth:`GainStage.default_value`, as a dict."""
         return {s.name: s.default_value() for s in self.frontend}
 
-    def frontend_grid(self):
+    def frontend_grid(self) -> Iterator[dict[str, Any]]:
         """Every combination of frontend stage settings, as dicts."""
         if not self.frontend:
             yield {}
@@ -160,19 +160,23 @@ class GainModel:
         for combo in itertools.product(*(s.steps for s in self.frontend)):
             yield dict(zip(names, combo, strict=True))
 
-    def frontend_db(self, combo):
+    def frontend_db(self, combo: dict[str, Any]) -> float:
         """Total frontend gain in dB for a ``{name: value}`` combo (stages not
         in ``combo`` contribute nothing)."""
         return sum(s.db(combo[s.name]) for s in self.frontend if s.name in combo)
 
-    def level_stage(self):
+    def level_stage(self) -> GainStage:
         """The stage walked for ADC level: the last level stage, or -- when the
         radio has none -- the last frontend stage (one knob does both)."""
         return self.level[-1] if self.level else self.frontend[-1]
 
 
-def hackrf_gain_model(lna_steps=DEFAULT_LNA_STEPS, vga_steps=DEFAULT_VGA_STEPS,
-                      *, use_amp=True) -> GainModel:
+def hackrf_gain_model(
+    lna_steps: Sequence[int] = DEFAULT_LNA_STEPS,
+    vga_steps: Sequence[int] = DEFAULT_VGA_STEPS,
+    *,
+    use_amp: bool = True,
+) -> GainModel:
     """The HackRF One: LNA + optional +14 dB amp (frontend) and VGA (level)."""
     lna = tuple(sorted(lna_steps))
     vga = tuple(sorted(vga_steps))
@@ -185,7 +189,7 @@ def hackrf_gain_model(lna_steps=DEFAULT_LNA_STEPS, vga_steps=DEFAULT_VGA_STEPS,
     return GainModel(stages)
 
 
-def rtlsdr_gain_model(gain_steps=DEFAULT_RTLSDR_GAIN_STEPS) -> GainModel:
+def rtlsdr_gain_model(gain_steps: Sequence[float] = DEFAULT_RTLSDR_GAIN_STEPS) -> GainModel:
     """An RTL-SDR: a SINGLE tuner-gain knob, no separate level stage.
 
     One frontend stage means stage 1 picks the SNR-best gain and stage 2 then
@@ -200,9 +204,17 @@ def rtlsdr_gain_model(gain_steps=DEFAULT_RTLSDR_GAIN_STEPS) -> GainModel:
 # ==========================================================================
 # The general engine.
 # ==========================================================================
-def search_gain_model(probe, model: GainModel, *, quality=None,
-                      target=(45.0, 110.0), clip=120.0, full_scale=128.0,
-                      max_level_probes=14, min_quality_db=3.0):
+def search_gain_model(
+    probe: Callable[[dict[str, Any]], Any],
+    model: GainModel,
+    *,
+    quality: Callable[[Any], float | None] | None = None,
+    target: tuple[float, float] = (45.0, 110.0),
+    clip: float = 120.0,
+    full_scale: float = 128.0,
+    max_level_probes: int = 14,
+    min_quality_db: float = 3.0,
+) -> dict[str, Any]:
     """Find gain settings for a usable capture on any radio. Returns a dict.
 
     probe:   callable ``probe(settings: dict) -> iq`` returning a short
@@ -222,7 +234,7 @@ def search_gain_model(probe, model: GainModel, *, quality=None,
     lo, hi = target
     probes: list = []
 
-    def take(settings):
+    def take(settings: dict[str, Any]) -> tuple[Any, float]:
         iq = probe(settings)
         c = peak_counts(iq, full_scale)
         probes.append((dict(settings), round(c, 1)))
@@ -266,7 +278,7 @@ def search_gain_model(probe, model: GainModel, *, quality=None,
     else:
         settings[lvl.name] = steps[len(steps) // 3]
 
-    def step_down_frontend():
+    def step_down_frontend() -> bool:
         for s in escalate:
             cur = settings[s.name]
             idx = s.steps.index(cur)
@@ -275,7 +287,7 @@ def search_gain_model(probe, model: GainModel, *, quality=None,
                 return True
         return False
 
-    def step_up_frontend():
+    def step_up_frontend() -> bool:
         for s in escalate:
             cur = settings[s.name]
             idx = s.steps.index(cur)
@@ -284,16 +296,51 @@ def search_gain_model(probe, model: GainModel, *, quality=None,
                 return True
         return False
 
+    def move(cur: Any, target_db: float, direction: int) -> Any:
+        """Snap target_db to the grid, but never stay put: if snapping lands
+        back on `cur`, take the next grid step in `direction`. On a
+        non-uniform grid (the R820T's 0.5 dB steps near the bottom, 4 dB
+        steps elsewhere) a step sized from the GLOBAL minimum gap can be
+        smaller than the local gap, and the walk used to snap back to the
+        same value and probe it until the budget ran out."""
+        new = _snap(min(steps[-1], max(steps[0], target_db)), steps)
+        if new == cur:
+            idx = steps.index(cur) + direction
+            if 0 <= idx < len(steps):
+                new = steps[idx]
+        return new
+
+    # The probe that ends up closest to the window is what gets reported,
+    # with ITS counts -- not the last probe's counts against the NEXT
+    # proposed (never-probed) settings, which is what a budget-exhausted walk
+    # used to return when two adjacent steps straddled the window.
+    def total_db(s: dict[str, Any]) -> float:
+        return (model.frontend_db(s)
+                + (lvl.db(s[lvl.name]) if lvl.role != "frontend" else 0.0))
+
+    def rank(c: float, s: dict[str, Any]) -> tuple[float, float]:
+        """Lower is better. Distance from the window first; among equals, the
+        setting the verdict calls for -- too weak: the most gain we tried
+        (so the report says "even at THIS it was empty"); too strong: the
+        least."""
+        dist = 0.0 if lo <= c <= hi else (lo - c if c < lo else c - hi)
+        tie = -total_db(s) if c < lo else total_db(s)
+        return (dist, tie)
+
     counts = 0.0
+    best_probe = None                                # (rank, settings, counts)
     status = "ok"
     for _ in range(max_level_probes):
         _, counts = take(settings)
+        r = rank(counts, settings)
+        if best_probe is None or r < best_probe[0]:
+            best_probe = (r, dict(settings), counts)
         cur = settings[lvl.name]
         if lo <= counts <= hi:
             break
         if counts >= clip:
             if cur > steps[0]:
-                settings[lvl.name] = _snap(max(steps[0], cur - 6.0), steps)
+                settings[lvl.name] = move(cur, cur - 6.0, -1)
             elif step_down_frontend():
                 settings[lvl.name] = steps[0]
             else:
@@ -302,8 +349,7 @@ def search_gain_model(probe, model: GainModel, *, quality=None,
         elif counts < lo:
             if cur < steps[-1]:
                 deficit_db = 20 * np.log10(max(lo, 1.0) / max(counts, 0.5))
-                settings[lvl.name] = _snap(
-                    min(steps[-1], cur + max(min_step, deficit_db)), steps)
+                settings[lvl.name] = move(cur, cur + max(min_step, deficit_db), +1)
             elif quality is None and step_up_frontend():
                 settings[lvl.name] = steps[len(steps) // 3]
             else:
@@ -311,13 +357,16 @@ def search_gain_model(probe, model: GainModel, *, quality=None,
                 break
         else:                                        # above window, below clip
             if cur > steps[0]:
-                settings[lvl.name] = _snap(max(steps[0], cur - min_step), steps)
+                settings[lvl.name] = move(cur, cur - min_step, -1)
             elif step_down_frontend():
                 settings[lvl.name] = steps[0]
             else:
                 status = "clipping"
                 break
 
+    if best_probe is not None and not (lo <= counts <= hi):
+        # we did not end inside the window: report the best probe we DID take
+        _, settings, counts = best_probe
     if status == "ok" and not (lo <= counts <= hi):
         # probe budget exhausted: report honestly rather than pretending
         status = "too_weak" if counts < lo else "clipping"
@@ -336,10 +385,19 @@ def search_gain_model(probe, model: GainModel, *, quality=None,
 # ==========================================================================
 # The HackRF specialization (backward-compatible public API).
 # ==========================================================================
-def search_gain(probe, *, lna_steps=DEFAULT_LNA_STEPS,
-                vga_steps=DEFAULT_VGA_STEPS, use_amp=True, quality=None,
-                target=(45.0, 110.0), clip=120.0, full_scale=128.0,
-                max_level_probes=14, min_quality_db=3.0):
+def search_gain(
+    probe: Callable[..., Any],
+    *,
+    lna_steps: Sequence[int] = DEFAULT_LNA_STEPS,
+    vga_steps: Sequence[int] = DEFAULT_VGA_STEPS,
+    use_amp: bool = True,
+    quality: Callable[[Any], float | None] | None = None,
+    target: tuple[float, float] = (45.0, 110.0),
+    clip: float = 120.0,
+    full_scale: float = 128.0,
+    max_level_probes: int = 14,
+    min_quality_db: float = 3.0,
+) -> dict[str, Any]:
     """Find (lna, vga, amp) for a usable HackRF capture. Returns a result dict.
 
     A thin wrapper over :func:`search_gain_model` with the HackRF gain model,
@@ -362,7 +420,7 @@ def search_gain(probe, *, lna_steps=DEFAULT_LNA_STEPS,
     """
     model = hackrf_gain_model(lna_steps, vga_steps, use_amp=use_amp)
 
-    def probe_settings(s):
+    def probe_settings(s: dict[str, Any]) -> Any:
         return probe(s["lna"], s["vga"], s.get("amp", False))
 
     res = search_gain_model(

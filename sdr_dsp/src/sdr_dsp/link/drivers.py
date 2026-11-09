@@ -16,12 +16,23 @@ convenience run_link() for the common simulated case.
 from __future__ import annotations
 
 import json
+import os
+from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from dataclasses import dataclass, field
 
 from .arq import ARQ
 from .protocol import unpack_payload, type_name
+
+if TYPE_CHECKING:
+    from ..sinks.tx_sink import TXSink
+
+# A transport takes a protocol payload and returns (crc_ok, recovered_payload
+# or None if dropped). An intention/event is a tuple whose first item is its kind.
+Transport = Callable[[bytes], tuple[bool, "bytes | None"]]
+Intent = tuple[Any, ...]
 
 
 # ===========================================================================
@@ -39,11 +50,19 @@ class EventLog:
     """
     records: list = field(default_factory=list)
 
-    def record(self, tick, station, direction, payload=None, crc_ok=None,
-               note=""):
+    def record(
+        self,
+        tick: int,
+        station: str,
+        direction: str,
+        payload: bytes | None = None,
+        crc_ok: bool | None = None,
+        note: str = "",
+    ) -> None:
         """Append one structured event record. payload is the protocol payload
         bytes (decoded into type/seq for readability)."""
-        rec = {"tick": tick, "station": station, "dir": direction, "note": note}
+        rec: dict[str, Any] = {"tick": tick, "station": station, "dir": direction,
+                               "note": note}
         if payload is not None:
             try:
                 ftype, seq, data = unpack_payload(payload)
@@ -57,31 +76,38 @@ class EventLog:
             rec["crc_ok"] = bool(crc_ok)
         self.records.append(rec)
 
-    def save(self, path):
+    def save(self, path: str | os.PathLike[str]) -> str:
         """Write the log as indented JSON."""
         with open(path, "w") as f:
             json.dump({"records": self.records}, f, indent=2)
         return str(path)
 
     @classmethod
-    def load(cls, path):
+    def load(cls, path: str | os.PathLike[str]) -> EventLog:
         """Load a log saved by save()."""
         with open(path, "r") as f:
             d = json.load(f)
         return cls(records=d.get("records", []))
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.records)
 
 
 # ===========================================================================
 # Sim driver: two engines over a transport
 # ===========================================================================
-def _deliver(intents, src_station, dst_engine, tick, log, transport):
+def _deliver(
+    intents: list[Intent],
+    src_station: str,
+    dst_engine: ARQ,
+    tick: int,
+    log: EventLog,
+    transport: Transport,
+) -> list[tuple[str, Intent]]:
     """Route one engine's tx intentions to the other engine as rx events,
     passing each through `transport` (which may drop/corrupt). Non-tx intentions
     are logged/collected. Returns (delivered_payloads, app_outputs)."""
-    app_outputs = []
+    app_outputs: list[tuple[str, Intent]] = []
     for intent in intents:
         kind = intent[0]
         if kind == "tx":
@@ -102,16 +128,21 @@ def _deliver(intents, src_station, dst_engine, tick, log, transport):
     return app_outputs
 
 
-def _other(station):
+def _other(station: str) -> str:
     return "B" if station == "A" else "A"
 
 
-def perfect_transport(payload):
+def perfect_transport(payload: bytes) -> tuple[bool, bytes | None]:
     """A lossless transport: every frame arrives, CRC ok."""
     return True, payload
 
 
-def make_channel_transport(modulate, demodulate, channel, drop_predicate=None):
+def make_channel_transport(
+    modulate: Callable[[bytes], np.ndarray],
+    demodulate: Callable[[np.ndarray], list[dict[str, Any]]],
+    channel: Callable[[np.ndarray], np.ndarray],
+    drop_predicate: Callable[[], bool] | None = None,
+) -> Transport:
     """Build a transport that runs a payload through modulate -> channel ->
     demodulate -> framing, returning (crc_ok, recovered_payload | None).
 
@@ -123,7 +154,7 @@ def make_channel_transport(modulate, demodulate, channel, drop_predicate=None):
     This is the bridge from the abstract protocol to the real DSP chain. It's how
     the sim driver exercises the protocol over the Phase C channel.
     """
-    def transport(payload):
+    def transport(payload: bytes) -> tuple[bool, bytes | None]:
         if drop_predicate and drop_predicate():
             return False, None
         iq = modulate(payload)
@@ -136,7 +167,13 @@ def make_channel_transport(modulate, demodulate, channel, drop_predicate=None):
     return transport
 
 
-def run_sim(station_a, station_b, max_ticks=200, transport=None, log=None):
+def run_sim(
+    station_a: ARQ,
+    station_b: ARQ,
+    max_ticks: int = 200,
+    transport: Transport | None = None,
+    log: EventLog | None = None,
+) -> tuple[list[bytes], list[bytes], EventLog]:
     """Drive two ARQ engines until both are idle or max_ticks is reached.
 
     station_a, station_b: ARQ engines (already given their send() messages).
@@ -148,21 +185,34 @@ def run_sim(station_a, station_b, max_ticks=200, transport=None, log=None):
     """
     transport = transport or perfect_transport
     log = log if log is not None else EventLog()
-    delivered: dict[str, list] = {"A": [], "B": []}
+    delivered: dict[str, list[bytes]] = {"A": [], "B": []}
 
-    def collect(app_outputs):
+    def collect(app_outputs: list[tuple[str, Intent]]) -> None:
         for station, intent in app_outputs:
             if intent[0] == "deliver":
                 # a deliver at station X means X RECEIVED a message
                 delivered[station].append(intent[1])
 
     for tick in range(max_ticks):
-        # route A's intentions to B, and B's to A
-        collect(_deliver(station_a.poll(), "A", station_b, tick, log, transport))
-        collect(_deliver(station_b.poll(), "B", station_a, tick, log, transport))
-        # advance logical time on both
+        # route A's intentions to B, and B's to A. Each routing can produce
+        # intentions on the OTHER side (an ACK arriving makes "done"s), so loop
+        # until both output queues are drained before deciding on idleness --
+        # otherwise the "done"s created by the final ACK of a run were never
+        # polled, logged or collected.
+        while True:
+            a_out = station_a.poll()
+            b_out = station_b.poll()
+            if not a_out and not b_out:
+                break
+            collect(_deliver(a_out, "A", station_b, tick, log, transport))
+            collect(_deliver(b_out, "B", station_a, tick, log, transport))
         if station_a.idle and station_b.idle:
             break
+        # advance logical time on both, and RECORD it: ticks are inputs to
+        # the engine exactly as rx events are, and a replay that is not fed
+        # the same ticks cannot reproduce the sender's retransmissions.
+        log.record(tick, "A", "tick")
+        log.record(tick, "B", "tick")
         station_a.on_event(("tick",))
         station_b.on_event(("tick",))
     return delivered["A"], delivered["B"], log
@@ -171,7 +221,7 @@ def run_sim(station_a, station_b, max_ticks=200, transport=None, log=None):
 # ===========================================================================
 # Replay driver: reproduce an exchange from a recorded log, zero TX
 # ===========================================================================
-def replay(log, engine, station):
+def replay(log: EventLog, engine: ARQ, station: str) -> list[Intent]:
     """Feed a recorded log's inbound events for `station` to a fresh engine and
     return the intentions it produces -- reproducing the original run with no
     transmission.
@@ -180,7 +230,7 @@ def replay(log, engine, station):
     the *output* of the original run and are recomputed here. This is the
     zero-TX demo path: load a saved exchange and watch the protocol re-derive it.
     """
-    produced = []
+    produced: list[Intent] = []
     for rec in log.records:
         if rec["dir"] == "rx" and rec["station"] == station:
             payload = _payload_from_record(rec)
@@ -192,7 +242,7 @@ def replay(log, engine, station):
     return produced
 
 
-def _payload_from_record(rec):
+def _payload_from_record(rec: dict[str, Any]) -> bytes:
     """Reconstruct the protocol payload bytes from a log record."""
     from .protocol import pack_payload, TYPE_DATA, TYPE_ACK, TYPE_NAK
     name_to_type = {"DATA": TYPE_DATA, "ACK": TYPE_ACK, "NAK": TYPE_NAK}
@@ -242,8 +292,16 @@ class LiveLink:
             duplicate detection (sequence numbers) exists for exactly this.
     """
 
-    def __init__(self, engine, sink, modulate, demodulate, log=None,
-                 station="A", carry_samples=0):
+    def __init__(
+        self,
+        engine: ARQ,
+        sink: TXSink,
+        modulate: Callable[[bytes], np.ndarray],
+        demodulate: Callable[[np.ndarray], list[dict[str, Any]]],
+        log: EventLog | None = None,
+        station: str = "A",
+        carry_samples: int = 0,
+    ) -> None:
         self.engine = engine
         self.sink = sink
         self.modulate = modulate
@@ -254,10 +312,10 @@ class LiveLink:
         self._carry = np.zeros(0, dtype=np.complex64)
         self._tick = 0
 
-    def pump(self):
+    def pump(self) -> list[Intent]:
         """Flush the engine's pending intentions: transmit any tx, return the
         app-level outputs (deliver/done/failed). Call after feeding events."""
-        app_outputs = []
+        app_outputs: list[Intent] = []
         for intent in self.engine.poll():
             if intent[0] == "tx":
                 payload = intent[1]
@@ -273,7 +331,7 @@ class LiveLink:
                                     note=str(intent))
         return app_outputs
 
-    def on_rx_iq(self, iq):
+    def on_rx_iq(self, iq: np.ndarray) -> list[Intent]:
         """Feed received IQ: demodulate, find frames, deliver each as an rx
         event. Returns the app outputs produced.
 
@@ -295,13 +353,13 @@ class LiveLink:
                 self.engine.on_event(("rx", payload, True))
         return self.pump()
 
-    def tick(self):
+    def tick(self) -> list[Intent]:
         """Advance one logical tick (drives timeouts/retransmits)."""
         self._tick += 1
         self.engine.on_event(("tick",))
         return self.pump()
 
-    def send(self, data):
+    def send(self, data: bytes) -> list[Intent]:
         """Queue an application message and flush."""
         self.engine.send(data)
         return self.pump()
@@ -310,8 +368,14 @@ class LiveLink:
 # ===========================================================================
 # Convenience wrapper for the common simulated case
 # ===========================================================================
-def run_link(messages, window_size=1, transport=None, timeout_ticks=10,
-             max_retries=5, max_ticks=500):
+def run_link(
+    messages: Sequence[bytes],
+    window_size: int = 1,
+    transport: Transport | None = None,
+    timeout_ticks: int = 10,
+    max_retries: int = 5,
+    max_ticks: int = 500,
+) -> tuple[list[bytes], EventLog]:
     """Send a list of messages from station A to station B over a sim link.
 
     The concrete, readable entry point: hides the event plumbing for the common

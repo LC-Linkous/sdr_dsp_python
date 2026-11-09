@@ -62,14 +62,14 @@ class LoopbackSink:
     missing.
     """
 
-    def __init__(self, sample_rate, center_freq=0.0):
+    def __init__(self, sample_rate: float, center_freq: float = 0.0) -> None:
         self.sample_rate = float(sample_rate)
         self.center_freq = float(center_freq)
-        self._chunks = []
+        self._chunks: list[np.ndarray] = []
         self.transmit_count = 0
 
     @property
-    def buffer(self):
+    def buffer(self) -> np.ndarray:
         """All transmitted samples, concatenated (complex64).
 
         Stored internally as a chunk list so repeated transmit() calls are
@@ -82,17 +82,17 @@ class LoopbackSink:
             return self._chunks[0]
         return np.zeros(0, dtype=np.complex64)
 
-    def transmit(self, iq):
+    def transmit(self, iq: np.ndarray) -> None:
         """Append the IQ to the in-memory buffer (no radio)."""
         self._chunks.append(np.asarray(iq, dtype=np.complex64))
         self.transmit_count += 1
 
-    def clear(self):
+    def clear(self) -> None:
         """Reset the buffer and counter."""
         self._chunks = []
         self.transmit_count = 0
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (f"LoopbackSink({len(self.buffer)} samples buffered, "
                 f"{self.transmit_count} transmits, "
                 f"{self.sample_rate/1e6:g} Msps @ {self.center_freq/1e6:g} MHz)")

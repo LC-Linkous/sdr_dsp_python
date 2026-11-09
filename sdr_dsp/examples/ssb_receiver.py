@@ -64,7 +64,7 @@ def main():
               f"{fs/1e3:g} kHz")
 
     if args.tune:
-        iq = frequency_shift(iq, -args.tune, fs)
+        iq = frequency_shift(iq, fs, -args.tune)
         print(f"[*] tuned {args.tune/1e3:g} kHz")
 
     # demod the chosen sideband

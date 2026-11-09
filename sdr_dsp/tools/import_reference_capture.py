@@ -79,7 +79,7 @@ def main():
     iq = load_slice(src, rate, args.skip, args.seconds)
 
     # ---- validate BEFORE importing: sample data must be above suspicion --
-    health = capture_health(iq, rate, channel_bw=100e3)
+    health = capture_health(iq, rate, channel_bw_hz=100e3)
     pilot = fm_pilot_excess_db(iq, rate)
     ptxt = "n/a" if pilot is None else f"{pilot:+.1f} dB"
     print(f"[*] source slice: {health['adc_counts']:.1f}/128 counts, "
@@ -109,7 +109,7 @@ def main():
     out_iq = out_iq * rescale
 
     # re-validate at the output rate: the import must not have broken it
-    health2 = capture_health(out_iq, OUT_RATE, channel_bw=100e3)
+    health2 = capture_health(out_iq, OUT_RATE, channel_bw_hz=100e3)
     pilot2 = fm_pilot_excess_db(out_iq, OUT_RATE)
     print(f"[*] imported slice: {health2['adc_counts']:.1f}/128 counts, "
           f"channel {health2['channel_excess_db']:+.1f} dB, "

@@ -34,12 +34,21 @@ last gain value.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
 
-def agc(iq, mode="rms", target=1.0, attack=0.01, decay=0.001, max_gain=None,
-        _initial_gain=1.0, _initial_level=None):
+def agc(
+    iq: Any,
+    mode: str = "rms",
+    target: float = 1.0,
+    attack: float = 0.01,
+    decay: float = 0.001,
+    max_gain: float | None = None,
+    _initial_gain: float = 1.0,
+    _initial_level: float | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
     """Apply automatic gain control. Returns (adjusted_iq, gain_trace). OUR code.
 
     Drives the signal level toward `target` with a one-pole tracking loop. The
@@ -76,8 +85,16 @@ def agc(iq, mode="rms", target=1.0, attack=0.01, decay=0.001, max_gain=None,
 _SILENCE = 1e-30
 
 
-def _agc_core(iq, mode, target, attack, decay, max_gain, initial_gain,
-              initial_level):
+def _agc_core(
+    iq: Any,
+    mode: str,
+    target: float,
+    attack: float,
+    decay: float,
+    max_gain: float | None,
+    initial_gain: float,
+    initial_level: float | None,
+) -> tuple[np.ndarray, np.ndarray, float | None]:
     """The AGC loop. Returns (adjusted, gain_trace, final_level).
 
     `final_level` is the loop's level-tracker state after the last sample --
@@ -91,7 +108,7 @@ def _agc_core(iq, mode, target, attack, decay, max_gain, initial_gain,
     if n == 0:
         return iq, np.zeros(0, dtype=np.float64), initial_level
     if mode not in ("rms", "peak"):
-        raise ValueError("mode must be 'rms' or 'peak'")
+        raise ValueError(f"mode must be 'rms' or 'peak', got {mode!r}")
     peak = mode == "peak"
 
     mag = np.abs(iq).astype(np.float64)
@@ -173,12 +190,14 @@ class AGC:
     decay: float = 0.001
     max_gain: float | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
+        if self.mode not in ("rms", "peak"):
+            raise ValueError(f"mode must be 'rms' or 'peak', got {self.mode!r}")
         self._gain = 1.0
-        self._level = None
+        self._level: float | None = None
         self.last_gain = np.zeros(0, dtype=np.float64)
 
-    def __call__(self, block):
+    def __call__(self, block: Any) -> np.ndarray:
         """Process one block, continuing the loop from the previous block."""
         adjusted, gain, level = _agc_core(block, self.mode, self.target,
                                           self.attack, self.decay, self.max_gain,
@@ -189,11 +208,13 @@ class AGC:
             # |last output sample| instead (an earlier version did) restarts
             # the level tracker from an unsmoothed value at every block, so a
             # streamed run diverged from the whole-record run by several %.
-            self._level = float(level)
+            # (_agc_core only returns None for level on an EMPTY block, which
+            # the len(gain) test excludes; mypy cannot correlate the two.)
+            self._level = float(level)  # type: ignore[arg-type]
         self.last_gain = gain
         return adjusted
 
-    def reset(self):
+    def reset(self) -> None:
         """Forget the carried state (start the next block fresh)."""
         self._gain = 1.0
         self._level = None

@@ -154,3 +154,47 @@ def test_bit_offset_reported():
     stream = np.concatenate([pad, build_frame(b"X")])
     found = find_frames(stream)
     assert found[0]["bit_offset"] == 40 + DEFAULT_PREAMBLE_BITS
+
+
+def test_near_miss_sync_in_noise_does_not_swallow_the_real_frame():
+    # 200 random bits before a valid frame: at max_sync_errors=2 a random
+    # window matches the sync ~1 time in 100, and if its length byte happens
+    # to fit the buffer the old scanner jumped past the claimed body -- over
+    # the real frame -- 2% of the time. The real frame must be found in every
+    # one of 300 trials, with its CRC intact.
+    frame = build_frame(b"hello")
+    missed = []
+    for seed in range(300):
+        rng = np.random.default_rng(seed)
+        bits = np.concatenate([rng.integers(0, 2, 200, dtype=np.uint8), frame])
+        good = [f for f in find_frames(bits) if f["crc_ok"]]
+        want = 200 + DEFAULT_PREAMBLE_BITS                # bit_offset is the SYNC position
+        if not (good and good[-1]["payload"] == b"hello" and good[-1]["bit_offset"] == want):
+            missed.append(seed)
+    assert not missed, f"real frame missed after noise for seeds {missed}"
+
+
+def test_corrupted_frame_still_reported_and_following_frame_found():
+    # a frame with a flipped length-byte bit is reported crc_ok=False, and the
+    # good frame right behind it is still found (the scan did not jump past it)
+    bad = build_frame(b"first").copy()
+    bad[32 + 16 + 3] ^= 1                            # a bit of the length byte
+    bits = np.concatenate([bad, build_frame(b"second")])
+    found = find_frames(bits)
+    assert any(f["crc_ok"] and f["payload"] == b"second" for f in found)
+    assert not any(f["crc_ok"] and f["payload"] == b"first" for f in found)
+
+
+def test_find_frames_rejects_a_demod_result_and_non_bits():
+    from sdr_dsp.core import bpsk_demod, DemodResult
+    res = bpsk_demod(np.array([1, -1, 1], dtype=np.complex64))
+    assert isinstance(res, DemodResult)
+    bits, soft = res                                   # tuple unpacking still works
+    assert bits.dtype == np.uint8 and res.bits is bits
+    with pytest.raises(TypeError, match=r"\.bits"):
+        find_frames(res)                               # used to return [] silently
+    with pytest.raises(ValueError, match="1-D"):
+        find_frames(np.zeros((2, 40), dtype=np.uint8))
+    with pytest.raises(ValueError, match="bits"):
+        find_frames(np.array([0, 1, 2, 1]))
+    assert find_frames(res.bits) == []                 # the right call, no frame in 3 bits

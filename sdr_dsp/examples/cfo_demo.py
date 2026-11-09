@@ -85,7 +85,7 @@ def main():
         assert applied == cfo
         residual = estimate_fm_cfo(corrected, fs) or 0.0
     else:
-        corrected = frequency_shift(iq, -cfo, fs)
+        corrected = frequency_shift(iq, fs, -cfo)
         residual = estimate_cfo(corrected, fs)
     print(f"[*] corrected by {-cfo/1e3:+.2f} kHz; residual offset now "
           f"{residual/1e3:+.2f} kHz")

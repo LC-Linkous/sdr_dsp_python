@@ -8,9 +8,13 @@ application code) and analysis comes back out. The library provides the hooks;
 you provide the hardware.
 """
 
-from . import core
+from __future__ import annotations
+
+from typing import Any
+
+from . import core as core  # noqa: F401  (importable attribute; not in __all__)
 from .core import (
-    to_db, from_db, normalize, DB_EPSILON,
+    to_db, from_db, normalize, DB_EPSILON, DemodResult,
     instantaneous_phase, instantaneous_frequency,
     fsk_demod, ssb_demod, bpsk_demod,
     dsb_sc_demod, cw_decode, nask_slice, fsk_demod_nlevel,
@@ -58,7 +62,7 @@ except ImportError:                       # pragma: no cover
 # partially initialized when `stream` was pulled in). Lazy access keeps
 # `sdr_dsp.io`, `sdr_dsp.sinks`, `sdr_dsp.stream`, `sdr_dsp.link`, and `sdr_dsp.Pipeline` working
 # identically while removing the fragility.
-def __getattr__(name):
+def __getattr__(name: str) -> Any:
     if name in ("io", "sinks", "stream", "link"):
         import importlib
         mod = importlib.import_module(f".{name}", __name__)
@@ -70,8 +74,12 @@ def __getattr__(name):
         return Pipeline
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
+# Submodules are NOT in __all__: `from sdr_dsp import *` must not shadow the
+# standard library's `io` (it did). They remain importable as attributes and
+# as `import sdr_dsp.io`; `Pipeline` is the one lazily-loaded name kept here
+# because it is a class, not a module.
 __all__ = [
-    "core", "io", "sinks", "stream", "link", "Pipeline",
+    "Pipeline",
     "IQSource", "ArraySource", "FileSource",
     "design_lowpass", "design_bandpass", "design_highpass",
     "fir_apply", "fir_apply_centered",
@@ -81,7 +89,7 @@ __all__ = [
     "dsb_sc_demod", "cw_decode", "nask_slice", "fsk_demod_nlevel",
     "fm_stereo_decode",
     "dbpsk_demod", "dqpsk_demod", "qpsk_demod", "psk8_demod",
-    "qam16_demod", "dsss_despread", "fhss_detect_hops",
+    "qam16_demod", "dsss_despread", "fhss_detect_hops", "DemodResult",
     "correlate", "convolve",
     "resample_poly", "decimate", "interpolate",
     "psd", "spectrogram",

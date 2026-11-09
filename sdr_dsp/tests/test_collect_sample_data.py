@@ -127,10 +127,19 @@ def test_dead_antenna_is_reported_as_too_weak():
     radio = FakeRadio(0.0, noise_counts=0.0)
     band = {"center": 98e6}
     args = type("A", (), {"sample_rate": 2e6})()
-    lna, vga, _amp, tried, status = collect.find_gain(radio, band, args)
+    lna, vga, amp, tried, status = collect.find_gain(radio, band, args)
     assert status == "too_weak", f"expected too_weak, got {status}"
-    assert (lna, vga) == (collect.LNA_STEPS[-1], collect.VGA_STEPS[-1]), (
-        "should have wound gain all the way up before giving up")
+    # the reported setting must be one that was actually PROBED (the walk used
+    # to report its next proposal, never tried), and -- since every probe read
+    # zero -- the one with the most total gain, so the report says "even at
+    # this it was empty". That is lna max + amp on, which outranks lna max +
+    # vga max with the amp off by 12 dB.
+    probed = {(p[0], p[1], p[2]) for p in tried}
+    assert (lna, vga, amp) in probed
+    def total(lna_db, vga_db, amp_on):
+        return lna_db + vga_db + (14 if amp_on else 0)
+    assert total(lna, vga, amp) == max(total(*t) for t in probed)
+    assert lna == collect.LNA_STEPS[-1] and amp
 
 
 def test_gain_search_stays_on_the_hardware_grid():
@@ -152,14 +161,14 @@ def test_gain_search_is_economical():
 
 
 def test_band_presets_are_well_formed():
-    required = {"center", "channel_bw", "sample_rate", "seconds", "desc",
+    required = {"center", "channel_bw_hz", "sample_rate", "seconds", "desc",
                 "expect_signal"}
     for name, band in collect.BANDS.items():
         missing = required - set(band)
         assert not missing, f"{name} missing {missing}"
         assert 1e6 <= band["center"] <= 6e9, f"{name} center out of range"
-        assert 0 < band["channel_bw"] < band["sample_rate"] / 2, (
-            f"{name} channel_bw must fit inside the captured span")
+        assert 0 < band["channel_bw_hz"] < band["sample_rate"] / 2, (
+            f"{name} channel_bw_hz must fit inside the captured span")
 
 
 def test_noise_preset_is_marked_as_expecting_nothing():

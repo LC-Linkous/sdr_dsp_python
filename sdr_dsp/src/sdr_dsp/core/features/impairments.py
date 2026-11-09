@@ -127,6 +127,8 @@ def estimate_iq_imbalance(iq: np.ndarray) -> tuple[float, float]:
     to be controlled for.
     """
     r = np.asarray(iq, dtype=np.complex128)
+    if r.size == 0:
+        return 0.0, 0.0                     # nothing to estimate from
     power = np.mean(np.abs(r) ** 2)
     if power == 0.0:
         return 0.0, 0.0

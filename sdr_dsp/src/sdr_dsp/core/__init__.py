@@ -68,13 +68,14 @@ from .gain_search import (search_gain, peak_counts, search_gain_model,
                           GainStage, GainModel, hackrf_gain_model,
                           rtlsdr_gain_model)
 from .measure import (power_dbfs, snr_db, occupied_bandwidth, capture_health,
+                      HEALTH_VERDICTS,
                       fm_pilot_excess_db,
                      find_bursts, estimate_cfo, estimate_fm_cfo,
                      correct_fm_cfo)
 from .detect import matched_filter, detect_peak, correlate, convolve
 from .sync import carrier_recovery, symbol_sync, LoopDiagnostics
 from .demod import (fm_demod, am_demod, dsb_sc_demod, cw_decode,
-                    fm_stereo_decode,
+                    fm_stereo_decode, DemodResult,
                     ook_envelope, ook_slice, nask_slice,
                     fsk_demod_nlevel,
                     dbpsk_demod, dqpsk_demod, qpsk_demod, psk8_demod,
@@ -102,6 +103,7 @@ __all__ = [
     "fm_modulate", "am_modulate", "ssb_modulate",
     "ook_modulate", "fsk_modulate", "bpsk_modulate", "qpsk_modulate",
     "rrc_taps", "upsample", "pulse_shape", "snr_db", "occupied_bandwidth", "capture_health",
+    "HEALTH_VERDICTS",
     "fm_pilot_excess_db", "search_gain", "peak_counts",
     "search_gain_model", "GainStage", "GainModel",
     "hackrf_gain_model", "rtlsdr_gain_model",
@@ -112,7 +114,7 @@ __all__ = [
     "fsk_demod", "fsk_demod_nlevel", "ssb_demod", "dsb_sc_demod", "cw_decode",
     "fm_stereo_decode",
     "bpsk_demod", "dbpsk_demod", "dqpsk_demod", "nask_slice",
-    "qpsk_demod", "psk8_demod", "qam16_demod",
+    "qpsk_demod", "psk8_demod", "qam16_demod", "DemodResult",
     "dsss_despread", "fhss_detect_hops",
     "edges", "estimate_symbol_rate", "slice_to_symbols", "sample_symbols", "deemphasis",
     "matched_filter", "detect_peak", "correlate", "convolve",

@@ -318,7 +318,7 @@ def run_ui(radio, start_hz):
         ax_chan.set_xlim(-SAMPLE_RATE / 2e3, SAMPLE_RATE / 2e3)
         ax_chan.set_ylim(p.min() - 3, p.max() + 6)
 
-        h = capture_health(iq, SAMPLE_RATE, channel_bw=CHANNEL_BW)
+        h = capture_health(iq, SAMPLE_RATE, channel_bw_hz=CHANNEL_BW)
         excess = h["channel_excess_db"]
         verdict = ("station present" if h["ok"] else
                    " | ".join(r.split(",")[0] for r in h["reasons"]))

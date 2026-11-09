@@ -15,10 +15,13 @@ See MODULATIONS.md for the honest status table.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
+from .._validate import positive_int
 
 
-def dsss_despread(iq, code, samples_per_chip=1):
+def dsss_despread(iq: Any, code: Any, samples_per_chip: int = 1) -> np.ndarray:
     """Despread a DSSS signal using a KNOWN spreading code. OUR code.
 
     Multiplies the signal by the (time-aligned) spreading code and integrates
@@ -34,6 +37,7 @@ def dsss_despread(iq, code, samples_per_chip=1):
     unknown code (that's out of scope). For alignment search, slide the code
     with core.correlate and pick the peak.
     """
+    samples_per_chip = positive_int("samples_per_chip", samples_per_chip)
     iq = np.asarray(iq, dtype=np.complex64)
     code = np.asarray(code, dtype=np.complex64)
     if samples_per_chip > 1:
@@ -50,7 +54,13 @@ def dsss_despread(iq, code, samples_per_chip=1):
     return out
 
 
-def fhss_detect_hops(iq, sample_rate, nfft=256, overlap=0.5, center_freq=0.0):
+def fhss_detect_hops(
+    iq: Any,
+    sample_rate: float,
+    nfft: int = 256,
+    overlap: float = 0.5,
+    center_freq: float = 0.0,
+) -> tuple[np.ndarray, np.ndarray]:
     """Detect frequency hops: the dominant frequency per time slice. OUR code.
 
     For an FHSS signal, computes a spectrogram and reports, for each time slice,

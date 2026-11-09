@@ -420,8 +420,8 @@ def record_one(h, folder, cap, ref, dataset_no):
     # is exactly what the receiver does with --tune, so this validates the
     # file the way it will be used.
     offset = 0 if "freq" in cap else -cap.get("freq_offset", 0)
-    probe = frequency_shift(iq, -offset, rate) if offset else iq
-    health = capture_health(probe, rate, channel_bw=FM_CHANNEL_BW)
+    probe = frequency_shift(iq, rate, -offset) if offset else iq
+    health = capture_health(probe, rate, channel_bw_hz=FM_CHANNEL_BW)
     excess = health["channel_excess_db"]
     # For captures of the station itself, the decisive check is the 19 kHz
     # stereo pilot in the demodulated signal -- amplified noise can fill the

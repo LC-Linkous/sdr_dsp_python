@@ -49,7 +49,7 @@ def test_zero_cfo_reads_near_zero():
 
 @pytest.mark.parametrize("true_cfo", [+1500.0, -3200.0, +12000.0, -500.0])
 def test_recovers_injected_cfo_with_sign(true_cfo):
-    iq = add_cfo(_fm_signal(), true_cfo, FS)
+    iq = add_cfo(_fm_signal(), FS, true_cfo)
     est = estimate_fm_cfo(iq, FS)
     assert est is not None
     assert np.sign(est) == np.sign(true_cfo)
@@ -58,7 +58,7 @@ def test_recovers_injected_cfo_with_sign(true_cfo):
 
 def test_click_trimming_rejects_discriminator_spikes():
     # The documented click trim: discriminator samples beyond trim_hz (default
-    # 1.5 x channel_bw) are dropped before the mean, so phase-wrap "clicks"
+    # 1.5 x channel_bw_hz) are dropped before the mean, so phase-wrap "clicks"
     # from deep fades do not bias the estimate. Disabling the trim passed every
     # test, so pin it: 1500 forward phase jumps of 0.8*pi (each a +192 kHz
     # spike, above the 150 kHz trim) spread over 0.3 s bias the untrimmed mean
@@ -87,7 +87,7 @@ def test_click_trimming_rejects_discriminator_spikes():
 
 
 def test_correction_drives_residual_to_zero():
-    iq = add_cfo(_fm_signal(), -3200.0, FS)
+    iq = add_cfo(_fm_signal(), FS, -3200.0)
     corrected, applied = correct_fm_cfo(iq, FS)
     assert abs(applied - (-3200.0)) < 10.0
     assert abs(estimate_fm_cfo(corrected, FS)) < 5.0
@@ -133,7 +133,7 @@ def test_pilot_position_is_cfo_invariant_but_dc_shifts():
     msg = 0.3 * np.sin(2 * np.pi * 19_000.0 * t) + 0.4 * np.sin(2 * np.pi * 800 * t)
     iq = fm_modulate(msg, deviation_hz=60_000.0, sample_rate=fs)
     cfo = 4000.0
-    dirty = add_cfo(iq, cfo, fs)
+    dirty = add_cfo(iq, fs, cfo)
 
     clean_d = fm_demod(iq, deviation_hz=60_000.0, sample_rate=fs)
     dirty_d = fm_demod(dirty, deviation_hz=60_000.0, sample_rate=fs)

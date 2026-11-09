@@ -170,3 +170,37 @@ def test_engine_drives_hackrf_model_weak_antenna_enables_amp():
     assert r["status"] == "ok", r
     assert r["settings"]["amp"] is True, r
     assert 45 <= r["counts"] <= 110, r
+
+
+# -- walk on a non-uniform grid, and honest reporting (second audit) ---------
+
+def test_level_walk_does_not_stall_on_a_non_uniform_grid():
+    # The R820T grid is 0.5 dB near the bottom and ~4 dB elsewhere. A step
+    # sized from the GLOBAL minimum gap snapped back onto the current value
+    # and the walk probed 3.7 dB thirteen times before giving up, although
+    # 7.7 dB was in the window.
+    from sdr_dsp.core import search_gain_model, rtlsdr_gain_model
+
+    def probe(s):
+        return (np.ones(2000) * (40 * 10 ** ((s["gain"] - 3.7) / 20)) / 128).astype(np.complex64)
+
+    r = search_gain_model(probe, rtlsdr_gain_model(),
+                          quality=lambda iq: 10.0 if abs(iq[0]) * 128 < 45 else 5.0)
+    assert r["status"] == "ok" and r["settings"]["gain"] == 7.7
+    probed = [s["gain"] for s, _ in r["probes"]]
+    assert probed.count(3.7) <= 2
+
+
+def test_reported_counts_belong_to_reported_settings():
+    # adjacent steps straddle the window: the walk alternates and runs out of
+    # budget. It must report the best probe it TOOK -- settings and counts
+    # from the same probe -- not the last counts against the next, untried
+    # settings (which claimed 112 counts, "clipping", for vga=20 that reads 44)
+    from sdr_dsp.core import search_gain
+
+    def probe(lna, vga, amp):
+        return (np.ones(2000) * ((44 if vga <= 20 else 112) / 128)).astype(np.complex64)
+
+    r = search_gain(probe)
+    assert (r["vga"], r["counts"], r["status"]) == (20, 44.0, "too_weak")
+    assert (r["lna"], r["vga"], r["amp"], r["counts"]) in r["probes"]

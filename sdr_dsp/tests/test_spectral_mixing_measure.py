@@ -37,7 +37,7 @@ def test_spectrogram_shape():
 def test_frequency_shift_moves_tone():
     fs = 1_000_000
     x = tone(100_000, fs, 8192)
-    shifted = mixing.frequency_shift(x, 50_000, fs)   # 100k -> 150k
+    shifted = mixing.frequency_shift(x, fs, 50_000)   # 100k -> 150k
     freqs, psd_db = spectral.psd(shifted, fs, nfft=1024)
     peak = freqs[np.argmax(psd_db)]
     assert abs(peak - 150_000) < fs / 1024
@@ -46,7 +46,7 @@ def test_frequency_shift_moves_tone():
 def test_tune_to_baseband():
     fs = 1_000_000
     x = tone(100_000, fs, 8192)
-    based = mixing.tune_to_baseband(x, 100_000, fs)   # 100k -> 0
+    based = mixing.tune_to_baseband(x, fs, 100_000)   # 100k -> 0
     freqs, psd_db = spectral.psd(based, fs, nfft=1024)
     peak = freqs[np.argmax(psd_db)]
     assert abs(peak) < fs / 1024
@@ -81,8 +81,8 @@ def test_mixing_roundtrip_identity():
     # shift up by f then down by f recovers the original within precision
     fs = 1_000_000
     x = tone(100_000, fs, 8192)
-    up = mixing.frequency_shift(x, 200_000, fs)
-    back = mixing.frequency_shift(up, -200_000, fs)
+    up = mixing.frequency_shift(x, fs, 200_000)
+    back = mixing.frequency_shift(up, fs, -200_000)
     assert np.allclose(back, x, atol=1e-5)
 
 
@@ -142,9 +142,9 @@ def test_spectrogram_time_alignment():
 
 def test_mixing_empty_and_single():
     # edge cases shouldn't crash
-    assert len(mixing.frequency_shift(np.array([], dtype=np.complex64), 1e3,
-                                      1e6)) == 0
-    out = mixing.frequency_shift(np.array([1 + 0j], dtype=np.complex64), 1e3, 1e6)
+    assert len(mixing.frequency_shift(np.array([], dtype=np.complex64), 1e6,
+                                      1e3)) == 0
+    out = mixing.frequency_shift(np.array([1 + 0j], dtype=np.complex64), 1e6, 1e3)
     assert len(out) == 1
 
 
@@ -191,3 +191,22 @@ def test_psd_dbfs_scalloping_and_half_scale():
     assert p.max() == pytest.approx(-6.02, abs=0.1)        # half amplitude
     with pytest.raises(ValueError, match="scaling"):
         spectral.psd(on_bin, fs, scaling="watts")
+
+
+def test_occupied_bandwidth_is_position_independent_and_narrow_for_a_tone():
+    # the old implementation integrated outward from 0 Hz: a tone at +100 kHz
+    # read 203 kHz, and an FM station tuned off centre read 1.47 MHz
+    fs = 1e6
+    t = np.arange(400_000) / fs
+    tone = np.exp(2j * np.pi * 100e3 * t).astype(np.complex64)
+    assert measure.occupied_bandwidth(tone, fs) < 6 * fs / 1024        # a few bins
+    rng = np.random.default_rng(0)
+    from sdr_dsp.core import fm_modulate, frequency_shift, fir_apply, design_lowpass
+    msg = fir_apply(rng.standard_normal(len(t)), design_lowpass(15e3, fs))
+    fm = fm_modulate(msg / np.abs(msg).max(), deviation_hz=75e3, sample_rate=fs)
+    at_dc = measure.occupied_bandwidth(fm, fs)
+    shifted = measure.occupied_bandwidth(frequency_shift(fm, fs, 300e3), fs)
+    assert shifted == pytest.approx(at_dc, rel=0.05)
+    assert 50e3 < at_dc < 200e3
+    with pytest.raises(ValueError, match="fraction"):
+        measure.occupied_bandwidth(tone, fs, fraction=1.5)

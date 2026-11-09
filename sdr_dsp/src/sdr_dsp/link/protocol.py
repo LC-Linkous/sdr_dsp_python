@@ -30,12 +30,12 @@ SEQ_MOD_MAX = 256
 _TYPE_NAMES = {TYPE_DATA: "DATA", TYPE_ACK: "ACK", TYPE_NAK: "NAK"}
 
 
-def type_name(t):
+def type_name(t: int) -> str:
     """Human name for a frame type byte."""
     return _TYPE_NAMES.get(t, f"0x{t:02x}")
 
 
-def pack_payload(frame_type, seq, data=b""):
+def pack_payload(frame_type: int, seq: int, data: bytes = b"") -> bytes:
     """Build a protocol payload: [type][seq][data]. Returns bytes.
 
     This goes inside build_frame() as the payload. seq is taken mod 256.
@@ -43,7 +43,7 @@ def pack_payload(frame_type, seq, data=b""):
     return bytes([frame_type & 0xFF, seq & 0xFF]) + bytes(data)
 
 
-def unpack_payload(payload):
+def unpack_payload(payload: bytes) -> tuple[int, int, bytes]:
     """Parse a protocol payload. Returns (frame_type, seq, data).
 
     Raises ValueError if too short to hold the 2-byte header.

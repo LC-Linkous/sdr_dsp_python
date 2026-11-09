@@ -5,6 +5,10 @@ write_wav and write_iq have no extra deps. The plot helpers need matplotlib
 requires matplotlib.
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 from .wav_sink import write_wav
 from .iq_sink import write_iq
 from .tx_sink import TXSink, LoopbackSink
@@ -12,7 +16,7 @@ from .tx_sink import TXSink, LoopbackSink
 __all__ = ["write_wav", "write_iq", "TXSink", "LoopbackSink", "plot_spectrum", "plot_spectrogram"]
 
 
-def __getattr__(name):
+def __getattr__(name: str) -> Any:
     if name in ("plot_spectrum", "plot_spectrogram"):
         from . import plot_sink
         return getattr(plot_sink, name)

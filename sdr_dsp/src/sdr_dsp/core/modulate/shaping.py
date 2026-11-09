@@ -10,10 +10,13 @@ filter used on receive.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
+from .._validate import positive_int
 
 
-def rrc_taps(sps, span_symbols=8, beta=0.35):
+def rrc_taps(sps: int, span_symbols: int = 8, beta: float = 0.35) -> np.ndarray:
     """Root-raised-cosine filter taps. OUR code.
 
     sps:          samples per symbol (the upsampling factor).
@@ -53,19 +56,20 @@ def rrc_taps(sps, span_symbols=8, beta=0.35):
     return taps.astype(np.float64)
 
 
-def upsample(symbols, sps):
+def upsample(symbols: Any, sps: int) -> np.ndarray:
     """Insert sps-1 zeros between symbols (zero-stuffing). OUR code.
 
     The first step of pulse shaping: place each symbol on the output grid, then
     filter to spread it into a pulse. Returns a complex64 array sps times longer.
     """
+    sps = positive_int("sps", sps)
     symbols = np.asarray(symbols, dtype=np.complex64)
-    out = np.zeros(len(symbols) * int(sps), dtype=np.complex64)
-    out[::int(sps)] = symbols
+    out = np.zeros(len(symbols) * sps, dtype=np.complex64)
+    out[::sps] = symbols
     return out
 
 
-def pulse_shape(symbols, sps, span_symbols=8, beta=0.35):
+def pulse_shape(symbols: Any, sps: int, span_symbols: int = 8, beta: float = 0.35) -> np.ndarray:
     """Upsample symbols and shape them with an RRC pulse. OUR code.
 
     The standard transmit-side digital chain: take complex symbols (e.g. PSK

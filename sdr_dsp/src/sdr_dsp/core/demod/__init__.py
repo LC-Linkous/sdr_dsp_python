@@ -9,6 +9,7 @@ The closed-loop recovery primitives (carrier_recovery, symbol_sync) live in
 core.sync, not here, because they are reusable across demods.
 """
 
+from .result import DemodResult
 from .phase import instantaneous_phase, instantaneous_frequency
 from .analog import (fm_demod, am_demod, ssb_demod, deemphasis,
                      dsb_sc_demod, cw_decode, fm_stereo_decode)
@@ -22,6 +23,7 @@ from .timing import (edges, estimate_symbol_rate, slice_to_symbols,
                      sample_symbols)
 
 __all__ = [
+    "DemodResult",
     "instantaneous_phase", "instantaneous_frequency",
     "fm_demod", "am_demod", "ssb_demod", "deemphasis",
     "dsb_sc_demod", "cw_decode", "fm_stereo_decode",

@@ -81,18 +81,21 @@ def test_add_noise_passes_empty_and_silent_input_through():
 
 
 def test_add_cfo_empty_input():
-    out = add_cfo(EMPTY, 1e3, FS)
+    out = add_cfo(EMPTY, FS, 1e3)
     assert out.size == 0 and out.dtype == np.complex64
 
 
 # -- channelize --------------------------------------------------------------
 
-def test_channelize_bank_without_freqs_returns_pair():
+def test_channelize_bank_always_returns_the_triple():
+    # the return_freqs flag that changed the arity is gone (0.3.0)
     iq = _tone(50e3, n=8192)
-    result = channelize_bank(iq, FS, n_channels=4, return_freqs=False)
-    assert len(result) == 2
-    channels, new_rate = result
-    assert channels.shape[0] == 4 and new_rate == pytest.approx(FS / 4)
+    result = channelize_bank(iq, FS, n_channels=4)
+    assert len(result) == 3
+    channels, new_rate, cf = result
+    assert channels.shape[0] == 4 and new_rate == pytest.approx(FS / 4) and len(cf) == 4
+    with pytest.raises(TypeError):
+        channelize_bank(iq, FS, n_channels=4, return_freqs=False)
 
 
 def test_channelize_bank_oversampled_short_input_and_shape():
@@ -211,10 +214,11 @@ def test_estimate_symbol_rate_degenerate_inputs():
     assert rate > 0 and spb > 0
 
 
-def test_slice_to_symbols_nonpositive_period_returns_bits():
+def test_slice_to_symbols_nonpositive_period_is_an_error():
+    # it used to hand the bits back unchanged, which looked like a result
     bits = np.array([1, 0, 1, 1], dtype=np.uint8)
-    out = slice_to_symbols(bits, 0)
-    assert out.dtype == np.uint8 and list(out) == [1, 0, 1, 1]
+    with pytest.raises(ValueError, match="samples_per_symbol"):
+        slice_to_symbols(bits, 0)
 
 
 # -- features ----------------------------------------------------------------

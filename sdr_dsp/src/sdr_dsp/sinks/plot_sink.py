@@ -8,12 +8,14 @@ without matplotlib raises a clear error only when a plot function is called.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 from ..core.spectral import psd as _psd, spectrogram as _spectrogram
 
 
-def _plt():
+def _plt() -> Any:
     try:
         import matplotlib.pyplot as plt
         return plt
@@ -22,8 +24,14 @@ def _plt():
                           "(or `uv sync --extra plotting`)") from e
 
 
-def plot_spectrum(iq, sample_rate, center_freq=0.0, nfft=2048, title=None,
-                  show=True):
+def plot_spectrum(
+    iq: np.ndarray,
+    sample_rate: float,
+    center_freq: float = 0.0,
+    nfft: int = 2048,
+    title: str | None = None,
+    show: bool = True,
+) -> tuple[Any, Any]:
     """Plot the PSD of a signal. Returns (fig, ax)."""
     plt = _plt()
     freqs, p_db = _psd(iq, sample_rate, nfft=nfft, center_freq=center_freq)
@@ -40,8 +48,15 @@ def plot_spectrum(iq, sample_rate, center_freq=0.0, nfft=2048, title=None,
     return fig, ax
 
 
-def plot_spectrogram(iq, sample_rate, center_freq=0.0, nfft=1024, overlap=0.5,
-                     title=None, show=True):
+def plot_spectrogram(
+    iq: np.ndarray,
+    sample_rate: float,
+    center_freq: float = 0.0,
+    nfft: int = 1024,
+    overlap: float = 0.5,
+    title: str | None = None,
+    show: bool = True,
+) -> tuple[Any, Any]:
     """Plot a spectrogram waterfall. Returns (fig, ax)."""
     plt = _plt()
     freqs, times, sxx = _spectrogram(iq, sample_rate, nfft=nfft,

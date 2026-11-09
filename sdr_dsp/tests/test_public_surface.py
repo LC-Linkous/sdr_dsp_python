@@ -58,7 +58,7 @@ CORE_ONLY = {
     "estimate_phase_noise_variance", "decide_symbols", "error_vector",
     "evm_stats", "EVM_FEATURE_NAMES", "fingerprint_vector", "FEATURE_NAMES",
     # capture health / pilot gating
-    "capture_health", "fm_pilot_excess_db",
+    "capture_health", "fm_pilot_excess_db", "HEALTH_VERDICTS",
     # gain search engine and models
     "search_gain", "peak_counts", "search_gain_model", "GainStage",
     "GainModel", "hackrf_gain_model", "rtlsdr_gain_model",
@@ -80,8 +80,7 @@ def test_export_tiers_are_the_documented_split():
         f"unclassified core exports: {sorted(core_only - CORE_ONLY)}; "
         f"listed as core-only but flattened or gone: {sorted(CORE_ONLY - core_only)}")
     # and the top level never exports a core name that core itself does not
-    submods = {"core", "io", "sinks", "stream", "link", "Pipeline",
-               "IQSource", "ArraySource", "FileSource"}
+    submods = {"Pipeline", "IQSource", "ArraySource", "FileSource"}
     assert (top_names - submods) <= core_names
 
 
@@ -188,7 +187,7 @@ def _dtype_cases():
         "resample_poly": lambda x: S.resample_poly(x, 3, 2),
         "decimate": lambda x: S.decimate(x, 4),
         "interpolate": lambda x: S.interpolate(x, 2),
-        "frequency_shift": lambda x: S.frequency_shift(x, 1e3, fs),
+        "frequency_shift": lambda x: S.frequency_shift(x, fs, 1e3),
         "remove_dc": S.remove_dc,
         "normalize": S.normalize,
         "agc": lambda x: S.agc(x)[0],
@@ -234,3 +233,13 @@ def test_dtype_policy():
             if got != np.float64:
                 bad.append(f"{name}({dt.__name__}) -> {got}, want float64")
     assert not bad, "dtype policy violations:\n  " + "\n  ".join(bad)
+
+
+def test_star_import_does_not_shadow_stdlib_io():
+    import io as stdlib_io
+    ns = {}
+    exec("from sdr_dsp import *", ns)
+    assert "io" not in ns and "core" not in ns and "stream" not in ns
+    assert stdlib_io.BytesIO                      # untouched
+    import sdr_dsp
+    assert sdr_dsp.io is not None and sdr_dsp.stream.Pipeline is sdr_dsp.Pipeline

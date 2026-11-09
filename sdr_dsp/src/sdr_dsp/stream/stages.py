@@ -69,7 +69,7 @@ class StreamingFIR:
     causal FIR has at that point.
     """
 
-    def __init__(self, taps):
+    def __init__(self, taps: np.ndarray) -> None:
         self.taps = np.asarray(taps, dtype=np.float64)
         if self.taps.ndim != 1 or self.taps.size == 0:
             raise ValueError("taps must be a non-empty 1-D array")
@@ -79,7 +79,7 @@ class StreamingFIR:
         """Forget all carried history, e.g. after a retune or a stream restart."""
         self._tail = None
 
-    def __call__(self, block):
+    def __call__(self, block: np.ndarray) -> np.ndarray:
         block = np.asarray(block)
         m = len(self.taps) - 1
         if self._tail is None:
@@ -113,7 +113,7 @@ class StreamingDecimator:
     ``StreamingFIR`` (or use ``StreamingResampler``) in front of it.
     """
 
-    def __init__(self, factor):
+    def __init__(self, factor: int) -> None:
         self.factor = int(factor)
         if self.factor < 1:
             raise ValueError("factor must be >= 1")
@@ -123,7 +123,7 @@ class StreamingDecimator:
         """Forget all carried history, e.g. after a retune or a stream restart."""
         self._skip = 0
 
-    def __call__(self, block):
+    def __call__(self, block: np.ndarray) -> np.ndarray:
         block = np.asarray(block)
         if block.size <= self._skip:
             self._skip -= block.size
@@ -145,7 +145,7 @@ class StreamingMixer:
     ``frequency_shift`` on the whole record.
     """
 
-    def __init__(self, shift_hz, sample_rate):
+    def __init__(self, shift_hz: float, sample_rate: float) -> None:
         self.shift_hz = float(shift_hz)
         self.sample_rate = float(sample_rate)
         self._n0 = 0
@@ -154,7 +154,7 @@ class StreamingMixer:
         """Forget all carried history, e.g. after a retune or a stream restart."""
         self._n0 = 0
 
-    def __call__(self, block):
+    def __call__(self, block: np.ndarray) -> np.ndarray:
         block = np.asarray(block, dtype=np.complex64)
         n = block.size
         if n == 0:
@@ -183,7 +183,11 @@ class StreamingFMDemod:
     to roughly normalized audio, otherwise raw radians/sample.
     """
 
-    def __init__(self, deviation_hz=None, sample_rate=None):
+    def __init__(
+        self,
+        deviation_hz: float | None = None,
+        sample_rate: float | None = None,
+    ) -> None:
         self.deviation_hz = deviation_hz
         self.sample_rate = sample_rate
         self._prev: np.ndarray | None = None
@@ -192,7 +196,7 @@ class StreamingFMDemod:
         """Forget all carried history, e.g. after a retune or a stream restart."""
         self._prev = None
 
-    def __call__(self, block):
+    def __call__(self, block: np.ndarray) -> np.ndarray:
         block = np.asarray(block, dtype=np.complex64)
         if block.size == 0:
             return np.zeros(0, dtype=np.float64)
@@ -222,7 +226,13 @@ class StreamingResampler:
     ``up``/``down`` are the output/input rates (any common factor is removed).
     """
 
-    def __init__(self, up, down, half_len=10, window="hamming"):
+    def __init__(
+        self,
+        up: int,
+        down: int,
+        half_len: int = 10,
+        window: str = "hamming",
+    ) -> None:
         up, down = int(up), int(down)
         if up < 1 or down < 1:
             raise ValueError("up and down must be >= 1")
@@ -254,14 +264,14 @@ class StreamingResampler:
         self._buf = None
         self._started = False
 
-    def _emit(self, buf, k):
+    def _emit(self, buf: np.ndarray, k: int) -> np.ndarray:
         chunk = buf[:self.hist + k + self.ahead]
         drop = self.hist * self.up // self.down
         keep = (self.hist + k) * self.up // self.down
         return resample_poly(chunk, self.up, self.down,
                              half_len=self.half_len, window=self.window)[drop:keep]
 
-    def __call__(self, block):
+    def __call__(self, block: np.ndarray) -> np.ndarray:
         block = np.asarray(block)
         if self.up == 1 and self.down == 1:
             return block
@@ -281,7 +291,7 @@ class StreamingResampler:
         self._buf = buf[k:]
         return out
 
-    def flush(self):
+    def flush(self) -> np.ndarray:
         """Emit the output for samples still held back for look-ahead.
 
         Pads the future with zeros, exactly as ``resample_poly`` does at the
@@ -312,7 +322,7 @@ class StreamingDeemphasis:
     close to it, with no warm-up region to discard.
     """
 
-    def __init__(self, sample_rate, tau_us=75.0):
+    def __init__(self, sample_rate: float, tau_us: float = 75.0) -> None:
         from sdr_dsp.core.demod.analog import deemphasis_coefficients
         self.sample_rate = float(sample_rate)
         self.tau_us = float(tau_us)
@@ -323,7 +333,7 @@ class StreamingDeemphasis:
         """Forget all carried history, e.g. after a retune or a stream restart."""
         self._zi = np.zeros_like(self._zi)
 
-    def __call__(self, block):
+    def __call__(self, block: np.ndarray) -> np.ndarray:
         from scipy.signal import lfilter
         block = np.asarray(block, dtype=np.float64)
         if block.size == 0:
@@ -336,12 +346,18 @@ class StreamingDeemphasis:
 class StreamingPSD:
     """``psd`` over a live stream: one averaged spectrum per ``avg`` frames.
 
-    Feed blocks of any size; the stage buffers them and, each time
-    ``avg * nfft`` new samples have arrived, returns ``psd()`` of exactly those
-    samples (the dB array; the frequency axis is ``.freqs``). Otherwise it
-    returns None. The math is ``core.psd`` itself, not a copy, so a stream fed
-    through this stage emits the same numbers ``psd()`` gives on the same
-    samples -- to the bit, not to a tolerance.
+    Feed blocks of any size; the stage buffers them and computes ``psd()`` of
+    every complete run of ``avg * nfft`` samples (the math is ``core.psd``
+    itself, not a copy, so the numbers are the ones ``psd()`` gives on the
+    same samples -- to the bit). A call returns the NEWEST spectrum completed
+    by that block, or None if none completed; every spectrum the call
+    completed is in ``.last_batch`` (usually zero or one entry; several when a
+    block is larger than ``avg * nfft``). A display wants the return value; an
+    analysis that must see every spectrum reads ``last_batch``. The buffer
+    never holds more than ``avg * nfft - 1`` samples between calls. (A first
+    version computed at most one spectrum per call, so a stream delivering
+    64k-sample blocks to a 1024-point stage buffered ~63k samples per call
+    without bound.)
 
     nfft, window, scaling: as for ``psd``; scaling defaults to "dbfs" because
       a display is the usual consumer (see ``psd`` for the two scales).
@@ -350,18 +366,24 @@ class StreamingPSD:
       axis is in cycles/sample and only "dbfs" scaling is allowed ("density"
       needs the rate).
 
+    ``frames_emitted`` counts every spectrum ever computed.
     ``retune(center_freq)`` relabels ``.freqs`` and keeps the buffered
     samples, for a DISPLAY retune where the samples this stage sees have not
     changed (the mixer sits downstream of the spectrum tap, say) or where a
     one-frame blend across the seam is acceptable; pass ``drop_buffer=True``
     (or call ``reset()``) when the RF centre actually moved, so a spectrum
-    never straddles two centre frequencies. ``frames_emitted`` counts outputs.
-    Blocks are not dropped: a slow consumer sees every spectrum, later;
-    rate-limit upstream (skip calls) if that is not wanted.
+    never straddles two centre frequencies.
     """
 
-    def __init__(self, nfft=1024, avg=1, window="hann", scaling="dbfs",
-                 sample_rate=None, center_freq=0.0):
+    def __init__(
+        self,
+        nfft: int = 1024,
+        avg: int = 1,
+        window: str | np.ndarray | None = "hann",
+        scaling: str = "dbfs",
+        sample_rate: float | None = None,
+        center_freq: float = 0.0,
+    ) -> None:
         if int(avg) < 1:
             raise ValueError(f"avg must be >= 1, got {avg!r}")
         if sample_rate is None and scaling == "density":
@@ -374,6 +396,7 @@ class StreamingPSD:
         self.center_freq = float(center_freq)
         self._fs = 1.0 if self.sample_rate is None else self.sample_rate
         self.frames_emitted = 0
+        self.last_batch: list[np.ndarray] = []
         self._buf = np.zeros(0, dtype=np.complex64)
         # the axis never changes, so compute it once via psd on a dummy frame
         self.freqs, _ = psd(np.zeros(self.nfft, dtype=np.complex64), self._fs,
@@ -384,7 +407,7 @@ class StreamingPSD:
         """Drop buffered samples (e.g. after an RF retune). Keeps the axis/config."""
         self._buf = np.zeros(0, dtype=np.complex64)
 
-    def retune(self, center_freq, drop_buffer=False) -> None:
+    def retune(self, center_freq: float, drop_buffer: bool = False) -> None:
         """Move the frequency axis to a new centre; optionally drop the buffer.
 
         The axis is a pure relabel (same bins, same spacing), so the buffered
@@ -399,15 +422,19 @@ class StreamingPSD:
         if drop_buffer:
             self.reset()
 
-    def __call__(self, block):
+    def __call__(self, block: np.ndarray) -> np.ndarray | None:
         block = np.asarray(block, dtype=np.complex64)
         if block.size:
             self._buf = np.concatenate([self._buf, block])
         need = self.avg * self.nfft
-        if self._buf.size < need:
-            return None
-        chunk, self._buf = self._buf[:need], self._buf[need:]
-        _, spectrum_db = psd(chunk, self._fs, nfft=self.nfft, window=self.window,
-                             center_freq=self.center_freq, scaling=self.scaling)
-        self.frames_emitted += 1
-        return spectrum_db
+        batch: list[np.ndarray] = []
+        while self._buf.size >= need:
+            chunk, self._buf = self._buf[:need], self._buf[need:]
+            _, spectrum_db = psd(chunk, self._fs, nfft=self.nfft,
+                                 window=self.window,
+                                 center_freq=self.center_freq,
+                                 scaling=self.scaling)
+            batch.append(spectrum_db)
+        self.frames_emitted += len(batch)
+        self.last_batch = batch
+        return batch[-1] if batch else None

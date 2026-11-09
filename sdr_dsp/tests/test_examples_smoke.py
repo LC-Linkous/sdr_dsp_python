@@ -192,7 +192,7 @@ def _fm_capture(amp_counts, n=200_000, fs=2e6, noise=0.4, seed=0):
 
 def test_capture_health_accepts_a_real_capture():
     from sdr_dsp.core import capture_health
-    h = capture_health(_fm_capture(100), 2e6, channel_bw=100e3)
+    h = capture_health(_fm_capture(100), 2e6, channel_bw_hz=100e3)
     assert h["ok"], h["reasons"]
     assert 80 < h["adc_counts"] <= 127
     assert h["channel_excess_db"] > 10
@@ -205,7 +205,7 @@ def test_capture_health_rejects_a_noise_floor_capture():
     n = 200_000
     z = (rng.standard_normal(n) + 1j * rng.standard_normal(n)) * 1.2
     iq = ((np.round(z.real) + 1j * np.round(z.imag)) / 127.0).astype(np.complex64)
-    h = capture_health(iq, 2e6, channel_bw=100e3)
+    h = capture_health(iq, 2e6, channel_bw_hz=100e3)
     assert not h["ok"]
     assert h["adc_counts"] < 10
     assert len(h["reasons"]) >= 1
@@ -218,7 +218,7 @@ def test_capture_health_flags_a_signal_free_but_well_scaled_capture():
     n = 200_000
     z = (rng.standard_normal(n) + 1j * rng.standard_normal(n)) * 30.0
     iq = ((np.round(z.real) + 1j * np.round(z.imag)) / 127.0).astype(np.complex64)
-    h = capture_health(iq, 2e6, channel_bw=100e3)
+    h = capture_health(iq, 2e6, channel_bw_hz=100e3)
     assert h["adc_counts"] > 50, "this capture uses plenty of ADC range"
     assert not h["ok"], "but there is no carrier in it"
     assert any("carrier" in r for r in h["reasons"])
@@ -228,7 +228,7 @@ def test_capture_health_handles_empty_and_missing_channel_bw():
     from sdr_dsp.core import capture_health
     empty = capture_health(np.zeros(0, dtype=np.complex64), 2e6)
     assert not empty["ok"] and empty["adc_counts"] == 0.0
-    no_bw = capture_health(_fm_capture(100), 2e6, channel_bw=None)
+    no_bw = capture_health(_fm_capture(100), 2e6, channel_bw_hz=None)
     assert no_bw["channel_excess_db"] is None
 
 

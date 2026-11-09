@@ -56,7 +56,7 @@ def test_health_rejects_antialias_shaped_noise():
     With the old outer-edge reference this measured > +70 dB of "channel
     excess" and passed; the mid-band reference reads it flat.
     """
-    h = capture_health(_shaped_noise(int(FS * 0.5)), FS, channel_bw=100e3)
+    h = capture_health(_shaped_noise(int(FS * 0.5)), FS, channel_bw_hz=100e3)
     assert not h["ok"], h
     assert h["channel_excess_db"] is not None
     assert h["channel_excess_db"] < 3.0, (
@@ -65,7 +65,7 @@ def test_health_rejects_antialias_shaped_noise():
 
 
 def test_health_still_accepts_a_real_station():
-    h = capture_health(_fm_station(int(FS * 0.5)), FS, channel_bw=100e3)
+    h = capture_health(_fm_station(int(FS * 0.5)), FS, channel_bw_hz=100e3)
     assert h["ok"], h["reasons"]
     assert h["channel_excess_db"] > 10
 
@@ -189,3 +189,107 @@ def test_search_stays_on_the_hardware_grid():
 def test_peak_counts_is_per_component():
     x = np.array([0.5 + 0.5j] * 8, dtype=np.complex64)
     assert peak_counts(x) == pytest.approx(64.0)   # not 0.707 * 128
+
+
+# ---------------------------------------------------------------------------
+# capture_health verdicts: the thresholds live here, consumers key off `verdict`
+# ---------------------------------------------------------------------------
+
+def _wgn(n=200_000, seed=0):
+    rng = np.random.default_rng(seed)
+    return (rng.standard_normal(n) + 1j * rng.standard_normal(n)).astype(np.complex64)
+
+
+def _clipped(scale=0.8):
+    x = _wgn() * scale
+    return (np.clip(x.real, -1, 1) + 1j * np.clip(x.imag, -1, 1)).astype(np.complex64)
+
+
+def test_capture_health_verdict_for_each_failure():
+    from sdr_dsp.core import capture_health, HEALTH_VERDICTS
+    assert HEALTH_VERDICTS == ("clipping", "under_driven", "stuck_dc", "no_carrier", "ok")
+    cases = {
+        "clipping": capture_health(_clipped(), 2e6),
+        "under_driven": capture_health(_wgn() * 0.002, 2e6),
+        "stuck_dc": capture_health(_wgn() * 0.02 + 0.3, 2e6),
+        "no_carrier": capture_health(_wgn() * 0.1, 2e6, channel_bw_hz=50e3),
+        "ok": capture_health(_wgn() * 0.1, 2e6),
+    }
+    for want, h in cases.items():
+        assert h["verdict"] == want, f"{want}: got {h['verdict']} {h['reasons']}"
+        assert h["ok"] == (want == "ok")
+        assert bool(h["reasons"]) == (want != "ok")
+        for key in ("clip_fraction", "adc_counts", "peak_dbfs", "dc_offset", "dc_ratio"):
+            assert key in h
+
+
+def test_capture_health_verdict_is_the_worst_failure():
+    from sdr_dsp.core import capture_health
+    # clipping AND a huge DC: clipping is reported (it cannot be undone), and
+    # both reasons are listed
+    h = capture_health(_clipped() + 1.5, 2e6)
+    assert h["verdict"] == "clipping"
+    assert len(h["reasons"]) == 2
+
+
+def test_capture_health_metrics_and_thresholds():
+    from sdr_dsp.core import capture_health
+    x = _clipped()
+    h = capture_health(x, 2e6)
+    # clip_fraction counts samples at the converter's last code, either rail
+    rail = 127 / 128
+    expected = np.mean((x.real >= rail) | (x.real <= -1.0) | (x.imag >= rail) | (x.imag <= -1.0))
+    assert h["clip_fraction"] == pytest.approx(expected)
+    # the threshold is a parameter, so a consumer can be stricter or looser
+    assert capture_health(x, 2e6, max_clip_fraction=0.5)["verdict"] == "ok"
+    # a healthy direct-conversion capture carries a little DC and passes
+    h = capture_health(_wgn() * 0.1 + 0.01, 2e6)
+    assert h["verdict"] == "ok" and 0.05 < h["dc_ratio"] < 0.1
+    assert capture_health(_wgn() * 0.1 + 0.01, 2e6, max_dc_ratio=0.05)["verdict"] == "stuck_dc"
+    # a short capture with channel_bw_hz: spectral check "not computed", not failed
+    h = capture_health(_wgn(1000) * 0.1, 2e6, channel_bw_hz=50e3)
+    assert h["channel_excess_db"] is None and h["verdict"] == "ok"
+    # empty
+    h = capture_health(np.zeros(0, dtype=np.complex64), 2e6)
+    assert h["verdict"] == "under_driven" and not h["ok"]
+
+
+def test_shipped_capture_health_matches_the_hackrfpy_report():
+    # the independent clip / DC numbers hackrfpy wrote at capture time are in
+    # the sidecar's .report.json; our measurement of the same bytes must agree
+    import json
+    from pathlib import Path
+    from sdr_dsp.core import capture_health
+    from sdr_dsp.io import load_iq
+    base = Path(__file__).resolve().parent.parent / "sample_data" / "hackrf_one"
+    payload = base / "fm_98.1MHz_8Msps.iq"
+    if not payload.exists():
+        pytest.skip("raw capture not downloaded (tools/fetch_sample_data.py)")
+    report = json.loads((base / "fm_98.1MHz_8Msps.report.json").read_text())["iq"]
+    iq, _ = load_iq(payload, count=4_000_000)
+    h = capture_health(iq, 8e6, channel_bw_hz=100e3)
+    assert h["verdict"] == "ok"
+    assert h["clip_fraction"] == pytest.approx(report["clip_fraction"], abs=1e-4)
+    assert h["dc_offset"] == pytest.approx(report["dc_offset"], abs=5e-4)
+
+
+def test_capture_health_clip_sees_both_int8_rails():
+    # Two's complement is asymmetric: the rails are -128 (-> -1.0) and +127
+    # (-> 0.9921875). Both must count as clipped, +126 must not. A first
+    # version only caught the negative rail.
+    from sdr_dsp.core import capture_health
+
+    def as_iq(code, n=1000):
+        return (np.full(n, code, dtype=np.int8).astype(np.float32) / 128 + 0j).astype(np.complex64)
+
+    assert capture_health(as_iq(127), 2e6)["verdict"] == "clipping"
+    assert capture_health(as_iq(-128), 2e6)["verdict"] == "clipping"
+    assert capture_health(as_iq(126), 2e6)["clip_fraction"] == 0.0
+    assert capture_health(as_iq(-127), 2e6)["clip_fraction"] == 0.0     # one code short
+    # every code once: exactly the two rail codes are clipped
+    codes = np.arange(-128, 128, dtype=np.int8)
+    iq = (codes.astype(np.float32) / 128 + 1j * 0).astype(np.complex64)
+    assert capture_health(iq, 2e6)["clip_fraction"] == pytest.approx(2 / 256)
+    # and on the Q rail too
+    iq = (0 + 1j * codes.astype(np.float32) / 128).astype(np.complex64)
+    assert capture_health(iq, 2e6)["clip_fraction"] == pytest.approx(2 / 256)

@@ -106,7 +106,7 @@ def test_shipped_sample_is_a_validated_fm_capture():
     a silent noise capture once already. It must pass the same checks the
     collection tools enforce, forever."""
     iq, _meta = load_iq(str(SAMPLE))
-    h = capture_health(iq, 2e6, channel_bw=100e3)
+    h = capture_health(iq, 2e6, channel_bw_hz=100e3)
     assert h["ok"], h["reasons"]
     p = fm_pilot_excess_db(iq, 2e6)
     assert p is not None and p > 6, (

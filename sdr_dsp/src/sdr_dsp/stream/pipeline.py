@@ -21,9 +21,12 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Callable, Iterator
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Self
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from ..sources.base import IQSource
 
 
 @dataclass
@@ -41,7 +44,7 @@ class PipelineStats:
     samples_in: int = 0
     per_stage_seconds: dict = field(default_factory=dict)
 
-    def __str__(self):
+    def __str__(self) -> str:
         lines = [f"{self.blocks} blocks, {self.samples_in:,} input samples"]
         for name, secs in self.per_stage_seconds.items():
             lines.append(f"  {name:20s} {secs*1e3:8.2f} ms total")
@@ -70,28 +73,32 @@ class Pipeline:
     slicer) or for taps.
     """
 
-    def __init__(self, source):
+    def __init__(self, source: IQSource) -> None:
         self.source = source
         self.stages: list[Stage] = []
 
     # -- building -----------------------------------------------------------
-    def add(self, fn, name=None):
+    def add(self, fn: Callable[[np.ndarray], np.ndarray], name: str | None = None) -> Self:
         """Append a transforming stage (block -> block)."""
-        self.stages.append(Stage(name or getattr(fn, "__name__", "stage"), fn))
+        # mypy keeps `None` in the type of `name or <Any>`; the fallback
+        # default guarantees a str at runtime.
+        self.stages.append(
+            Stage(name or getattr(fn, "__name__", "stage"), fn))  # type: ignore[arg-type]
         return self
 
-    def tap(self, fn, name=None):
+    def tap(self, fn: Callable[[np.ndarray], Any], name: str | None = None) -> Self:
         """Append an observing stage (block -> ignored). Flow is unchanged.
 
         A tap is how live display attaches: fn receives the current block and
         does whatever it likes (update a plot, accumulate a message) without
         affecting what the next stage sees.
         """
-        self.stages.append(Stage(name or getattr(fn, "__name__", "tap"),
+        # see add(): the `or` with an Any right-hand side confuses mypy
+        self.stages.append(Stage(name or getattr(fn, "__name__", "tap"),  # type: ignore[arg-type]
                                  fn, is_tap=True))
         return self
 
-    def describe(self):
+    def describe(self) -> str:
         """Return the chain as inspectable text (the pipeline is data)."""
         rows = [f"source: {self.source!r}"]
         for i, st in enumerate(self.stages):
@@ -100,7 +107,7 @@ class Pipeline:
         return "\n".join(rows)
 
     # -- running ------------------------------------------------------------
-    def process_block(self, block):
+    def process_block(self, block: np.ndarray) -> np.ndarray:
         """Thread a single block through every stage. Useful for testing and
         for driving the pipeline from an external loop (e.g. a GUI timer)."""
         x = block
@@ -111,7 +118,7 @@ class Pipeline:
                 x = st.fn(x)
         return x
 
-    def flush(self) -> list:
+    def flush(self) -> list[np.ndarray]:
         """Drain the look-ahead held inside stages once the stream has ended.
 
         Stages with internal look-ahead (``StreamingResampler``) hold back the
@@ -127,7 +134,7 @@ class Pipeline:
         call it yourself only if you drive ``process_block`` by hand.
         Flushing twice is harmless: a drained stage returns nothing.
         """
-        tails: list = []
+        tails: list[np.ndarray] = []
         for i, st in enumerate(self.stages):
             fl = getattr(st.fn, "flush", None)
             if st.is_tap or fl is None:
@@ -144,7 +151,12 @@ class Pipeline:
                 tails.append(x)
         return tails
 
-    def run(self, sink=None, profile=False, max_blocks=None):
+    def run(
+        self,
+        sink: Callable[[np.ndarray], Any] | None = None,
+        profile: bool = False,
+        max_blocks: int | None = None,
+    ) -> list[np.ndarray] | None | tuple[list[np.ndarray] | None, PipelineStats]:
         """Pull blocks from the source, process each, deliver to sink.
 
         sink:       callable(result_block) -> None. If None, results are
@@ -160,7 +172,7 @@ class Pipeline:
         Returns the result list (or None if a sink was given); if profile,
         returns (results_or_None, PipelineStats).
         """
-        results: list = []
+        results: list[np.ndarray] = []
         stats = PipelineStats()
         for st in self.stages:
             stats.per_stage_seconds.setdefault(st.name, 0.0)
@@ -199,7 +211,7 @@ class Pipeline:
             return out, stats
         return out
 
-    def stream(self, max_blocks=None) -> Iterator[np.ndarray]:
+    def stream(self, max_blocks: int | None = None) -> Iterator[np.ndarray]:
         """Run as a generator, yielding each processed block lazily.
 
         This is the bridge to the generator-chain style: a Pipeline can be
@@ -214,5 +226,5 @@ class Pipeline:
             yield self.process_block(block)
         yield from self.flush()
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"Pipeline({len(self.stages)} stages, source={self.source!r})"

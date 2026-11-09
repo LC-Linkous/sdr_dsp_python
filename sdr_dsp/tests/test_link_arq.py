@@ -324,3 +324,96 @@ def test_cumulative_and_selective_both_deliver_clean():
             A.send(m)
         _, received, _ = run_sim(A, B, max_ticks=500)
         assert received == msgs
+
+
+# -- failure is final --------------------------------------------------------
+#
+# Before this block existed, retry exhaustion slid the sender's window on. The
+# receiver kept waiting for the failed seq, buffered everything after it, and
+# the sender -- collecting ACKs for frames the far end could never deliver --
+# reported them "done". Stop-and-wait: later messages reported done, never
+# delivered. Windowed: nothing delivered at all. A link that has lost its
+# in-order guarantee must say so and stop.
+
+class _DropFirstN:
+    """Drop the first n copies of DATA seq 0 (and nothing else)."""
+
+    def __init__(self, n):
+        self.remaining = n
+
+    def __call__(self, payload):
+        ftype, seq, _ = unpack_payload(payload)
+        if ftype != TYPE_ACK and seq == 0 and self.remaining > 0:
+            self.remaining -= 1
+            return False, None
+        return True, payload
+
+
+@pytest.mark.parametrize("window", [1, 4])
+def test_retry_exhaustion_fails_everything_and_delivers_nothing_false(window):
+    A = ARQ(window_size=window, timeout_ticks=2, max_retries=2)
+    B = ARQ(window_size=window, timeout_ticks=2, max_retries=2)
+    msgs = [b"m0", b"m1", b"m2", b"m3", b"m4", b"m5"]
+    for m in msgs:
+        A.send(m)
+    log = EventLog()
+    _, to_b, log = run_sim(A, B, transport=_DropFirstN(3), log=log, max_ticks=60)
+    app = [eval(r["note"]) for r in log.records if r["dir"] == "app" and r["station"] == "A"]
+    done = [i[1] for i in app if i[0] == "done"]
+    failed = [i[1] for i in app if i[0] == "failed"]
+    # nothing A reports as done may be undelivered at B
+    assert len(done) == len(to_b), f"A says done {done}, B delivered {to_b}"
+    # seq 0 failed, and so did everything A still held
+    assert failed[0] == 0
+    assert len(done) + len(failed) == len(msgs)
+    assert A.failed and A.failed_seq == 0
+    assert A.idle
+    with pytest.raises(RuntimeError, match="reset"):
+        A.send(b"late")
+    # after reset on both ends the link works again from seq 0
+    A.reset()
+    B.reset()
+    A.send(b"fresh")
+    _, to_b2, _ = run_sim(A, B, max_ticks=20)
+    assert to_b2 == [b"fresh"] and not A.failed
+
+
+def test_failed_sender_still_acks_the_peer():
+    # the failure latch is about OUR sends; the receive half keeps working so
+    # the peer's traffic is not silently black-holed
+    A = ARQ(window_size=1, timeout_ticks=1, max_retries=0)
+    B = ARQ(window_size=1)
+    A.send(b"doomed")
+    A.poll()
+    A.on_event(("tick",))                            # exhausts immediately
+    assert A.failed and [i[0] for i in A.poll()] == ["failed"]
+    B.send(b"from B")
+    _, _, log = run_sim(A, B, max_ticks=10)
+    a_delivered = [eval(r["note"])[1] for r in log.records
+                   if r["dir"] == "app" and r["station"] == "A"
+                   and eval(r["note"])[0] == "deliver"]
+    assert a_delivered == [b"from B"]
+
+
+def test_run_sim_logs_ticks_and_collects_final_dones():
+    # ticks are inputs; without them in the log, replay of the SENDER side
+    # cannot reproduce its retransmissions. And the "done"s created by the
+    # last ACK of a run must be polled before the idle check ends the run.
+    A = ARQ(window_size=2, timeout_ticks=2, max_retries=5)
+    B = ARQ(window_size=2, timeout_ticks=2, max_retries=5)
+    for m in (b"x", b"y", b"z"):
+        A.send(m)
+    _, to_b, log = run_sim(A, B, transport=_Lossy(3), max_ticks=60)
+    assert to_b == [b"x", b"y", b"z"]
+    assert any(r["dir"] == "tick" for r in log.records)
+    dones = [eval(r["note"])[1] for r in log.records
+             if r["dir"] == "app" and r["station"] == "A" and eval(r["note"])[0] == "done"]
+    assert len(dones) == 3                           # one per message, none lost to the idle check
+    # replay of A now reproduces A's transmissions, retransmits included
+    orig_tx = [r for r in log.records if r["dir"] == "tx" and r["station"] == "A"]
+    A2 = ARQ(window_size=2, timeout_ticks=2, max_retries=5)
+    for m in (b"x", b"y", b"z"):
+        A2.send(m)
+    A2.poll()                                        # the initial sends happen before the log
+    produced = replay(log, A2, "A")
+    assert sum(1 for i in produced if i[0] == "tx") == len(orig_tx) - 2

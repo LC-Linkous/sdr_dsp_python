@@ -11,14 +11,16 @@ and benchmarked against it in an example.
 from __future__ import annotations
 
 from math import gcd
+from typing import Any
 
 import numpy as np
 from scipy import signal as _sig
 
 from .filters import fir_apply
+from ._validate import positive_int
 
 
-def _antialias_taps(up, down, half_len=10, window="hamming"):
+def _antialias_taps(up: int, down: int, half_len: int = 10, window: str = "hamming") -> np.ndarray:
     """Design the anti-alias / interpolation FIR for a rational resample.
 
     The filter runs at the UP-sampled rate and must cut at the lower of the two
@@ -31,7 +33,7 @@ def _antialias_taps(up, down, half_len=10, window="hamming"):
     return taps * up                           # compensate insert-zeros gain
 
 
-def _resample_poly_direct(iq, up, down, taps):
+def _resample_poly_direct(iq: Any, up: int, down: int, taps: np.ndarray) -> np.ndarray:
     """The textbook form: zero-stuff, lowpass at the high rate, decimate.
 
     Kept as the readable statement of what a rational resample IS, and as the
@@ -51,7 +53,9 @@ def _resample_poly_direct(iq, up, down, taps):
     return out.astype(dtype)
 
 
-def resample_poly(iq, up, down, half_len=10, window="hamming"):
+def resample_poly(
+    iq: Any, up: int, down: int, half_len: int = 10, window: str = "hamming"
+) -> np.ndarray:
     """Rational resample by up/down. OUR implementation (polyphase).
 
     A rational resample is: insert (up-1) zeros between samples, lowpass at the
@@ -131,11 +135,13 @@ def resample_poly(iq, up, down, half_len=10, window="hamming"):
     return out
 
 
-def decimate(iq, factor, half_len=10):
+def decimate(iq: Any, factor: int, half_len: int = 10) -> np.ndarray:
     """Lowpass then keep every ``factor``-th sample. OUR code (via resample)."""
+    factor = positive_int("factor", factor)
     return resample_poly(iq, 1, factor, half_len=half_len)
 
 
-def interpolate(iq, factor, half_len=10):
+def interpolate(iq: Any, factor: int, half_len: int = 10) -> np.ndarray:
     """Upsample by ``factor`` with interpolation filtering. OUR code."""
+    factor = positive_int("factor", factor)
     return resample_poly(iq, factor, 1, half_len=half_len)

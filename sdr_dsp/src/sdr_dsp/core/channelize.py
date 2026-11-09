@@ -21,6 +21,8 @@ efficient algorithm that only applies to a uniform channel grid.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 from .mixing import tune_to_baseband
@@ -28,8 +30,14 @@ from .filters import design_lowpass, fir_apply
 from .resample import decimate
 
 
-def channelize(iq, sample_rate, offset_hz, channel_bw, decim=None):
-    """Extract the single channel at offset_hz with bandwidth channel_bw. OUR code.
+def channelize(
+    iq: Any,
+    sample_rate: float,
+    offset_hz: float,
+    channel_bw_hz: float,
+    decim: int | None = None,
+) -> tuple[np.ndarray, float]:
+    """Extract the single channel at offset_hz with bandwidth channel_bw_hz. OUR code.
 
     tune -> lowpass -> decimate. Returns (channel_iq, new_sample_rate). decim
     defaults to the largest integer that keeps the channel comfortably inside
@@ -38,26 +46,32 @@ def channelize(iq, sample_rate, offset_hz, channel_bw, decim=None):
     Use this when you want one specific channel at an arbitrary offset/width.
     For splitting the whole band into a uniform grid, use channelize_bank.
     """
-    base = tune_to_baseband(iq, offset_hz, sample_rate)
-    taps = design_lowpass(channel_bw / 2, sample_rate, num_taps=201)
+    base = tune_to_baseband(iq, sample_rate, offset_hz)
+    taps = design_lowpass(channel_bw_hz / 2, sample_rate, num_taps=201)
     filt = fir_apply(base, taps)
     if decim is None:
-        decim = max(1, int(sample_rate / (channel_bw * 2.5)))
+        decim = max(1, int(sample_rate / (channel_bw_hz * 2.5)))
     out = decimate(filt, decim)
     return out, sample_rate / decim
 
 
-def channelize_bank(iq, sample_rate, n_channels, decim=None, taps_per_channel=12,
-                    return_freqs=True):
+def channelize_bank(
+    iq: Any,
+    sample_rate: float,
+    n_channels: int,
+    decim: int | None = None,
+    taps_per_channel: int = 12,
+) -> tuple[np.ndarray, float, np.ndarray]:
     """Split the band into n_channels equal channels via a polyphase filterbank.
 
     Produces N evenly-spaced channels each sample_rate/N wide, in one efficient
-    pass. Returns (channels, new_sample_rate[, center_freqs]):
+    pass. Always returns the 3-tuple (channels, new_sample_rate, center_freqs)
+    -- a flag that changed the return arity was removed in 0.3.0:
         channels:     complex64 array of shape (n_channels, n_out_samples).
                       Row k is the channel centered at center_freqs[k].
         new_rate:     the per-channel output sample rate.
-        center_freqs: (if return_freqs) the center frequency of each channel, in
-                      Hz relative to the capture center, ordered low->high.
+        center_freqs: the center frequency of each channel, in Hz relative to
+                      the capture center, ordered low->high.
 
     decim sets the sampling scheme (D = decim, must divide N):
         decim = n_channels (default)  -> critically sampled: each channel output
@@ -106,8 +120,7 @@ def channelize_bank(iq, sample_rate, n_channels, decim=None, taps_per_channel=12
     if n_frames <= 0:
         empty = np.zeros((N, 0), dtype=np.complex64)
         cf = _center_freqs(sample_rate, N)
-        return (empty, sample_rate / D, cf) if return_freqs else \
-            (empty, sample_rate / D)
+        return empty, sample_rate / D, cf
 
     # --- polyphase decomposition -------------------------------------------
     # Branch n holds prototype taps h[n], h[n+N], h[n+2N], ... (L of them) and
@@ -137,12 +150,10 @@ def channelize_bank(iq, sample_rate, n_channels, decim=None, taps_per_channel=12
 
     # reorder channels so they run low frequency -> high (fftshift the channel axis)
     channels = np.fft.fftshift(channels, axes=0)
-    if return_freqs:
-        return channels, new_rate, _center_freqs(sample_rate, N)
-    return channels, new_rate
+    return channels, new_rate, _center_freqs(sample_rate, N)
 
 
-def _center_freqs(sample_rate, N):
+def _center_freqs(sample_rate: float, N: int) -> np.ndarray:
     """Channel center frequencies (Hz from capture center), low -> high."""
     # channels tile [-rate/2, rate/2) in N steps, fftshifted to ascending order
     k = np.arange(N)

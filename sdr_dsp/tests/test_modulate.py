@@ -29,14 +29,14 @@ def _corr(a, b, trim=200):
 def test_fm_roundtrip():
     fs = 1e6
     msg = np.cos(2 * np.pi * 2000 * np.arange(20000) / fs)
-    rec = fm_demod(fm_modulate(msg, 75e3, fs), 75e3, fs)
+    rec = fm_demod(fm_modulate(msg, fs, 75e3), fs, 75e3)
     assert _corr(msg, rec) > 0.99
 
 
 def test_fm_constant_envelope():
     fs = 1e6
     msg = np.cos(2 * np.pi * 2000 * np.arange(5000) / fs)
-    iq = fm_modulate(msg, 75e3, fs)
+    iq = fm_modulate(msg, fs, 75e3)
     assert np.allclose(np.abs(iq), 1.0, atol=1e-5)   # FM is constant-envelope
 
 
@@ -134,9 +134,11 @@ def test_qpsk_roundtrip(bits):
     assert np.mean(rec[:len(bits)] != bits) == 0
 
 
-def test_qpsk_drops_odd_trailing_bit():
-    iq = qpsk_modulate(np.array([1, 0, 1]), 1)   # 3 bits -> 1 symbol
-    assert len(iq) == 1
+def test_qpsk_refuses_an_odd_bit_count():
+    # it used to drop the trailing bit silently -- data the caller thought it sent
+    with pytest.raises(ValueError, match="even number of bits"):
+        qpsk_modulate(np.array([1, 0, 1]), 1)
+    assert len(qpsk_modulate(np.array([1, 0, 1, 1]), 1)) == 2
 
 
 # -- pulse shaping ----------------------------------------------------------
@@ -177,6 +179,6 @@ def test_pulse_shaped_is_bandlimited(bits):
 
 
 def test_empty_inputs():
-    assert len(fm_modulate(np.zeros(0), 1e3, 1e6)) == 0
+    assert len(fm_modulate(np.zeros(0), 1e6, 1e3)) == 0
     assert len(ook_modulate(np.zeros(0, dtype=int), 10)) == 0
     assert len(ssb_modulate(np.zeros(0))) == 0

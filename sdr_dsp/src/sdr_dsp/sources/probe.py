@@ -33,6 +33,8 @@ import logging
 import os
 import sys
 import tempfile
+from collections.abc import Callable, Iterator
+from typing import Any, TextIO
 
 import numpy as np
 
@@ -46,11 +48,11 @@ _seen_warnings: set = set()
 
 
 class _DedupWarnings(io.TextIOBase):
-    def __init__(self, real):
+    def __init__(self, real: TextIO) -> None:
         self._real = real
         self._buf = ""
 
-    def write(self, text):
+    def write(self, text: str) -> int:
         self._buf += text
         while "\n" in self._buf:
             line, self._buf = self._buf.split("\n", 1)
@@ -61,7 +63,7 @@ class _DedupWarnings(io.TextIOBase):
             self._real.write(line + "\n")
         return len(text)
 
-    def flush(self):
+    def flush(self) -> None:
         if self._buf:
             self._real.write(self._buf)
             self._buf = ""
@@ -97,7 +99,7 @@ _hackrfpy_warn_dedup = _WarnDedupFilter()
 
 
 @contextlib.contextmanager
-def dedup_warnings():
+def dedup_warnings() -> Iterator[None]:
     """Suppress repeated "[!] ..." warning lines on stdout/stderr.
 
     Warnings reach the console two different ways, so this collapses both:
@@ -128,7 +130,7 @@ def dedup_warnings():
             _HACKRFPY_LOG.removeFilter(_hackrfpy_warn_dedup)
 
 
-def load_ci8(path, max_samples=None):
+def load_ci8(path: str | os.PathLike[str], max_samples: int | None = None) -> np.ndarray:
     """Load an interleaved ci8 IQ file as complex64 normalized by 128."""
     count = -1 if max_samples is None else 2 * int(max_samples)
     raw = np.fromfile(path, dtype=np.int8, count=count)
@@ -137,8 +139,17 @@ def load_ci8(path, max_samples=None):
              + 1j * raw[1:n:2].astype(np.float32)) / 128.0)
 
 
-def probe_capture(h, freq, sample_rate, num_samples, *, lna=16, vga=20,
-                  amp=False, tmp_dir=None):
+def probe_capture(
+    h: Any,
+    freq: float,
+    sample_rate: float,
+    num_samples: int,
+    *,
+    lna: int = 16,
+    vga: int = 20,
+    amp: bool = False,
+    tmp_dir: str | os.PathLike[str] | None = None,
+) -> np.ndarray:
     """Capture num_samples of IQ via the FILE path and return complex64.
 
     Drop-in replacement for ``h.capture_array(...)`` wherever the samples
@@ -161,10 +172,17 @@ def probe_capture(h, freq, sample_rate, num_samples, *, lna=16, vga=20,
             pass
 
 
-def make_prober(h, sample_rate, num_samples, freq, *, tmp_dir=None):
+def make_prober(
+    h: Any,
+    sample_rate: float,
+    num_samples: int,
+    freq: float,
+    *,
+    tmp_dir: str | os.PathLike[str] | None = None,
+) -> Callable[[int, int, bool], np.ndarray]:
     """A ``probe(lna, vga, amp)`` callable for ``search_gain``, bound to one
     frequency, capturing via the file path."""
-    def probe(lna, vga, amp):
+    def probe(lna: int, vga: int, amp: bool) -> np.ndarray:
         return probe_capture(h, freq, sample_rate, num_samples,
                              lna=lna, vga=vga, amp=amp, tmp_dir=tmp_dir)
     return probe

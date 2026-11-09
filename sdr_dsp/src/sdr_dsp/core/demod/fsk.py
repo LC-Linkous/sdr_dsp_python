@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 from .phase import instantaneous_frequency
+from .._validate import positive_int
 
 
-def fsk_demod(iq, sample_rate, threshold_hz=0.0, smooth_samples=0):
+def fsk_demod(
+    iq: Any,
+    sample_rate: float,
+    threshold_hz: float | str | None = 0.0,
+    smooth_samples: int = 0,
+) -> np.ndarray:
     """Demodulate 2-level frequency-shift keying. OUR code.
 
     FSK encodes bits as two frequencies (a "mark" and a "space"). Demod is the
@@ -19,7 +27,9 @@ def fsk_demod(iq, sample_rate, threshold_hz=0.0, smooth_samples=0):
     threshold_hz: the mark/space decision frequency. Two real radios never
         share an oscillator, so a carrier frequency offset (crystal ppm --
         easily +/-10-20 kHz at 433 MHz between two SDRs) shifts BOTH tones and
-        biases the fixed 0 Hz split. Pass "auto" to threshold at the
+        biases the fixed 0 Hz split. Pass None (the library's spelling of
+        "decide it from the data", as in ook_slice / find_bursts; the string
+        "auto" is accepted as a synonym) to threshold at the
         amplitude^2-weighted mean of the instantaneous frequency instead: with
         roughly balanced mark/space time (any frame with an alternating
         preamble qualifies) that mean IS the offset, so the split self-centers.
@@ -38,13 +48,15 @@ def fsk_demod(iq, sample_rate, threshold_hz=0.0, smooth_samples=0):
     GFSK/MSK well enough for typical ISM-band sensors and pagers.
     """
     inst = instantaneous_frequency(iq, sample_rate=sample_rate)
-    k = int(smooth_samples)
+    # clamp: np.convolve(mode="same") returns max(M, N) samples, so a window
+    # longer than the signal would LENGTHEN the output
+    k = min(int(smooth_samples), inst.size)
     if k > 1:
         inst = np.convolve(inst, np.ones(k) / k, mode="same")
-    if isinstance(threshold_hz, str):
-        if threshold_hz != "auto":
+    if threshold_hz is None or isinstance(threshold_hz, str):
+        if threshold_hz not in (None, "auto"):
             raise ValueError(
-                f"threshold_hz must be a number or 'auto', got {threshold_hz!r}")
+                f"threshold_hz must be a number, None (auto) or 'auto', got {threshold_hz!r}")
         w = (np.abs(np.asarray(iq)) ** 2)[: len(inst)]
         total = float(w.sum())
         thr = float(np.average(inst, weights=w)) if total > 0 else 0.0
@@ -55,8 +67,13 @@ def fsk_demod(iq, sample_rate, threshold_hz=0.0, smooth_samples=0):
 
 
 
-def fsk_demod_nlevel(iq, sample_rate, n_levels=4, thresholds=None,
-                     smooth_samples=0):
+def fsk_demod_nlevel(
+    iq: Any,
+    sample_rate: float,
+    n_levels: int = 4,
+    thresholds: Any | None = None,
+    smooth_samples: int = 0,
+) -> np.ndarray:
     """Demodulate N-level FSK (4-FSK, etc.) and CPFSK. OUR code.
 
     Generalizes 2-FSK: instead of a single 0-threshold on instantaneous
@@ -65,7 +82,8 @@ def fsk_demod_nlevel(iq, sample_rate, n_levels=4, thresholds=None,
     phase is a transmit-side property; the receiver still reads instantaneous
     frequency.
 
-    thresholds: explicit frequency band centers (Hz). If None, the levels are
+    thresholds: explicit frequency band centers (Hz); when given they define
+        the level count and n_levels is ignored. If None, n_levels centers are
         spread uniformly across the observed frequency range -- fine for a
         clean capture; pass measured centers for real signals.
     smooth_samples: if > 1, moving-average the instantaneous frequency over
@@ -83,13 +101,20 @@ def fsk_demod_nlevel(iq, sample_rate, n_levels=4, thresholds=None,
     inst = instantaneous_frequency(iq, sample_rate=sample_rate)
     if len(inst) == 0:
         return np.zeros(0, dtype=np.uint8)
-    k = int(smooth_samples)
+    # clamp: np.convolve(mode="same") returns max(M, N) samples, so a window
+    # longer than the signal would LENGTHEN the output
+    k = min(int(smooth_samples), inst.size)
     if k > 1:
         inst = np.convolve(inst, np.ones(k) / k, mode="same")
     if thresholds is None:
+        n_levels = positive_int("n_levels", n_levels, minimum=2)
         lo, hi = float(np.percentile(inst, 2)), float(np.percentile(inst, 98))
         centers = np.linspace(lo, hi, n_levels)
     else:
-        centers = np.asarray(thresholds, dtype=np.float64)
+        # explicit centers DEFINE the level count; n_levels is not consulted
+        centers = np.atleast_1d(np.asarray(thresholds, dtype=np.float64))
+        if centers.ndim != 1 or len(centers) < 2:
+            raise ValueError("thresholds must be a 1-D sequence of >= 2 frequencies, "
+                             f"got {thresholds!r}")
     idx = np.argmin(np.abs(inst[:, None] - centers[None, :]), axis=1)
     return idx.astype(np.uint8)

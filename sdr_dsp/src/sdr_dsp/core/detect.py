@@ -8,10 +8,12 @@ pulse detection.
 
 from __future__ import annotations
 
+from typing import Any, Literal
+
 import numpy as np
 
 
-def matched_filter(signal, template):
+def matched_filter(signal: Any, template: Any) -> np.ndarray:
     """Correlate a known template against a signal. OUR code.
 
     Returns the correlation magnitude; its peak marks where the template best
@@ -31,7 +33,9 @@ def matched_filter(signal, template):
     return np.abs(corr).astype(np.float64)       # a measurement: library real dtype
 
 
-def detect_peak(signal, template, threshold=None):
+def detect_peak(
+    signal: Any, template: Any, threshold: float | None = None
+) -> tuple[int | None, float]:
     """Run a matched filter and return the best-match index (and its value).
 
     threshold: if given, returns (index, value) only when the peak exceeds it,
@@ -45,7 +49,9 @@ def detect_peak(signal, template, threshold=None):
     return idx, val
 
 
-def correlate(a, b, mode="full"):
+def correlate(
+    a: Any, b: Any, mode: Literal["full", "same", "valid"] = "full"
+) -> np.ndarray:
     """Cross-correlation of two signals, conjugation handled correctly. OUR code.
 
     np.correlate already conjugates its second argument for complex input -- a
@@ -60,7 +66,9 @@ def correlate(a, b, mode="full"):
     return np.correlate(a, b, mode=mode)
 
 
-def convolve(a, b, mode="full"):
+def convolve(
+    a: Any, b: Any, mode: Literal["full", "same", "valid"] = "full"
+) -> np.ndarray:
     """Convolution of two signals. OUR code (thin, for a uniform API).
 
     Unlike correlate, convolution does NOT conjugate -- it's the filtering

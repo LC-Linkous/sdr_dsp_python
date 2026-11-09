@@ -81,7 +81,7 @@ class FMStream:
     """
 
     def __init__(self, sample_rate=SAMPLE_RATE, decimation=DECIMATION,
-                 channel_bw=CHANNEL_BW, audio_rate=AUDIO_RATE,
+                 channel_bw_hz=CHANNEL_BW, audio_rate=AUDIO_RATE,
                  deemph_us=DEEMPHASIS_US):
         self.fs = float(sample_rate)
         self.dec = int(decimation)
@@ -89,7 +89,7 @@ class FMStream:
         self.audio_rate = int(audio_rate)
         self.deemph_us = deemph_us
 
-        self.taps = design_lowpass(channel_bw, self.fs, num_taps=CHANNEL_TAPS)
+        self.taps = design_lowpass(channel_bw_hz, self.fs, num_taps=CHANNEL_TAPS)
         g = gcd(self.audio_rate, int(self.inter_fs))
         self.up = self.audio_rate // g
         self.down = int(self.inter_fs) // g
@@ -257,7 +257,7 @@ def main():
     # someone listen to hiss and wonder whether the DSP is broken.
     probe = probe_capture(h, args.freq, SAMPLE_RATE, int(SAMPLE_RATE * 0.1),
                           lna=lna, vga=vga, amp=amp)
-    health = capture_health(probe, SAMPLE_RATE, channel_bw=CHANNEL_BW)
+    health = capture_health(probe, SAMPLE_RATE, channel_bw_hz=CHANNEL_BW)
     pilot_db = fm_pilot_excess_db(probe, SAMPLE_RATE)
     if pilot_db is not None and pilot_db < 6.0:
         health["ok"] = False

@@ -6,14 +6,19 @@ FFT (for SSB sideband selection).
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 from scipy import signal as _sig
 
 from .phase import instantaneous_frequency
+from .._validate import positive
 
 
-def fm_demod(iq, deviation_hz=None, sample_rate=None):
+def fm_demod(
+    iq: Any, sample_rate: float | None = None, deviation_hz: float | None = None
+) -> np.ndarray:
     """Demodulate frequency modulation via the phase discriminator. OUR code.
 
     FM carries the message in instantaneous frequency, so demod IS the
@@ -35,14 +40,16 @@ def fm_demod(iq, deviation_hz=None, sample_rate=None):
     if len(np.asarray(iq)) < 2:
         return np.zeros(0, dtype=np.float64)
     if deviation_hz is not None:
-        if deviation_hz <= 0 or sample_rate <= 0:
+        # the XOR check above guarantees sample_rate is not None here, which
+        # mypy cannot see across the two conditions
+        if deviation_hz <= 0 or sample_rate <= 0:  # type: ignore[operator]
             raise ValueError("fm_demod: deviation_hz and sample_rate must be > 0")
         inst_hz = instantaneous_frequency(iq, sample_rate=sample_rate)
         return inst_hz / float(deviation_hz)
     return instantaneous_frequency(iq)
 
 
-def am_demod(iq, dc_block=True):
+def am_demod(iq: Any, dc_block: bool = True) -> np.ndarray:
     """Demodulate amplitude modulation: the envelope (magnitude). OUR code.
 
     Returns the real envelope |iq|. With dc_block, the mean (carrier DC) is
@@ -55,7 +62,9 @@ def am_demod(iq, dc_block=True):
     return env
 
 
-def ssb_demod(iq, sample_rate, sideband="usb", bfo_hz=0.0):
+def ssb_demod(
+    iq: Any, sample_rate: float, sideband: str = "usb", bfo_hz: float = 0.0
+) -> np.ndarray:
     """Demodulate single-sideband (USB or LSB). OUR code.
 
     SSB transmits one sideband of an AM signal with the carrier suppressed. In a
@@ -97,7 +106,9 @@ def ssb_demod(iq, sample_rate, sideband="usb", bfo_hz=0.0):
     return np.real(selected).astype(np.float64)
 
 
-def deemphasis_coefficients(sample_rate, tau_us=75.0):
+def deemphasis_coefficients(
+    sample_rate: float, tau_us: float = 75.0
+) -> tuple[np.ndarray, np.ndarray]:
     """(b, a) of the de-emphasis one-pole, for lfilter. OUR code.
 
     The analog network is H(s) = 1 / (1 + s*tau), -3 dB at f_c = 1/(2*pi*tau)
@@ -126,7 +137,7 @@ def deemphasis_coefficients(sample_rate, tau_us=75.0):
     return b, a
 
 
-def deemphasis(audio, sample_rate, tau_us=75.0):
+def deemphasis(audio: Any, sample_rate: float, tau_us: float = 75.0) -> np.ndarray:
     """Single-pole de-emphasis filter for broadcast FM audio. OUR code.
 
     Broadcast FM pre-emphasizes high frequencies before transmission; the
@@ -147,7 +158,7 @@ def deemphasis(audio, sample_rate, tau_us=75.0):
     return _sig.lfilter(b, a, audio)
 
 
-def _analytic_phase(x):
+def _analytic_phase(x: np.ndarray) -> np.ndarray:
     """Instantaneous phase of a real signal via its analytic signal. OUR code.
 
     The analytic signal is x + j*H(x) (H = Hilbert transform); its angle is
@@ -169,8 +180,13 @@ def _analytic_phase(x):
     return np.angle(analytic)
 
 
-def fm_stereo_decode(composite, sample_rate, pilot_hz=19_000.0,
-                     audio_bw=15_000.0, pilot_bw=1_000.0):
+def fm_stereo_decode(
+    composite: Any,
+    sample_rate: float,
+    pilot_hz: float = 19_000.0,
+    audio_bw_hz: float = 15_000.0,
+    pilot_bw_hz: float = 1_000.0,
+) -> tuple[np.ndarray, np.ndarray]:
     """Recover left/right audio from a demodulated FM stereo composite. OUR code.
 
     The input is the MPX baseband -- the real output of ``fm_demod`` at the
@@ -230,12 +246,12 @@ def fm_stereo_decode(composite, sample_rate, pilot_hz=19_000.0,
     pilot_taps = int(sample_rate / 400) | 1          # ~odd, generous skirts
     audio_taps = int(sample_rate / 800) | 1
     pilot = fir_apply_centered(
-        composite, design_bandpass(pilot_hz - pilot_bw / 2,
-                                   pilot_hz + pilot_bw / 2,
+        composite, design_bandpass(pilot_hz - pilot_bw_hz / 2,
+                                   pilot_hz + pilot_bw_hz / 2,
                                    sample_rate, num_taps=pilot_taps))
     ref38 = np.cos(2.0 * _analytic_phase(pilot))     # unit-amp, phase-locked
 
-    lp = design_lowpass(audio_bw, sample_rate, num_taps=audio_taps)
+    lp = design_lowpass(audio_bw_hz, sample_rate, num_taps=audio_taps)
     sum_lr = fir_apply_centered(composite, lp)                # (L+R)
     dif_lr = 2.0 * fir_apply_centered(composite * ref38, lp)  # (L-R)
     left = (sum_lr + dif_lr) / 2.0
@@ -243,7 +259,7 @@ def fm_stereo_decode(composite, sample_rate, pilot_hz=19_000.0,
     return left, right
 
 
-def dsb_sc_demod(iq, sample_rate, bfo_hz=0.0):
+def dsb_sc_demod(iq: Any, sample_rate: float, bfo_hz: float = 0.0) -> np.ndarray:
     """Demodulate double-sideband suppressed-carrier (DSB-SC). OUR code.
 
     DSB-SC is AM with the carrier removed -- both sidebands, no carrier spike.
@@ -277,7 +293,7 @@ _MORSE = {
 }
 
 
-def cw_decode(bits, samples_per_symbol):
+def cw_decode(bits: Any, samples_per_symbol: float) -> str:
     """Decode Morse (CW) from a sliced on/off stream. OUR code.
 
     CW is on-off keying at audio rates: a "dit" is one unit on, a "dah" is three
@@ -294,9 +310,9 @@ def cw_decode(bits, samples_per_symbol):
     unit estimate and the dit/dah threshold may need tuning on real signals.
     """
     from .timing import edges
+    spb = positive("samples_per_symbol", samples_per_symbol)
     _, run_lengths, run_values = edges(bits)
-    spb = float(samples_per_symbol)
-    if spb <= 0 or len(run_lengths) == 0:
+    if len(run_lengths) == 0:
         return ""
     text = []
     symbol = []

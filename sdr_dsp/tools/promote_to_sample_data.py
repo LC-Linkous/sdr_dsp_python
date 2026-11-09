@@ -116,8 +116,8 @@ def revalidate(path, entry):
     iq, _ = load_iq(str(path))
     rate = entry["sample_rate"]
     offset = entry.get("station_offset_hz") or 0
-    probe = frequency_shift(iq, -offset, rate) if offset else iq
-    health = capture_health(probe, rate, channel_bw=FM_CHANNEL_BW)
+    probe = frequency_shift(iq, rate, -offset) if offset else iq
+    health = capture_health(probe, rate, channel_bw_hz=FM_CHANNEL_BW)
 
     expect = entry.get("expect", "signal")
     if expect == "signal":

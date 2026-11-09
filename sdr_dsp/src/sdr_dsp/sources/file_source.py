@@ -13,6 +13,7 @@ so a recording larger than RAM streams fine. The full array is available via the
 
 from __future__ import annotations
 
+import os
 from typing import Iterator
 
 import numpy as np
@@ -34,7 +35,13 @@ class FileSource:
         offset_samples: skip this many samples from the start.
     """
 
-    def __init__(self, path, block_size=65536, count=None, offset_samples=0):
+    def __init__(
+        self,
+        path: str | os.PathLike[str],
+        block_size: int = 65536,
+        count: int | None = None,
+        offset_samples: int = 0,
+    ) -> None:
         self.path = path
         self.block_size = int(block_size)
         self._count = count
@@ -45,7 +52,7 @@ class FileSource:
         self.center_freq = info["center_freq"]
         self.datatype = info["datatype"]
         self._total = info["total_samples"]
-        self._iq = None        # lazy full-array cache
+        self._iq: np.ndarray | None = None        # lazy full-array cache
 
     @property
     def n_samples(self) -> int:
@@ -90,16 +97,19 @@ class FileSource:
             read += len(block)
 
     def read(self, n_samples: int) -> np.ndarray:
-        """Read up to n_samples from the start (respecting offset). Streams from
-        disk without loading the whole file."""
-        block, _ = load_iq(self.path, count=int(n_samples),
-                           offset_samples=self._offset)
+        """Read up to n_samples from the start of THIS source's range (offset
+        and count respected, like blocks()). Streams from disk without loading
+        the whole file."""
+        want = min(int(n_samples), self.n_samples)
+        if want <= 0:
+            return np.zeros(0, dtype=np.complex64)
+        block, _ = load_iq(self.path, count=want, offset_samples=self._offset)
         return block
 
-    def __len__(self):
+    def __len__(self) -> int:
         return self.n_samples
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (f"FileSource({self.path!r}, {self.n_samples} samples, "
                 f"{self.sample_rate/1e6:g} Msps @ {self.center_freq/1e6:g} MHz, "
                 f"{self.datatype})")

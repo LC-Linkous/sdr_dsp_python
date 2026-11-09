@@ -79,3 +79,20 @@ def test_write_wav_mono_still_one_channel(tmp_path):
     with wave.open(path, "rb") as w:
         assert w.getnchannels() == 1
         assert w.getnframes() == 4800
+
+
+def test_write_wav_exact_full_scale_does_not_wrap(tmp_path):
+    # a float at exactly +/-1.0 with normalize=False must land on +/-32767,
+    # not wrap to -32768 (which a *32768 scale would do at +1.0); a mutation
+    # test showed nothing read the PCM back at the rails
+    p = tmp_path / "rails.wav"
+    write_wav(p, np.array([1.0, -1.0, 0.0, 0.5]), 48_000, normalize=False)
+    with wave.open(str(p)) as w:
+        pcm = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2")
+    assert pcm[0] == 32767 and pcm[1] == -32767 and pcm[2] == 0
+    assert abs(int(pcm[3]) - 16384) <= 1
+    # beyond full scale is clipped, never wrapped
+    write_wav(p, np.array([1.5, -1.5]), 48_000, normalize=False)
+    with wave.open(str(p)) as w:
+        pcm = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2")
+    assert pcm[0] == 32767 and pcm[1] == -32767

@@ -74,3 +74,13 @@ def test_estimate_cfo_measures_does_not_apply():
     before = tone.copy()
     _ = estimate_cfo(tone, fs)
     assert np.array_equal(tone, before)
+
+
+def test_find_bursts_min_len_is_inclusive():
+    # a burst of exactly min_len samples is kept; one shorter is dropped
+    env = np.zeros(100, dtype=np.complex64)
+    env[10:15] = 1.0                      # 5 samples
+    env[50:54] = 1.0                      # 4 samples
+    spans = find_bursts(env, threshold=0.5, min_len=5)
+    assert [(int(a), int(b)) for a, b in spans] == [(10, 15)]
+    assert len(find_bursts(env, threshold=0.5, min_len=4)) == 2

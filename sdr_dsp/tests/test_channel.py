@@ -74,7 +74,7 @@ def test_cfo_requires_sample_rate():
 def test_add_cfo_standalone():
     fs = 1e6
     sig = _tone(fs)
-    shifted = add_cfo(sig, 10e3, fs)
+    shifted = add_cfo(sig, fs, 10e3)
     assert abs((estimate_cfo(shifted, fs) - estimate_cfo(sig, fs)) - 10e3) \
         < fs / 1024
 

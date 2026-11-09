@@ -10,39 +10,6 @@ was measured, why a design went the way it did) lives in `docs/LOG.md`.
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-11-08
-
-First release on PyPI (`pip install sdr-dsp`), and the first one that was
-reviewed rather than only tested. The headline is correctness: a review and
-mutation pass over the 0.2.0 suite found six runtime bugs under a green suite
-(AGC poisoning its output with NaN after silence and collapsing after a level
-step; a timing loop that could not track a symbol-rate error and an early-late
-detector that was dead; a Costas loop that depended on signal amplitude; a PSD
-that returned a silent -200 dB floor on short input; a pipeline that dropped
-the resampler's tail), and the tests that had let them through were rewritten
-so that each of those bugs now fails a test. Every recovery loop has a
-measured, documented pull-in range and lock time. Several functions now raise
-where they used to return something plausible and wrong (`psd`, `fm_demod`,
-`resample_poly`, `deemphasis`), which is why this is 0.3 and not 0.2.1.
-
-For downstream consumers: `psd(scaling="dbfs")`, `StreamingPSD`, a
-machine-readable `capture_health` verdict, SigMF sidecars and a fetch script
-for the raw reference captures (which have left git), and a verified wheel +
-sdist that contain the package only. The docs were consolidated (one README,
-one TODO, one HAL document) and the API handbook is generated and gated in CI.
-Development status moves from Alpha to Beta: the software path is complete and
-defended; only FM has been validated against real RF, and that is the next
-phase.
-
-### Added (release machinery)
-- `.github/workflows/release.yml`: on a `v*` tag, checks the tag against
-  `pyproject.toml`, re-runs suite/ruff/mypy/handbook on the tagged commit,
-  builds, `twine check`s, verifies the sdist holds the package only, publishes
-  to PyPI via trusted publishing (no stored token) and attaches the artifacts
-  to the GitHub release. `docs/RELEASING.md` is the checklist around it.
-- `pyproject.toml`: Development Status Alpha -> Beta; `Changelog` and
-  `Documentation` project URLs.
-
 ### Added (for downstream consumers, hackrf-web 0.3)
 - `psd(..., scaling="density" | "dbfs")`. Default "density" is unchanged
   (power/Hz). "dbfs" divides by sum(window)^2 so a full-scale complex tone on

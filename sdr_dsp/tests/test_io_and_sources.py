@@ -88,3 +88,44 @@ def test_load_unknown_datatype_errors(tmp_path):
               open(tmp_path / "bad.sigmf-meta", "w"))
     with pytest.raises(ValueError):
         load_iq(tmp_path / "bad.iq")
+
+
+# -- path handling and range edges (second audit) ----------------------------
+
+def test_save_iq_keeps_dotted_stems_intact(tmp_path):
+    # pathlib treats everything after the LAST dot as the suffix, so two chained
+    # with_suffix calls turned "fm_98.1MHz_8Msps.iq" into "fm_98.sigmf-data" --
+    # the project's own file names have dots, and a neighbouring recording
+    # could share the shortened name. Every form must round-trip.
+    iq = np.arange(8, dtype=np.complex64)
+    for given, stem in (("fm_98.1MHz_8Msps.iq", "fm_98.1MHz_8Msps"),
+                        ("fm_98.1MHz_8Msps", "fm_98.1MHz_8Msps"),
+                        ("plain.iq", "plain"), ("a.b.c.sigmf-data", "a.b.c")):
+        save_iq(tmp_path / given, iq, 2e6)
+        assert (tmp_path / f"{stem}.sigmf-data").exists(), given
+        assert (tmp_path / f"{stem}.sigmf-meta").exists(), given
+        back, _ = load_iq(tmp_path / given)
+        np.testing.assert_array_equal(back, iq)
+
+
+def test_load_iq_offset_past_end_is_empty_not_an_error(tmp_path):
+    save_iq(tmp_path / "x.iq", np.ones(100, dtype=np.complex64), 2e6)
+    assert load_iq(tmp_path / "x.iq", offset_samples=1000)[0].size == 0
+    assert load_iq(tmp_path / "x.iq", offset_samples=1000, count=10)[0].size == 0
+    assert load_iq(tmp_path / "x.iq", offset_samples=100)[0].size == 0     # exactly at the end
+    assert load_iq(tmp_path / "x.iq", offset_samples=99)[0].size == 1
+    import pytest
+    with pytest.raises(ValueError, match="offset_samples"):
+        load_iq(tmp_path / "x.iq", offset_samples=-1)
+    src = FileSource(tmp_path / "x.iq", offset_samples=1000)
+    assert list(src.blocks()) == [] and len(src) == 0
+
+
+def test_file_source_read_respects_count(tmp_path):
+    save_iq(tmp_path / "x.iq", np.arange(300, dtype=np.complex64), 2e6)
+    src = FileSource(tmp_path / "x.iq", count=50, offset_samples=200)
+    assert len(src) == 50
+    got = src.read(1000)
+    assert len(got) == 50 and got[0] == 200 and got[-1] == 249
+    assert len(src.read(10)) == 10
+    assert src.read(0).size == 0

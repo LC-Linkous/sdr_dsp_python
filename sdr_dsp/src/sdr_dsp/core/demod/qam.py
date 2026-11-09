@@ -14,10 +14,14 @@ See MODULATIONS.md and HARDWARE.md for the honest status.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
+from .result import DemodResult
 
-def qam16_demod(symbols, normalize=True):
+
+def qam16_demod(symbols: Any, normalize: bool = True) -> DemodResult:
     """Demodulate QAM-16 from recovered symbols. OUR code.
 
     COHERENT and amplitude-sensitive: assumes carrier-aligned, symbol-timed
@@ -38,14 +42,14 @@ def qam16_demod(symbols, normalize=True):
     """
     s = np.asarray(symbols, dtype=np.complex64)
     if len(s) == 0:
-        return np.zeros(0, dtype=np.uint8), np.zeros(0, dtype=np.complex64)
+        return DemodResult(np.zeros(0, dtype=np.uint8), np.zeros(0, dtype=np.complex64))
     if normalize:
         # standard QAM-16 RMS is sqrt(10) for the {-3,-1,1,3} grid; scale to it
         rms = np.sqrt(np.mean(np.abs(s) ** 2))
         if rms > 0:
             s = s / rms * np.sqrt(10.0)
     # per-axis 4-level decision: thresholds at -2, 0, +2 -> levels -3,-1,1,3
-    def level(x):
+    def level(x: np.ndarray) -> np.ndarray:
         lvl = np.where(x < -2, -3, np.where(x < 0, -1, np.where(x < 2, 1, 3)))
         return lvl
     i_lvl = level(np.real(s))
@@ -57,4 +61,4 @@ def qam16_demod(symbols, normalize=True):
         bits.extend(gray[int(il)])
         bits.extend(gray[int(ql)])
     points = (i_lvl + 1j * q_lvl).astype(np.complex64)
-    return np.array(bits, dtype=np.uint8), points
+    return DemodResult(np.array(bits, dtype=np.uint8), points.astype(np.complex64))

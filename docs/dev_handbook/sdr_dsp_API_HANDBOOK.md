@@ -29,8 +29,6 @@ Lazily-loaded submodules and the flattened DSP API.
 
 Import: `import sdr_dsp`
 
-**Submodules:** `core`, `io`, `link`, `sinks`, `stream`
-
 ### Classes
 
 ### class `AGC`
@@ -63,7 +61,7 @@ set max_gain to bound silent-gap runaway).
 
 **Methods:**
 
-#### `reset(self)`
+#### `reset(self) -> 'None'`
 
 Forget the carried state (start the next block fresh).
 
@@ -87,7 +85,7 @@ Useful for tests, synthetic signals, and feeding already-loaded data into
 the same pipeline code a file or device would drive.
 
 
-**Constructor:** `ArraySource(self, iq: 'np.ndarray', sample_rate: 'float', center_freq: 'float' = 0.0, block_size: 'int' = 65536)`
+**Constructor:** `ArraySource(self, iq: 'np.ndarray', sample_rate: 'float', center_freq: 'float' = 0.0, block_size: 'int' = 65536) -> 'None'`
 
 | Parameter | Type | Default |
 |---|---|---|
@@ -130,13 +128,13 @@ warns (the offset drifts with frequency); pass `warn=False` to silence, or
 widen/disable the threshold with `drift_warn_hz`.
 
 
-**Constructor:** `Calibration(self, offset_db: 'float', frequency_hz: 'float | None' = None, conditions: 'dict' = <factory>, notes: 'str' = '', measured_at: 'str' = '', drift_warn_hz: 'float' = 5000000.0) -> None`
+**Constructor:** `Calibration(self, offset_db: 'float', frequency_hz: 'float | None' = None, conditions: 'dict[str, Any]' = <factory>, notes: 'str' = '', measured_at: 'str' = '', drift_warn_hz: 'float' = 5000000.0) -> None`
 
 | Parameter | Type | Default |
 |---|---|---|
 | `offset_db` | `float` | *required* |
 | `frequency_hz` | `float | None` | `None` |
-| `conditions` | `dict` | `<factory>` |
+| `conditions` | `dict[str, Any]` | `<factory>` |
 | `notes` | `str` | `''` |
 | `measured_at` | `str` | `''` |
 | `drift_warn_hz` | `float` | `5000000.0` |
@@ -144,16 +142,16 @@ widen/disable the threshold with `drift_warn_hz`.
 
 **Methods:**
 
-#### `load(path)`
+#### `load(path: 'str | os.PathLike[str]') -> 'Calibration'`
 
 Load a calibration saved by `save`.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `path` |  | *required* |
+| `path` | `str | os.PathLike[str]` | *required* |
 
 
-#### `power_dbm(self, iq, at_frequency_hz=None, warn=True)`
+#### `power_dbm(self, iq: 'Any', at_frequency_hz: 'float | None' = None, warn: 'bool' = True) -> 'float'`
 
 Absolute power of `iq` in dBm, using this calibration's offset.
 
@@ -165,18 +163,18 @@ warn: set False to silence the drift warning for this call.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `at_frequency_hz` |  | `None` |
-| `warn` |  | `True` |
+| `iq` | `Any` | *required* |
+| `at_frequency_hz` | `float | None` | `None` |
+| `warn` | `bool` | `True` |
 
 
-#### `save(self, path)`
+#### `save(self, path: 'str | os.PathLike[str]') -> 'str'`
 
 Write the calibration to a human-readable JSON file.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `path` |  | *required* |
+| `path` | `str | os.PathLike[str]` | *required* |
 
 
 
@@ -184,10 +182,29 @@ Write the calibration to a human-readable JSON file.
 
 - `offset_db`: `float`
 - `frequency_hz`: `float | None`
-- `conditions`: `dict`
+- `conditions`: `dict[str, Any]`
 - `notes`: `str`
 - `measured_at`: `str`
 - `drift_warn_hz`: `float`
+
+
+
+### class `DemodResult`
+
+Hard bits plus the soft information behind them.
+
+bits: uint8 array of 0/1, k bits per symbol for a 2^k-ary scheme.
+soft: per-symbol decision information; its meaning depends on the demod
+      (bpsk/dbpsk: the real-axis statistic, float64; qpsk/qam16: the
+      chosen constellation points, complex64; psk8: the sector index,
+      uint8; dqpsk: the differential angle, float64). Confidence,
+      constellation plots and EVM all start from here.
+
+
+**Attributes:**
+
+- `bits`: `ForwardRef('np.ndarray')`
+- `soft`: `ForwardRef('np.ndarray')`
 
 
 
@@ -206,14 +223,14 @@ Args:
     offset_samples: skip this many samples from the start.
 
 
-**Constructor:** `FileSource(self, path, block_size=65536, count=None, offset_samples=0)`
+**Constructor:** `FileSource(self, path: 'str | os.PathLike[str]', block_size: 'int' = 65536, count: 'int | None' = None, offset_samples: 'int' = 0) -> 'None'`
 
 | Parameter | Type | Default |
 |---|---|---|
-| `path` |  | *required* |
-| `block_size` |  | `65536` |
-| `count` |  | `None` |
-| `offset_samples` |  | `0` |
+| `path` | `str | os.PathLike[str]` | *required* |
+| `block_size` | `int` | `65536` |
+| `count` | `int | None` | `None` |
+| `offset_samples` | `int` | `0` |
 
 
 **Methods:**
@@ -229,8 +246,9 @@ path), slice that instead of re-reading.
 
 #### `read(self, n_samples: 'int') -> 'np.ndarray'`
 
-Read up to n_samples from the start (respecting offset). Streams from
-disk without loading the whole file.
+Read up to n_samples from the start of THIS source's range (offset
+and count respected, like blocks()). Streams from disk without loading
+the whole file.
 
 | Parameter | Type | Default |
 |---|---|---|
@@ -300,14 +318,14 @@ locked:   summary -- True if the loop was locked over the final portion.
 
 **Methods:**
 
-#### `to_csv(self, path)`
+#### `to_csv(self, path: 'str | os.PathLike[str]') -> 'str'`
 
 Write the per-sample diagnostics to a CSV (sample, error, estimate,
 lock). Useful for plotting convergence outside the library.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `path` |  | *required* |
+| `path` | `str | os.PathLike[str]` | *required* |
 
 
 
@@ -343,31 +361,31 @@ are genuinely per-sample (``to_db``, ``am_demod`` without dc_block, a
 slicer) or for taps.
 
 
-**Constructor:** `Pipeline(self, source)`
+**Constructor:** `Pipeline(self, source: 'IQSource') -> 'None'`
 
 | Parameter | Type | Default |
 |---|---|---|
-| `source` |  | *required* |
+| `source` | `IQSource` | *required* |
 
 
 **Methods:**
 
-#### `add(self, fn, name=None)`
+#### `add(self, fn: 'Callable[[np.ndarray], np.ndarray]', name: 'str | None' = None) -> 'Self'`
 
 Append a transforming stage (block -> block).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `fn` |  | *required* |
-| `name` |  | `None` |
+| `fn` | `Callable[[np.ndarray], np.ndarray]` | *required* |
+| `name` | `str | None` | `None` |
 
 
-#### `describe(self)`
+#### `describe(self) -> 'str'`
 
 Return the chain as inspectable text (the pipeline is data).
 
 
-#### `flush(self) -> 'list'`
+#### `flush(self) -> 'list[np.ndarray]'`
 
 Drain the look-ahead held inside stages once the stream has ended.
 
@@ -385,17 +403,17 @@ call it yourself only if you drive ``process_block`` by hand.
 Flushing twice is harmless: a drained stage returns nothing.
 
 
-#### `process_block(self, block)`
+#### `process_block(self, block: 'np.ndarray') -> 'np.ndarray'`
 
 Thread a single block through every stage. Useful for testing and
 for driving the pipeline from an external loop (e.g. a GUI timer).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `block` |  | *required* |
+| `block` | `np.ndarray` | *required* |
 
 
-#### `run(self, sink=None, profile=False, max_blocks=None)`
+#### `run(self, sink: 'Callable[[np.ndarray], Any] | None' = None, profile: 'bool' = False, max_blocks: 'int | None' = None) -> 'list[np.ndarray] | None | tuple[list[np.ndarray] | None, PipelineStats]'`
 
 Pull blocks from the source, process each, deliver to sink.
 
@@ -414,12 +432,12 @@ returns (results_or_None, PipelineStats).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `sink` |  | `None` |
-| `profile` |  | `False` |
-| `max_blocks` |  | `None` |
+| `sink` | `Callable[[np.ndarray], Any] | None` | `None` |
+| `profile` | `bool` | `False` |
+| `max_blocks` | `int | None` | `None` |
 
 
-#### `stream(self, max_blocks=None) -> 'Iterator[np.ndarray]'`
+#### `stream(self, max_blocks: 'int | None' = None) -> 'Iterator[np.ndarray]'`
 
 Run as a generator, yielding each processed block lazily.
 
@@ -431,10 +449,10 @@ the stages' look-ahead when the source is exhausted (not when cut by
 
 | Parameter | Type | Default |
 |---|---|---|
-| `max_blocks` |  | `None` |
+| `max_blocks` | `int | None` | `None` |
 
 
-#### `tap(self, fn, name=None)`
+#### `tap(self, fn: 'Callable[[np.ndarray], Any]', name: 'str | None' = None) -> 'Self'`
 
 Append an observing stage (block -> ignored). Flow is unchanged.
 
@@ -444,15 +462,15 @@ affecting what the next stage sees.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `fn` |  | *required* |
-| `name` |  | `None` |
+| `fn` | `Callable[[np.ndarray], Any]` | *required* |
+| `name` | `str | None` | `None` |
 
 
 
 
 ### Functions
 
-### `add_cfo(iq, cfo_hz, sample_rate)`
+### `add_cfo(iq: 'Any', sample_rate: 'float', cfo_hz: 'float') -> 'np.ndarray'`
 
 Apply a carrier frequency offset (Hz). OUR code.
 
@@ -465,13 +483,16 @@ carrier recovery, or measurable with estimate_cfo.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `cfo_hz` |  | *required* |
-| `sample_rate` |  | *required* |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `cfo_hz` | `float` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `add_delay(iq, delay_samples)`
+### `add_delay(iq: 'Any', delay_samples: 'int') -> 'np.ndarray'`
 
 Delay the signal by an integer number of samples (zero-pad the front).
 
@@ -483,12 +504,15 @@ as the input (the tail is truncated); negative delay advances. OUR code.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `delay_samples` |  | *required* |
+| `iq` | `Any` | *required* |
+| `delay_samples` | `int` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `add_noise(iq, snr_db, rng=None)`
+### `add_noise(iq: 'Any', snr_db: 'float', seed: 'int | None' = None, rng: 'np.random.Generator | None' = None) -> 'np.ndarray'`
 
 Add complex AWGN at a specified SNR (dB) relative to the signal. OUR code.
 
@@ -496,18 +520,26 @@ Measures the signal's mean power, computes the noise power for the requested
 SNR, and adds complex Gaussian noise at that level. This is the honest way to
 set noise -- by the SNR you want, not an arbitrary amplitude.
 
+seed: int for a reproducible draw, as apply_channel / add_phase_noise take
+      it. rng: an existing np.random.Generator to draw from instead (one
+      of the two; rng wins if both are given). Neither -> fresh entropy.
+
 
 **Parameters:**
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `snr_db` |  | *required* |
-| `rng` |  | `None` |
+| `iq` | `Any` | *required* |
+| `snr_db` | `float` | *required* |
+| `seed` | `int | None` | `None` |
+| `rng` | `np.random.Generator | None` | `None` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `agc(iq, mode='rms', target=1.0, attack=0.01, decay=0.001, max_gain=None, _initial_gain=1.0, _initial_level=None)`
+### `agc(iq: 'Any', mode: 'str' = 'rms', target: 'float' = 1.0, attack: 'float' = 0.01, decay: 'float' = 0.001, max_gain: 'float | None' = None, _initial_gain: 'float' = 1.0, _initial_level: 'float | None' = None) -> 'tuple[np.ndarray, np.ndarray]'`
 
 Apply automatic gain control. Returns (adjusted_iq, gain_trace). OUR code.
 
@@ -538,18 +570,21 @@ and aren't normally set by hand.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `mode` |  | `'rms'` |
-| `target` |  | `1.0` |
-| `attack` |  | `0.01` |
-| `decay` |  | `0.001` |
-| `max_gain` |  | `None` |
-| `_initial_gain` |  | `1.0` |
-| `_initial_level` |  | `None` |
+| `iq` | `Any` | *required* |
+| `mode` | `str` | `'rms'` |
+| `target` | `float` | `1.0` |
+| `attack` | `float` | `0.01` |
+| `decay` | `float` | `0.001` |
+| `max_gain` | `float | None` | `None` |
+| `_initial_gain` | `float` | `1.0` |
+| `_initial_level` | `float | None` | `None` |
+
+
+**Returns:** `tuple[np.ndarray, np.ndarray]`
 
 
 
-### `am_demod(iq, dc_block=True)`
+### `am_demod(iq: 'Any', dc_block: 'bool' = True) -> 'np.ndarray'`
 
 Demodulate amplitude modulation: the envelope (magnitude). OUR code.
 
@@ -561,12 +596,15 @@ removed so the output swings around zero like audio.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `dc_block` |  | `True` |
+| `iq` | `Any` | *required* |
+| `dc_block` | `bool` | `True` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `am_modulate(message, modulation_index=0.5)`
+### `am_modulate(message: 'Any', modulation_index: 'float' = 0.5) -> 'np.ndarray'`
 
 AM-modulate a real message into IQ. Inverse of am_demod. OUR code.
 
@@ -585,12 +623,15 @@ Returns complex64 IQ with the message in its magnitude.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `message` |  | *required* |
-| `modulation_index` |  | `0.5` |
+| `message` | `Any` | *required* |
+| `modulation_index` | `float` | `0.5` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `apply_channel(iq, sample_rate=None, snr_db=None, cfo_hz=None, delay_samples=0, scale=1.0, phase=0.0, seed=None)`
+### `apply_channel(iq: 'Any', sample_rate: 'float | None' = None, snr_db: 'float | None' = None, cfo_hz: 'float | None' = None, delay_samples: 'int' = 0, scale: 'float' = 1.0, phase: 'float' = 0.0, seed: 'int | None' = None) -> 'np.ndarray'`
 
 Pass a signal through a simulated channel. OUR code.
 
@@ -614,18 +655,21 @@ to test how the link holds up before any hardware.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | `None` |
-| `snr_db` |  | `None` |
-| `cfo_hz` |  | `None` |
-| `delay_samples` |  | `0` |
-| `scale` |  | `1.0` |
-| `phase` |  | `0.0` |
-| `seed` |  | `None` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float | None` | `None` |
+| `snr_db` | `float | None` | `None` |
+| `cfo_hz` | `float | None` | `None` |
+| `delay_samples` | `int` | `0` |
+| `scale` | `float` | `1.0` |
+| `phase` | `float` | `0.0` |
+| `seed` | `int | None` | `None` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `bpsk_demod(iq, normalize_phase=True)`
+### `bpsk_demod(iq: 'Any', normalize_phase: 'bool' = True) -> 'DemodResult'`
 
 Demodulate binary phase-shift keying (coherent-ish). OUR code.
 
@@ -636,7 +680,7 @@ loop / carrier recovery). For captures with a residual carrier offset,
 correct it first (see estimate_cfo / frequency_shift) -- the library does
 not auto-recover the carrier.
 
-Returns (bits, soft) where bits is uint8 (0/1) and soft is the real-part
+Returns DemodResult(bits, soft): bits uint8 (0/1), soft the real-part
 decision statistic (useful for confidence / plotting a constellation).
 
 
@@ -644,12 +688,15 @@ decision statistic (useful for confidence / plotting a constellation).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `normalize_phase` |  | `True` |
+| `iq` | `Any` | *required* |
+| `normalize_phase` | `bool` | `True` |
+
+
+**Returns:** `DemodResult`
 
 
 
-### `bpsk_modulate(bits, samples_per_symbol=1, pulse_shaping=False, beta=0.35, span_symbols=8, pad_symbols=0)`
+### `bpsk_modulate(bits: 'Any', samples_per_symbol: 'int' = 1, pulse_shaping: 'bool' = False, beta: 'float' = 0.35, span_symbols: 'int' = 8, pad_symbols: 'int' = 0) -> 'np.ndarray'`
 
 BPSK: bit 1 -> +1, bit 0 -> -1 (phase 0 or pi). Inverse of bpsk_demod.
 
@@ -670,16 +717,19 @@ Returns complex64 baseband.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `samples_per_symbol` |  | `1` |
-| `pulse_shaping` |  | `False` |
-| `beta` |  | `0.35` |
-| `span_symbols` |  | `8` |
-| `pad_symbols` |  | `0` |
+| `bits` | `Any` | *required* |
+| `samples_per_symbol` | `int` | `1` |
+| `pulse_shaping` | `bool` | `False` |
+| `beta` | `float` | `0.35` |
+| `span_symbols` | `int` | `8` |
+| `pad_symbols` | `int` | `0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `build_frame(payload, sync=None, preamble_bits=32)`
+### `build_frame(payload: 'Any', sync: 'Any | None' = None, preamble_bits: 'int' = 32) -> 'np.ndarray'`
 
 Build a complete frame from a payload. Returns a bit array (0/1). OUR code.
 
@@ -698,13 +748,16 @@ The CRC covers the length byte and the payload, so a receiver validates both.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `payload` |  | *required* |
-| `sync` |  | `None` |
-| `preamble_bits` |  | `32` |
+| `payload` | `Any` | *required* |
+| `sync` | `Any | None` | `None` |
+| `preamble_bits` | `int` | `32` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `carrier_recovery(iq, method='costas', order=2, loop_bw=0.01, damping=0.707, diagnostics=False, csv_path=None, lock_threshold=0.05)`
+### `carrier_recovery(iq: 'Any', method: 'str' = 'costas', order: 'int' = 2, loop_bw: 'float' = 0.01, damping: 'float' = 0.707, diagnostics: 'bool' = False, csv_path: 'str | os.PathLike[str] | None' = None, lock_threshold: 'float' = 0.05) -> 'np.ndarray | tuple[np.ndarray, LoopDiagnostics]'`
 
 Track and remove residual carrier phase/frequency offset. OUR code.
 
@@ -737,20 +790,23 @@ unit-rate symbols -- these numbers are pinned by tests/test_sync.py:
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `method` |  | `'costas'` |
-| `order` |  | `2` |
-| `loop_bw` |  | `0.01` |
-| `damping` |  | `0.707` |
-| `diagnostics` |  | `False` |
-| `csv_path` |  | `None` |
-| `lock_threshold` |  | `0.05` |
+| `iq` | `Any` | *required* |
+| `method` | `str` | `'costas'` |
+| `order` | `int` | `2` |
+| `loop_bw` | `float` | `0.01` |
+| `damping` | `float` | `0.707` |
+| `diagnostics` | `bool` | `False` |
+| `csv_path` | `str | os.PathLike[str] | None` | `None` |
+| `lock_threshold` | `float` | `0.05` |
+
+
+**Returns:** `np.ndarray | tuple[np.ndarray, LoopDiagnostics]`
 
 
 
-### `channelize(iq, sample_rate, offset_hz, channel_bw, decim=None)`
+### `channelize(iq: 'Any', sample_rate: 'float', offset_hz: 'float', channel_bw_hz: 'float', decim: 'int | None' = None) -> 'tuple[np.ndarray, float]'`
 
-Extract the single channel at offset_hz with bandwidth channel_bw. OUR code.
+Extract the single channel at offset_hz with bandwidth channel_bw_hz. OUR code.
 
 tune -> lowpass -> decimate. Returns (channel_iq, new_sample_rate). decim
 defaults to the largest integer that keeps the channel comfortably inside
@@ -764,25 +820,29 @@ For splitting the whole band into a uniform grid, use channelize_bank.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `offset_hz` |  | *required* |
-| `channel_bw` |  | *required* |
-| `decim` |  | `None` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `offset_hz` | `float` | *required* |
+| `channel_bw_hz` | `float` | *required* |
+| `decim` | `int | None` | `None` |
+
+
+**Returns:** `tuple[np.ndarray, float]`
 
 
 
-### `channelize_bank(iq, sample_rate, n_channels, decim=None, taps_per_channel=12, return_freqs=True)`
+### `channelize_bank(iq: 'Any', sample_rate: 'float', n_channels: 'int', decim: 'int | None' = None, taps_per_channel: 'int' = 12) -> 'tuple[np.ndarray, float, np.ndarray]'`
 
 Split the band into n_channels equal channels via a polyphase filterbank.
 
 Produces N evenly-spaced channels each sample_rate/N wide, in one efficient
-pass. Returns (channels, new_sample_rate[, center_freqs]):
+pass. Always returns the 3-tuple (channels, new_sample_rate, center_freqs)
+-- a flag that changed the return arity was removed in 0.3.0:
     channels:     complex64 array of shape (n_channels, n_out_samples).
                   Row k is the channel centered at center_freqs[k].
     new_rate:     the per-channel output sample rate.
-    center_freqs: (if return_freqs) the center frequency of each channel, in
-                  Hz relative to the capture center, ordered low->high.
+    center_freqs: the center frequency of each channel, in Hz relative to
+                  the capture center, ordered low->high.
 
 decim sets the sampling scheme (D = decim, must divide N):
     decim = n_channels (default)  -> critically sampled: each channel output
@@ -809,16 +869,18 @@ edges, more compute.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `n_channels` |  | *required* |
-| `decim` |  | `None` |
-| `taps_per_channel` |  | `12` |
-| `return_freqs` |  | `True` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `n_channels` | `int` | *required* |
+| `decim` | `int | None` | `None` |
+| `taps_per_channel` | `int` | `12` |
+
+
+**Returns:** `tuple[np.ndarray, float, np.ndarray]`
 
 
 
-### `compute_cal_offset(iq, known_dbm, frequency_hz=None, conditions=None, notes='', drift_warn_hz=5000000.0)`
+### `compute_cal_offset(iq: 'Any', known_dbm: 'float', frequency_hz: 'float | None' = None, conditions: 'dict[str, Any] | None' = None, notes: 'str' = '', drift_warn_hz: 'float' = 5000000.0) -> 'Calibration'`
 
 Derive a calibration from a measurement of a KNOWN-power reference.
 
@@ -847,16 +909,19 @@ a noisy or fluctuating source gives a noisy offset.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `known_dbm` |  | *required* |
-| `frequency_hz` |  | `None` |
-| `conditions` |  | `None` |
-| `notes` |  | `''` |
-| `drift_warn_hz` |  | `5000000.0` |
+| `iq` | `Any` | *required* |
+| `known_dbm` | `float` | *required* |
+| `frequency_hz` | `float | None` | `None` |
+| `conditions` | `dict[str, Any] | None` | `None` |
+| `notes` | `str` | `''` |
+| `drift_warn_hz` | `float` | `5000000.0` |
+
+
+**Returns:** `Calibration`
 
 
 
-### `convolve(a, b, mode='full')`
+### `convolve(a: 'Any', b: 'Any', mode: "Literal['full', 'same', 'valid']" = 'full') -> 'np.ndarray'`
 
 Convolution of two signals. OUR code (thin, for a uniform API).
 
@@ -869,13 +934,16 @@ both are first-class.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `a` |  | *required* |
-| `b` |  | *required* |
-| `mode` |  | `'full'` |
+| `a` | `Any` | *required* |
+| `b` | `Any` | *required* |
+| `mode` | `Literal['full', 'same', 'valid']` | `'full'` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `correct_fm_cfo(iq, sample_rate, cfo_hz=None, **kwargs)`
+### `correct_fm_cfo(iq: 'Any', sample_rate: 'float', cfo_hz: 'float | None' = None, **kwargs: 'Any') -> 'tuple[np.ndarray, float]'`
 
 Remove a broadcast-FM carrier frequency offset. OUR code.
 
@@ -895,14 +963,17 @@ too low), returns the input unchanged with ``cfo_hz = 0.0``.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `cfo_hz` |  | `None` |
-| `kwargs` (**kwargs) |  | *required* |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `cfo_hz` | `float | None` | `None` |
+| `kwargs` (**kwargs) | `Any` | *required* |
+
+
+**Returns:** `tuple[np.ndarray, float]`
 
 
 
-### `correlate(a, b, mode='full')`
+### `correlate(a: 'Any', b: 'Any', mode: "Literal['full', 'same', 'valid']" = 'full') -> 'np.ndarray'`
 
 Cross-correlation of two signals, conjugation handled correctly. OUR code.
 
@@ -918,13 +989,16 @@ mode: "full", "same", or "valid" (as numpy).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `a` |  | *required* |
-| `b` |  | *required* |
-| `mode` |  | `'full'` |
+| `a` | `Any` | *required* |
+| `b` | `Any` | *required* |
+| `mode` | `Literal['full', 'same', 'valid']` | `'full'` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `crc16(data)`
+### `crc16(data: 'Any') -> 'int'`
 
 CRC-16/CCITT-FALSE over a bytes-like input. OUR code.
 
@@ -936,11 +1010,14 @@ received payload is intact. Not cryptographic -- just error detection.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `data` |  | *required* |
+| `data` | `Any` | *required* |
+
+
+**Returns:** `int`
 
 
 
-### `cw_decode(bits, samples_per_symbol)`
+### `cw_decode(bits: 'Any', samples_per_symbol: 'float') -> 'str'`
 
 Decode Morse (CW) from a sliced on/off stream. OUR code.
 
@@ -962,12 +1039,15 @@ unit estimate and the dit/dah threshold may need tuning on real signals.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `samples_per_symbol` |  | *required* |
+| `bits` | `Any` | *required* |
+| `samples_per_symbol` | `float` | *required* |
+
+
+**Returns:** `str`
 
 
 
-### `dbpsk_demod(symbols)`
+### `dbpsk_demod(symbols: 'Any') -> 'DemodResult'`
 
 Demodulate differential BPSK. OUR code.
 
@@ -986,11 +1066,14 @@ differential product (sign gives the bit, magnitude gives confidence).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `symbols` |  | *required* |
+| `symbols` | `Any` | *required* |
+
+
+**Returns:** `DemodResult`
 
 
 
-### `decimate(iq, factor, half_len=10)`
+### `decimate(iq: 'Any', factor: 'int', half_len: 'int' = 10) -> 'np.ndarray'`
 
 Lowpass then keep every ``factor``-th sample. OUR code (via resample).
 
@@ -999,13 +1082,16 @@ Lowpass then keep every ``factor``-th sample. OUR code (via resample).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `factor` |  | *required* |
-| `half_len` |  | `10` |
+| `iq` | `Any` | *required* |
+| `factor` | `int` | *required* |
+| `half_len` | `int` | `10` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `deemphasis(audio, sample_rate, tau_us=75.0)`
+### `deemphasis(audio: 'Any', sample_rate: 'float', tau_us: 'float' = 75.0) -> 'np.ndarray'`
 
 Single-pole de-emphasis filter for broadcast FM audio. OUR code.
 
@@ -1023,13 +1109,16 @@ blocks.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `audio` |  | *required* |
-| `sample_rate` |  | *required* |
-| `tau_us` |  | `75.0` |
+| `audio` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `tau_us` | `float` | `75.0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `design_bandpass(low_hz, high_hz, sample_rate, num_taps=101, window='hamming')`
+### `design_bandpass(low_hz: 'float', high_hz: 'float', sample_rate: 'float', num_taps: 'int' = 101, window: 'Any' = 'hamming') -> 'np.ndarray'`
 
 Design a bandpass FIR. Returns tap coefficients.
 
@@ -1038,15 +1127,18 @@ Design a bandpass FIR. Returns tap coefficients.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `low_hz` |  | *required* |
-| `high_hz` |  | *required* |
-| `sample_rate` |  | *required* |
-| `num_taps` |  | `101` |
-| `window` |  | `'hamming'` |
+| `low_hz` | `float` | *required* |
+| `high_hz` | `float` | *required* |
+| `sample_rate` | `float` | *required* |
+| `num_taps` | `int` | `101` |
+| `window` | `Any` | `'hamming'` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `design_highpass(cutoff_hz, sample_rate, num_taps=101, window='hamming')`
+### `design_highpass(cutoff_hz: 'float', sample_rate: 'float', num_taps: 'int' = 101, window: 'Any' = 'hamming') -> 'np.ndarray'`
 
 Design a highpass FIR. Returns tap coefficients.
 
@@ -1055,14 +1147,17 @@ Design a highpass FIR. Returns tap coefficients.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `cutoff_hz` |  | *required* |
-| `sample_rate` |  | *required* |
-| `num_taps` |  | `101` |
-| `window` |  | `'hamming'` |
+| `cutoff_hz` | `float` | *required* |
+| `sample_rate` | `float` | *required* |
+| `num_taps` | `int` | `101` |
+| `window` | `Any` | `'hamming'` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `design_lowpass(cutoff_hz, sample_rate, num_taps=101, window='hamming')`
+### `design_lowpass(cutoff_hz: 'float', sample_rate: 'float', num_taps: 'int' = 101, window: 'Any' = 'hamming') -> 'np.ndarray'`
 
 Design a lowpass FIR. Returns tap coefficients (numpy array).
 
@@ -1075,14 +1170,17 @@ num_taps:    filter length (odd recommended for a linear-phase Type-I FIR).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `cutoff_hz` |  | *required* |
-| `sample_rate` |  | *required* |
-| `num_taps` |  | `101` |
-| `window` |  | `'hamming'` |
+| `cutoff_hz` | `float` | *required* |
+| `sample_rate` | `float` | *required* |
+| `num_taps` | `int` | `101` |
+| `window` | `Any` | `'hamming'` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `detect_peak(signal, template, threshold=None)`
+### `detect_peak(signal: 'Any', template: 'Any', threshold: 'float | None' = None) -> 'tuple[int | None, float]'`
 
 Run a matched filter and return the best-match index (and its value).
 
@@ -1094,13 +1192,16 @@ else (None, value). Without a threshold, always returns the argmax.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `signal` |  | *required* |
-| `template` |  | *required* |
-| `threshold` |  | `None` |
+| `signal` | `Any` | *required* |
+| `template` | `Any` | *required* |
+| `threshold` | `float | None` | `None` |
+
+
+**Returns:** `tuple[int | None, float]`
 
 
 
-### `dqpsk_demod(symbols)`
+### `dqpsk_demod(symbols: 'Any') -> 'DemodResult'`
 
 Demodulate differential QPSK. OUR code.
 
@@ -1115,11 +1216,14 @@ angles for inspection.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `symbols` |  | *required* |
+| `symbols` | `Any` | *required* |
+
+
+**Returns:** `DemodResult`
 
 
 
-### `dsb_sc_demod(iq, sample_rate, bfo_hz=0.0)`
+### `dsb_sc_demod(iq: 'Any', sample_rate: 'float', bfo_hz: 'float' = 0.0) -> 'np.ndarray'`
 
 Demodulate double-sideband suppressed-carrier (DSB-SC). OUR code.
 
@@ -1138,13 +1242,16 @@ Returns the real demodulated message.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `bfo_hz` |  | `0.0` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `bfo_hz` | `float` | `0.0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `dsss_despread(iq, code, samples_per_chip=1)`
+### `dsss_despread(iq: 'Any', code: 'Any', samples_per_chip: 'int' = 1) -> 'np.ndarray'`
 
 Despread a DSSS signal using a KNOWN spreading code. OUR code.
 
@@ -1166,13 +1273,16 @@ with core.correlate and pick the peak.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `code` |  | *required* |
-| `samples_per_chip` |  | `1` |
+| `iq` | `Any` | *required* |
+| `code` | `Any` | *required* |
+| `samples_per_chip` | `int` | `1` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `edges(bits)`
+### `edges(bits: 'Any') -> 'tuple[np.ndarray, np.ndarray, np.ndarray]'`
 
 Indices where a 0/1 stream transitions, and the run lengths. OUR code.
 
@@ -1186,11 +1296,14 @@ on/off stream.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
+| `bits` | `Any` | *required* |
+
+
+**Returns:** `tuple[np.ndarray, np.ndarray, np.ndarray]`
 
 
 
-### `estimate_cfo(iq, sample_rate, nfft=None)`
+### `estimate_cfo(iq: 'Any', sample_rate: 'float', nfft: 'int | None' = None) -> 'float'`
 
 Estimate a signal's carrier frequency offset from band center. OUR code.
 
@@ -1216,13 +1329,16 @@ offset when mark/space time is roughly balanced.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `nfft` |  | `None` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `nfft` | `int | None` | `None` |
+
+
+**Returns:** `float`
 
 
 
-### `estimate_fm_cfo(iq, sample_rate, *, channel_bw=100000.0, trim_hz=None)`
+### `estimate_fm_cfo(iq: 'Any', sample_rate: 'float', *, channel_bw_hz: 'float' = 100000.0, trim_hz: 'float | None' = None) -> 'float | None'`
 
 Estimate a broadcast-FM capture's carrier frequency offset, in Hz.
 
@@ -1251,12 +1367,12 @@ station is actually there with ``fm_pilot_excess_db`` before trusting this
 number, because the mean of noise is not a carrier offset.
 
 Args:
-    channel_bw: FM channel half-not-needed; used only to size the click
+    channel_bw_hz: FM channel half-not-needed; used only to size the click
         trim. Broadcast FM is ~100 kHz half-bandwidth of program content.
     trim_hz: discriminator "clicks" (phase wraps in deep fades / low SNR)
         are impulsive outliers that bias a plain mean. Samples whose
         demodulated frequency exceeds trim_hz in magnitude are dropped
-        before averaging. Default 1.5 * channel_bw keeps the full +/-75 kHz
+        before averaging. Default 1.5 * channel_bw_hz keeps the full +/-75 kHz
         deviation swing while rejecting the near-+/-Nyquist click spikes.
         Pass None to disable trimming.
 
@@ -1271,14 +1387,17 @@ OUR code.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `channel_bw` |  | `100000.0` |
-| `trim_hz` |  | `None` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `channel_bw_hz` | `float` | `100000.0` |
+| `trim_hz` | `float | None` | `None` |
+
+
+**Returns:** `float | None`
 
 
 
-### `estimate_symbol_rate(bits, sample_rate, min_run=2)`
+### `estimate_symbol_rate(bits: 'Any', sample_rate: 'float', min_run: 'int' = 2) -> 'tuple[float, float]'`
 
 Estimate samples-per-symbol from the run lengths in a sliced stream.
 
@@ -1297,13 +1416,16 @@ capture is very noisy; lower it (to 1) only for pristine synthetic data.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `sample_rate` |  | *required* |
-| `min_run` |  | `2` |
+| `bits` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `min_run` | `int` | `2` |
+
+
+**Returns:** `tuple[float, float]`
 
 
 
-### `fhss_detect_hops(iq, sample_rate, nfft=256, overlap=0.5, center_freq=0.0)`
+### `fhss_detect_hops(iq: 'Any', sample_rate: 'float', nfft: 'int' = 256, overlap: 'float' = 0.5, center_freq: 'float' = 0.0) -> 'tuple[np.ndarray, np.ndarray]'`
 
 Detect frequency hops: the dominant frequency per time slice. OUR code.
 
@@ -1320,15 +1442,18 @@ offset by center_freq) during time slice times[i].
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `nfft` |  | `256` |
-| `overlap` |  | `0.5` |
-| `center_freq` |  | `0.0` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `nfft` | `int` | `256` |
+| `overlap` | `float` | `0.5` |
+| `center_freq` | `float` | `0.0` |
+
+
+**Returns:** `tuple[np.ndarray, np.ndarray]`
 
 
 
-### `find_bursts(iq, sample_rate=None, threshold=None, min_gap=0, min_len=1)`
+### `find_bursts(iq: 'Any', sample_rate: 'float | None' = None, threshold: 'float | None' = None, min_gap: 'int' = 0, min_len: 'int' = 1) -> 'list[tuple[int, int]]'`
 
 Find where signal energy is present: burst start/stop indices. OUR code.
 
@@ -1361,15 +1486,18 @@ always in samples (convert to time yourself: start/sample_rate).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | `None` |
-| `threshold` |  | `None` |
-| `min_gap` |  | `0` |
-| `min_len` |  | `1` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float | None` | `None` |
+| `threshold` | `float | None` | `None` |
+| `min_gap` | `int` | `0` |
+| `min_len` | `int` | `1` |
+
+
+**Returns:** `list[tuple[int, int]]`
 
 
 
-### `find_frames(bits, sync=None, max_sync_errors=2)`
+### `find_frames(bits: 'Any', sync: 'Any | None' = None, max_sync_errors: 'int' = 2) -> 'list[dict[str, Any]]'`
 
 Find and validate frames in a recovered bit stream. OUR code.
 
@@ -1381,21 +1509,32 @@ and CRC after each match. Returns a list of dicts, one per frame found:
 
 crc_ok tells you whether the payload survived intact -- the basis for an ACK.
 Frames with a bad length read or running off the end of the buffer are
-skipped. Overlapping/false sync matches inside a validated frame are stepped
-past so one packet isn't reported twice.
+skipped. After a frame whose CRC VERIFIES, the scan steps past its whole
+body so a sync-like pattern inside the payload is not reported again.
+After a match whose CRC FAILS, the scan advances one bit: the match may
+have been a near-miss on random bits with a plausible length byte, and the
+real frame may begin inside the body it claimed. (Stepping past every
+claimed body, as an earlier version did, lost 2% of real frames at the
+default tolerance when preceded by noise.) A consequence: one corrupted
+real frame can be reported more than once at nearby offsets, all with
+crc_ok False -- consumers act on crc_ok, so this costs a duplicate NAK
+at most.
 
 
 **Parameters:**
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `sync` |  | `None` |
-| `max_sync_errors` |  | `2` |
+| `bits` | `Any` | *required* |
+| `sync` | `Any | None` | `None` |
+| `max_sync_errors` | `int` | `2` |
+
+
+**Returns:** `list[dict[str, Any]]`
 
 
 
-### `fir_apply(iq, taps)`
+### `fir_apply(iq: 'Any', taps: 'Any') -> 'np.ndarray'`
 
 Apply an FIR filter to a signal by direct convolution. OUR code.
 
@@ -1412,12 +1551,15 @@ truncated to the first len(iq) samples -- matching lfilter's output).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `taps` |  | *required* |
+| `iq` | `Any` | *required* |
+| `taps` | `Any` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `fir_apply_centered(iq, taps)`
+### `fir_apply_centered(iq: 'Any', taps: 'Any') -> 'np.ndarray'`
 
 Apply an FIR with the group delay removed (zero-phase alignment).
 
@@ -1430,12 +1572,15 @@ returns the 'same'-mode convolution (centered), trimming the delay.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `taps` |  | *required* |
+| `iq` | `Any` | *required* |
+| `taps` | `Any` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `fm_demod(iq, deviation_hz=None, sample_rate=None)`
+### `fm_demod(iq: 'Any', sample_rate: 'float | None' = None, deviation_hz: 'float | None' = None) -> 'np.ndarray'`
 
 Demodulate frequency modulation via the phase discriminator. OUR code.
 
@@ -1455,13 +1600,16 @@ indication why.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `deviation_hz` |  | `None` |
-| `sample_rate` |  | `None` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float | None` | `None` |
+| `deviation_hz` | `float | None` | `None` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `fm_modulate(message, deviation_hz, sample_rate)`
+### `fm_modulate(message: 'Any', sample_rate: 'float', deviation_hz: 'float') -> 'np.ndarray'`
 
 FM-modulate a real message into IQ. Inverse of fm_demod. OUR code.
 
@@ -1480,13 +1628,16 @@ Returns unit-magnitude complex64 IQ (FM is constant-envelope).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `message` |  | *required* |
-| `deviation_hz` |  | *required* |
-| `sample_rate` |  | *required* |
+| `message` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `deviation_hz` | `float` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `fm_stereo_decode(composite, sample_rate, pilot_hz=19000.0, audio_bw=15000.0, pilot_bw=1000.0)`
+### `fm_stereo_decode(composite: 'Any', sample_rate: 'float', pilot_hz: 'float' = 19000.0, audio_bw_hz: 'float' = 15000.0, pilot_bw_hz: 'float' = 1000.0) -> 'tuple[np.ndarray, np.ndarray]'`
 
 Recover left/right audio from a demodulated FM stereo composite. OUR code.
 
@@ -1532,15 +1683,18 @@ actually present rather than decoding unconditionally.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `composite` |  | *required* |
-| `sample_rate` |  | *required* |
-| `pilot_hz` |  | `19000.0` |
-| `audio_bw` |  | `15000.0` |
-| `pilot_bw` |  | `1000.0` |
+| `composite` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `pilot_hz` | `float` | `19000.0` |
+| `audio_bw_hz` | `float` | `15000.0` |
+| `pilot_bw_hz` | `float` | `1000.0` |
+
+
+**Returns:** `tuple[np.ndarray, np.ndarray]`
 
 
 
-### `frequency_shift(iq, shift_hz, sample_rate)`
+### `frequency_shift(iq: 'Any', sample_rate: 'float', shift_hz: 'float') -> 'np.ndarray'`
 
 Shift a complex signal up (positive) or down (negative) in frequency.
 
@@ -1552,13 +1706,16 @@ baseband (0 Hz), pass shift_hz = -f.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `shift_hz` |  | *required* |
-| `sample_rate` |  | *required* |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `shift_hz` | `float` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `from_db(db, *, power=True)`
+### `from_db(db: 'Any', *, power: 'bool' = True) -> 'np.ndarray'`
 
 Inverse of to_db: dB back to a linear value.
 
@@ -1567,12 +1724,15 @@ Inverse of to_db: dB back to a linear value.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `db` |  | *required* |
-| `power` |  | `True` |
+| `db` | `Any` | *required* |
+| `power` | `bool` | `True` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `fsk_demod(iq, sample_rate, threshold_hz=0.0, smooth_samples=0)`
+### `fsk_demod(iq: 'Any', sample_rate: 'float', threshold_hz: 'float | str | None' = 0.0, smooth_samples: 'int' = 0) -> 'np.ndarray'`
 
 Demodulate 2-level frequency-shift keying. OUR code.
 
@@ -1585,7 +1745,9 @@ is the common case after tuning to baseband).
 threshold_hz: the mark/space decision frequency. Two real radios never
     share an oscillator, so a carrier frequency offset (crystal ppm --
     easily +/-10-20 kHz at 433 MHz between two SDRs) shifts BOTH tones and
-    biases the fixed 0 Hz split. Pass "auto" to threshold at the
+    biases the fixed 0 Hz split. Pass None (the library's spelling of
+    "decide it from the data", as in ook_slice / find_bursts; the string
+    "auto" is accepted as a synonym) to threshold at the
     amplitude^2-weighted mean of the instantaneous frequency instead: with
     roughly balanced mark/space time (any frame with an alternating
     preamble qualifies) that mean IS the offset, so the split self-centers.
@@ -1608,14 +1770,17 @@ GFSK/MSK well enough for typical ISM-band sensors and pagers.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `threshold_hz` |  | `0.0` |
-| `smooth_samples` |  | `0` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `threshold_hz` | `float | str | None` | `0.0` |
+| `smooth_samples` | `int` | `0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `fsk_demod_nlevel(iq, sample_rate, n_levels=4, thresholds=None, smooth_samples=0)`
+### `fsk_demod_nlevel(iq: 'Any', sample_rate: 'float', n_levels: 'int' = 4, thresholds: 'Any | None' = None, smooth_samples: 'int' = 0) -> 'np.ndarray'`
 
 Demodulate N-level FSK (4-FSK, etc.) and CPFSK. OUR code.
 
@@ -1625,7 +1790,8 @@ frequency, it slices the frequency into n_levels bands. Used by 4-FSK
 phase is a transmit-side property; the receiver still reads instantaneous
 frequency.
 
-thresholds: explicit frequency band centers (Hz). If None, the levels are
+thresholds: explicit frequency band centers (Hz); when given they define
+    the level count and n_levels is ignored. If None, n_levels centers are
     spread uniformly across the observed frequency range -- fine for a
     clean capture; pass measured centers for real signals.
 smooth_samples: if > 1, moving-average the instantaneous frequency over
@@ -1645,15 +1811,18 @@ Returns per-sample symbol indices 0..n_levels-1.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `n_levels` |  | `4` |
-| `thresholds` |  | `None` |
-| `smooth_samples` |  | `0` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `n_levels` | `int` | `4` |
+| `thresholds` | `Any | None` | `None` |
+| `smooth_samples` | `int` | `0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `fsk_modulate(bits, samples_per_symbol, deviation_hz, sample_rate, pad_symbols=0)`
+### `fsk_modulate(bits: 'Any', samples_per_symbol: 'int', deviation_hz: 'float', sample_rate: 'float', pad_symbols: 'int' = 0) -> 'np.ndarray'`
 
 Binary FSK: bit selects one of two frequencies. Inverse of fsk_demod.
 
@@ -1683,15 +1852,18 @@ constant-envelope); the pad regions are silence.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `samples_per_symbol` |  | *required* |
-| `deviation_hz` |  | *required* |
-| `sample_rate` |  | *required* |
-| `pad_symbols` |  | `0` |
+| `bits` | `Any` | *required* |
+| `samples_per_symbol` | `int` | *required* |
+| `deviation_hz` | `float` | *required* |
+| `sample_rate` | `float` | *required* |
+| `pad_symbols` | `int` | `0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `instantaneous_frequency(iq, sample_rate=None)`
+### `instantaneous_frequency(iq: 'Any', sample_rate: 'float | None' = None) -> 'np.ndarray'`
 
 The instantaneous frequency of a complex signal. OUR code.
 
@@ -1708,12 +1880,15 @@ len(iq) - 1 (one difference per adjacent pair).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | `None` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float | None` | `None` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `instantaneous_phase(iq, unwrap=True)`
+### `instantaneous_phase(iq: 'Any', unwrap: 'bool' = True) -> 'np.ndarray'`
 
 The phase angle of each complex sample. OUR code.
 
@@ -1726,12 +1901,15 @@ measuring frequency as its slope).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `unwrap` |  | `True` |
+| `iq` | `Any` | *required* |
+| `unwrap` | `bool` | `True` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `interpolate(iq, factor, half_len=10)`
+### `interpolate(iq: 'Any', factor: 'int', half_len: 'int' = 10) -> 'np.ndarray'`
 
 Upsample by ``factor`` with interpolation filtering. OUR code.
 
@@ -1740,13 +1918,16 @@ Upsample by ``factor`` with interpolation filtering. OUR code.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `factor` |  | *required* |
-| `half_len` |  | `10` |
+| `iq` | `Any` | *required* |
+| `factor` | `int` | *required* |
+| `half_len` | `int` | `10` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `matched_filter(signal, template)`
+### `matched_filter(signal: 'Any', template: 'Any') -> 'np.ndarray'`
 
 Correlate a known template against a signal. OUR code.
 
@@ -1764,19 +1945,23 @@ np.correlate computes.)
 
 | Parameter | Type | Default |
 |---|---|---|
-| `signal` |  | *required* |
-| `template` |  | *required* |
+| `signal` | `Any` | *required* |
+| `template` | `Any` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `nask_slice(envelope, n_levels=4, levels=None)`
+### `nask_slice(envelope: 'Any', n_levels: 'int' = 4, levels: 'Any | None' = None) -> 'np.ndarray'`
 
 Slice an amplitude envelope into N levels (M-ASK). OUR code.
 
 Generalizes 2-level OOK to N amplitude levels (4-ASK, 8-ASK). Returns a
 per-sample symbol index in 0..n_levels-1.
 
-levels: explicit amplitude thresholds/centers. If None, the levels are
+levels: explicit amplitude centers; when given, they define the level
+count and n_levels is ignored. If None, n_levels centers are
 spread uniformly from the envelope's min to its max -- a reasonable default
 for a clean capture, but YOU can pass measured levels for real signals where
 the spacing isn't uniform.
@@ -1786,13 +1971,16 @@ the spacing isn't uniform.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `envelope` |  | *required* |
-| `n_levels` |  | `4` |
-| `levels` |  | `None` |
+| `envelope` | `Any` | *required* |
+| `n_levels` | `int` | `4` |
+| `levels` | `Any | None` | `None` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `normalize(iq, mode='peak', target=1.0)`
+### `normalize(iq: 'Any', mode: 'str' = 'peak', target: 'float' = 1.0) -> 'np.ndarray'`
 
 Rescale a signal's amplitude. EXPLICIT -- you choose if and how.
 
@@ -1814,32 +2002,47 @@ returned unchanged (nothing sensible to scale to).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `mode` |  | `'peak'` |
-| `target` |  | `1.0` |
+| `iq` | `Any` | *required* |
+| `mode` | `str` | `'peak'` |
+| `target` | `float` | `1.0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `occupied_bandwidth(iq, sample_rate, fraction=0.99, nfft=1024)`
+### `occupied_bandwidth(iq: 'Any', sample_rate: 'float', fraction: 'float' = 0.99, nfft: 'int' = 1024) -> 'float'`
 
-Bandwidth containing ``fraction`` of the total power (e.g. 99%).
+Bandwidth containing ``fraction`` of the total power (e.g. 99%). OUR code.
 
-Returns bandwidth in Hz. Integrates the PSD and finds the central band
-holding the requested fraction of total power.
+The standard occupied-bandwidth definition: from the averaged PSD, the
+frequency interval between the point where the cumulative power (low to
+high frequency) reaches (1 - fraction)/2 of the total and the point where
+it reaches 1 - (1 - fraction)/2. It is computed WHEREVER the signal sits in
+the span -- a tone at +100 kHz has the bandwidth of a tone, not of a
+200 kHz band around DC. (An earlier version integrated outward from 0 Hz,
+which assumed the signal was centred and reported 203 kHz for that tone,
+and 1.47 MHz for a 200 kHz FM station tuned off centre.)
+
+Returns the bandwidth in Hz, quantized to the PSD's bin spacing
+(sample_rate / nfft). Raises ValueError for fraction outside (0, 1].
 
 
 **Parameters:**
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `fraction` |  | `0.99` |
-| `nfft` |  | `1024` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `fraction` | `float` | `0.99` |
+| `nfft` | `int` | `1024` |
+
+
+**Returns:** `float`
 
 
 
-### `ook_envelope(iq)`
+### `ook_envelope(iq: 'Any') -> 'np.ndarray'`
 
 On-off-keying / ASK front end: the magnitude envelope. OUR code.
 
@@ -1851,11 +2054,14 @@ level). Feed to ``ook_slice`` to recover bits.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
+| `iq` | `Any` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `ook_modulate(bits, samples_per_symbol, high=1.0, low=0.0, pad_symbols=0)`
+### `ook_modulate(bits: 'Any', samples_per_symbol: 'int', high: 'float' = 1.0, low: 'float' = 0.0, pad_symbols: 'int' = 0) -> 'np.ndarray'`
 
 On-off keying: bit 1 -> carrier on, bit 0 -> off. Inverse of ook_slice.
 
@@ -1881,15 +2087,18 @@ Returns complex64 baseband (real-valued amplitude, zero phase).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `samples_per_symbol` |  | *required* |
-| `high` |  | `1.0` |
-| `low` |  | `0.0` |
-| `pad_symbols` |  | `0` |
+| `bits` | `Any` | *required* |
+| `samples_per_symbol` | `int` | *required* |
+| `high` | `float` | `1.0` |
+| `low` | `float` | `0.0` |
+| `pad_symbols` | `int` | `0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `ook_slice(envelope, threshold=None)`
+### `ook_slice(envelope: 'Any', threshold: 'float | None' = None) -> 'np.ndarray'`
 
 Threshold an OOK envelope into a 0/1 stream. OUR code.
 
@@ -1902,12 +2111,15 @@ capture). Returns a uint8 array of 0/1.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `envelope` |  | *required* |
-| `threshold` |  | `None` |
+| `envelope` | `Any` | *required* |
+| `threshold` | `float | None` | `None` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `power_dbfs(iq)`
+### `power_dbfs(iq: 'Any') -> 'float'`
 
 Mean power of a complex signal in dBFS (dB relative to |amp|=1).
 
@@ -1916,11 +2128,14 @@ Mean power of a complex signal in dBFS (dB relative to |amp|=1).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
+| `iq` | `Any` | *required* |
+
+
+**Returns:** `float`
 
 
 
-### `power_dbm(iq, cal_offset_db)`
+### `power_dbm(iq: 'Any', cal_offset_db: 'float') -> 'float'`
 
 Absolute power in dBm = power_dbfs(iq) + cal_offset_db. OUR code.
 
@@ -1938,12 +2153,15 @@ so the responsibility is yours.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `cal_offset_db` |  | *required* |
+| `iq` | `Any` | *required* |
+| `cal_offset_db` | `float` | *required* |
+
+
+**Returns:** `float`
 
 
 
-### `psd(iq, sample_rate, nfft=1024, window='hann', center_freq=0.0, scaling='density')`
+### `psd(iq: 'Any', sample_rate: 'float', nfft: 'int' = 1024, window: 'str | np.ndarray | None' = 'hann', center_freq: 'float' = 0.0, scaling: 'str' = 'density') -> 'tuple[np.ndarray, np.ndarray]'`
 
 Power spectral density of a complex signal via Welch averaging. OUR code.
 
@@ -1976,16 +2194,19 @@ occupied_bandwidth, snr_db -- confidently wrong on short inputs.)
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `nfft` |  | `1024` |
-| `window` |  | `'hann'` |
-| `center_freq` |  | `0.0` |
-| `scaling` |  | `'density'` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `nfft` | `int` | `1024` |
+| `window` | `str | np.ndarray | None` | `'hann'` |
+| `center_freq` | `float` | `0.0` |
+| `scaling` | `str` | `'density'` |
+
+
+**Returns:** `tuple[np.ndarray, np.ndarray]`
 
 
 
-### `psk8_demod(symbols)`
+### `psk8_demod(symbols: 'Any') -> 'DemodResult'`
 
 Demodulate 8-PSK from recovered symbols. OUR code.
 
@@ -2005,11 +2226,14 @@ here than for QPSK.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `symbols` |  | *required* |
+| `symbols` | `Any` | *required* |
+
+
+**Returns:** `DemodResult`
 
 
 
-### `pulse_shape(symbols, sps, span_symbols=8, beta=0.35)`
+### `pulse_shape(symbols: 'Any', sps: 'int', span_symbols: 'int' = 8, beta: 'float' = 0.35) -> 'np.ndarray'`
 
 Upsample symbols and shape them with an RRC pulse. OUR code.
 
@@ -2023,14 +2247,17 @@ receive. Returns the shaped complex64 baseband signal.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `symbols` |  | *required* |
-| `sps` |  | *required* |
-| `span_symbols` |  | `8` |
-| `beta` |  | `0.35` |
+| `symbols` | `Any` | *required* |
+| `sps` | `int` | *required* |
+| `span_symbols` | `int` | `8` |
+| `beta` | `float` | `0.35` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `qam16_demod(symbols, normalize=True)`
+### `qam16_demod(symbols: 'Any', normalize: 'bool' = True) -> 'DemodResult'`
 
 Demodulate QAM-16 from recovered symbols. OUR code.
 
@@ -2055,12 +2282,15 @@ normalize=False if you've already scaled the signal yourself.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `symbols` |  | *required* |
-| `normalize` |  | `True` |
+| `symbols` | `Any` | *required* |
+| `normalize` | `bool` | `True` |
+
+
+**Returns:** `DemodResult`
 
 
 
-### `qpsk_demod(symbols, gray=True)`
+### `qpsk_demod(symbols: 'Any', gray: 'bool' = True) -> 'DemodResult'`
 
 Demodulate QPSK from recovered symbols. OUR code.
 
@@ -2085,20 +2315,24 @@ standard choice that minimizes bit errors.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `symbols` |  | *required* |
-| `gray` |  | `True` |
+| `symbols` | `Any` | *required* |
+| `gray` | `bool` | `True` |
+
+
+**Returns:** `DemodResult`
 
 
 
-### `qpsk_modulate(bits, samples_per_symbol=1, pulse_shaping=False, beta=0.35, span_symbols=8, gray=True, pad_symbols=0)`
+### `qpsk_modulate(bits: 'Any', samples_per_symbol: 'int' = 1, pulse_shaping: 'bool' = False, beta: 'float' = 0.35, span_symbols: 'int' = 8, gray: 'bool' = True, pad_symbols: 'int' = 0) -> 'np.ndarray'`
 
 QPSK: 2 bits per symbol, Gray-coded quadrants. Inverse of qpsk_demod.
 
 Pairs of bits map to the four points (1+1j, -1+1j, -1-1j, 1-1j)/sqrt(2) via
-the same Gray convention qpsk_demod uses, so the round-trip is exact. An odd
-trailing bit is dropped (QPSK consumes bits in pairs).
+the same Gray convention qpsk_demod uses, so the round-trip is exact. The
+bit count must be even (QPSK consumes bits in pairs); an odd count is a
+ValueError rather than a silently dropped bit.
 
-bits:               sequence of 0/1 (length should be even).
+bits:               sequence of 0/1 (length must be even).
 samples_per_symbol: samples per symbol.
 pulse_shaping:      RRC-shape the symbols if True.
 gray:               use Gray coding (match the demod).
@@ -2110,17 +2344,20 @@ Returns complex64 baseband.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `samples_per_symbol` |  | `1` |
-| `pulse_shaping` |  | `False` |
-| `beta` |  | `0.35` |
-| `span_symbols` |  | `8` |
-| `gray` |  | `True` |
-| `pad_symbols` |  | `0` |
+| `bits` | `Any` | *required* |
+| `samples_per_symbol` | `int` | `1` |
+| `pulse_shaping` | `bool` | `False` |
+| `beta` | `float` | `0.35` |
+| `span_symbols` | `int` | `8` |
+| `gray` | `bool` | `True` |
+| `pad_symbols` | `int` | `0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `remove_dc(iq)`
+### `remove_dc(iq: 'Any') -> 'np.ndarray'`
 
 Remove the DC offset / LO leakage: subtract the complex mean. OUR code.
 
@@ -2141,11 +2378,14 @@ is never near your signal in the first place. See docs/DC_SPIKE.md.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
+| `iq` | `Any` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `resample_poly(iq, up, down, half_len=10, window='hamming')`
+### `resample_poly(iq: 'Any', up: 'int', down: 'int', half_len: 'int' = 10, window: 'str' = 'hamming') -> 'np.ndarray'`
 
 Rational resample by up/down. OUR implementation (polyphase).
 
@@ -2176,15 +2416,18 @@ half_len:  controls filter length / quality.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `up` |  | *required* |
-| `down` |  | *required* |
-| `half_len` |  | `10` |
-| `window` |  | `'hamming'` |
+| `iq` | `Any` | *required* |
+| `up` | `int` | *required* |
+| `down` | `int` | *required* |
+| `half_len` | `int` | `10` |
+| `window` | `str` | `'hamming'` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `rrc_taps(sps, span_symbols=8, beta=0.35)`
+### `rrc_taps(sps: 'int', span_symbols: 'int' = 8, beta: 'float' = 0.35) -> 'np.ndarray'`
 
 Root-raised-cosine filter taps. OUR code.
 
@@ -2201,13 +2444,16 @@ the zero-ISI pulse).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `sps` |  | *required* |
-| `span_symbols` |  | `8` |
-| `beta` |  | `0.35` |
+| `sps` | `int` | *required* |
+| `span_symbols` | `int` | `8` |
+| `beta` | `float` | `0.35` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `sample_symbols(bits, samples_per_symbol, active=None)`
+### `sample_symbols(bits: 'Any', samples_per_symbol: 'int', active: 'Any | None' = None) -> 'np.ndarray'`
 
 Decimate an over-sampled 0/1 stream to symbols at the RIGHT phase. OUR code.
 
@@ -2241,13 +2487,16 @@ Returns a uint8 array with one entry per symbol period.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `samples_per_symbol` |  | *required* |
-| `active` |  | `None` |
+| `bits` | `Any` | *required* |
+| `samples_per_symbol` | `int` | *required* |
+| `active` | `Any | None` | `None` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `slice_to_symbols(bits, samples_per_symbol)`
+### `slice_to_symbols(bits: 'Any', samples_per_symbol: 'float') -> 'np.ndarray'`
 
 Collapse an over-sampled 0/1 stream into one bit per symbol. OUR code.
 
@@ -2259,12 +2508,15 @@ round(run_length / spb) times. Returns a uint8 array of symbol bits.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `samples_per_symbol` |  | *required* |
+| `bits` | `Any` | *required* |
+| `samples_per_symbol` | `float` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `snr_db(iq, sample_rate, signal_band_hz, nfft=1024)`
+### `snr_db(iq: 'Any', sample_rate: 'float', signal_band_hz: 'Any', nfft: 'int' = 1024) -> 'float'`
 
 Estimate SNR by comparing in-band power to out-of-band (noise) power.
 
@@ -2277,14 +2529,17 @@ signal_band_hz: (low, high) frequency range (relative to center) holding
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `signal_band_hz` |  | *required* |
-| `nfft` |  | `1024` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `signal_band_hz` | `Any` | *required* |
+| `nfft` | `int` | `1024` |
+
+
+**Returns:** `float`
 
 
 
-### `spectrogram(iq, sample_rate, nfft=1024, overlap=0.5, window='hann', center_freq=0.0)`
+### `spectrogram(iq: 'Any', sample_rate: 'float', nfft: 'int' = 1024, overlap: 'float' = 0.5, window: 'str | np.ndarray | None' = 'hann', center_freq: 'float' = 0.0) -> 'tuple[np.ndarray, np.ndarray, np.ndarray]'`
 
 Time-frequency spectrogram. OUR code (numpy FFT per frame).
 
@@ -2296,16 +2551,19 @@ Returns (freqs_hz, times_s, sxx_db) where sxx_db has shape
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `nfft` |  | `1024` |
-| `overlap` |  | `0.5` |
-| `window` |  | `'hann'` |
-| `center_freq` |  | `0.0` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `nfft` | `int` | `1024` |
+| `overlap` | `float` | `0.5` |
+| `window` | `str | np.ndarray | None` | `'hann'` |
+| `center_freq` | `float` | `0.0` |
+
+
+**Returns:** `tuple[np.ndarray, np.ndarray, np.ndarray]`
 
 
 
-### `ssb_demod(iq, sample_rate, sideband='usb', bfo_hz=0.0)`
+### `ssb_demod(iq: 'Any', sample_rate: 'float', sideband: 'str' = 'usb', bfo_hz: 'float' = 0.0) -> 'np.ndarray'`
 
 Demodulate single-sideband (USB or LSB). OUR code.
 
@@ -2329,14 +2587,17 @@ Returns the real demodulated audio.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `sideband` |  | `'usb'` |
-| `bfo_hz` |  | `0.0` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `sideband` | `str` | `'usb'` |
+| `bfo_hz` | `float` | `0.0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `ssb_modulate(message, sideband='usb')`
+### `ssb_modulate(message: 'Any', sideband: 'str' = 'usb') -> 'np.ndarray'`
 
 SSB-modulate a real message into IQ. Inverse of ssb_demod. OUR code.
 
@@ -2355,12 +2616,15 @@ Returns complex64 IQ -- the single-sideband analytic signal.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `message` |  | *required* |
-| `sideband` |  | `'usb'` |
+| `message` | `Any` | *required* |
+| `sideband` | `str` | `'usb'` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `symbol_sync(iq, samples_per_symbol, method='gardner', loop_bw=0.01, damping=0.707, diagnostics=False, csv_path=None, lock_threshold=None)`
+### `symbol_sync(iq: 'Any', samples_per_symbol: 'float', method: 'str' = 'gardner', loop_bw: 'float' = 0.01, damping: 'float' = 0.707, diagnostics: 'bool' = False, csv_path: 'str | os.PathLike[str] | None' = None, lock_threshold: 'float | None' = None) -> 'np.ndarray | tuple[np.ndarray, LoopDiagnostics]'`
 
 Recover symbol timing: pick the best sampling instant per symbol. OUR code.
 
@@ -2418,18 +2682,21 @@ Muller is decision-directed (use it after, or on a clean constellation).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `samples_per_symbol` |  | *required* |
-| `method` |  | `'gardner'` |
-| `loop_bw` |  | `0.01` |
-| `damping` |  | `0.707` |
-| `diagnostics` |  | `False` |
-| `csv_path` |  | `None` |
-| `lock_threshold` |  | `None` |
+| `iq` | `Any` | *required* |
+| `samples_per_symbol` | `float` | *required* |
+| `method` | `str` | `'gardner'` |
+| `loop_bw` | `float` | `0.01` |
+| `damping` | `float` | `0.707` |
+| `diagnostics` | `bool` | `False` |
+| `csv_path` | `str | os.PathLike[str] | None` | `None` |
+| `lock_threshold` | `float | None` | `None` |
+
+
+**Returns:** `np.ndarray | tuple[np.ndarray, LoopDiagnostics]`
 
 
 
-### `to_db(x, *, power=True, epsilon=1e-20)`
+### `to_db(x: 'Any', *, power: 'bool' = True, epsilon: 'float' = 1e-20) -> 'np.ndarray'`
 
 Convert linear values to dB.
 
@@ -2442,13 +2709,16 @@ epsilon floors the input so zeros don't produce -inf.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `x` |  | *required* |
-| `power` |  | `True` |
-| `epsilon` |  | `1e-20` |
+| `x` | `Any` | *required* |
+| `power` | `bool` | `True` |
+| `epsilon` | `float` | `1e-20` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `tune_to_baseband(iq, offset_hz, sample_rate)`
+### `tune_to_baseband(iq: 'Any', sample_rate: 'float', offset_hz: 'float') -> 'np.ndarray'`
 
 Bring a signal sitting at +offset_hz down to 0 Hz (DC).
 
@@ -2457,13 +2727,16 @@ Bring a signal sitting at +offset_hz down to 0 Hz (DC).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `offset_hz` |  | *required* |
-| `sample_rate` |  | *required* |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `offset_hz` | `float` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `upsample(symbols, sps)`
+### `upsample(symbols: 'Any', sps: 'int') -> 'np.ndarray'`
 
 Insert sps-1 zeros between symbols (zero-stuffing). OUR code.
 
@@ -2475,8 +2748,11 @@ filter to spread it into a pulse. Returns a complex64 array sps times longer.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `symbols` |  | *required* |
-| `sps` |  | *required* |
+| `symbols` | `Any` | *required* |
+| `sps` | `int` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
@@ -2520,7 +2796,7 @@ set max_gain to bound silent-gap runaway).
 
 **Methods:**
 
-#### `reset(self)`
+#### `reset(self) -> 'None'`
 
 Forget the carried state (start the next block fresh).
 
@@ -2551,13 +2827,13 @@ warns (the offset drifts with frequency); pass `warn=False` to silence, or
 widen/disable the threshold with `drift_warn_hz`.
 
 
-**Constructor:** `Calibration(self, offset_db: 'float', frequency_hz: 'float | None' = None, conditions: 'dict' = <factory>, notes: 'str' = '', measured_at: 'str' = '', drift_warn_hz: 'float' = 5000000.0) -> None`
+**Constructor:** `Calibration(self, offset_db: 'float', frequency_hz: 'float | None' = None, conditions: 'dict[str, Any]' = <factory>, notes: 'str' = '', measured_at: 'str' = '', drift_warn_hz: 'float' = 5000000.0) -> None`
 
 | Parameter | Type | Default |
 |---|---|---|
 | `offset_db` | `float` | *required* |
 | `frequency_hz` | `float | None` | `None` |
-| `conditions` | `dict` | `<factory>` |
+| `conditions` | `dict[str, Any]` | `<factory>` |
 | `notes` | `str` | `''` |
 | `measured_at` | `str` | `''` |
 | `drift_warn_hz` | `float` | `5000000.0` |
@@ -2565,16 +2841,16 @@ widen/disable the threshold with `drift_warn_hz`.
 
 **Methods:**
 
-#### `load(path)`
+#### `load(path: 'str | os.PathLike[str]') -> 'Calibration'`
 
 Load a calibration saved by `save`.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `path` |  | *required* |
+| `path` | `str | os.PathLike[str]` | *required* |
 
 
-#### `power_dbm(self, iq, at_frequency_hz=None, warn=True)`
+#### `power_dbm(self, iq: 'Any', at_frequency_hz: 'float | None' = None, warn: 'bool' = True) -> 'float'`
 
 Absolute power of `iq` in dBm, using this calibration's offset.
 
@@ -2586,18 +2862,18 @@ warn: set False to silence the drift warning for this call.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `at_frequency_hz` |  | `None` |
-| `warn` |  | `True` |
+| `iq` | `Any` | *required* |
+| `at_frequency_hz` | `float | None` | `None` |
+| `warn` | `bool` | `True` |
 
 
-#### `save(self, path)`
+#### `save(self, path: 'str | os.PathLike[str]') -> 'str'`
 
 Write the calibration to a human-readable JSON file.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `path` |  | *required* |
+| `path` | `str | os.PathLike[str]` | *required* |
 
 
 
@@ -2605,10 +2881,29 @@ Write the calibration to a human-readable JSON file.
 
 - `offset_db`: `float`
 - `frequency_hz`: `float | None`
-- `conditions`: `dict`
+- `conditions`: `dict[str, Any]`
 - `notes`: `str`
 - `measured_at`: `str`
 - `drift_warn_hz`: `float`
+
+
+
+### class `DemodResult`
+
+Hard bits plus the soft information behind them.
+
+bits: uint8 array of 0/1, k bits per symbol for a 2^k-ary scheme.
+soft: per-symbol decision information; its meaning depends on the demod
+      (bpsk/dbpsk: the real-axis statistic, float64; qpsk/qam16: the
+      chosen constellation points, complex64; psk8: the sector index,
+      uint8; dqpsk: the differential angle, float64). Confidence,
+      constellation plots and EVM all start from here.
+
+
+**Attributes:**
+
+- `bits`: `ForwardRef('np.ndarray')`
+- `soft`: `ForwardRef('np.ndarray')`
 
 
 
@@ -2652,7 +2947,7 @@ clip/too-weak steps the remaining frontend stages in declared order, so
 put the cheaper-to-change stage first (LNA before amp).
 
 
-**Constructor:** `GainModel(self, stages: 'Sequence[GainStage]')`
+**Constructor:** `GainModel(self, stages: 'Sequence[GainStage]') -> 'None'`
 
 | Parameter | Type | Default |
 |---|---|---|
@@ -2661,42 +2956,42 @@ put the cheaper-to-change stage first (LNA before amp).
 
 **Methods:**
 
-#### `by_name(self, name)`
+#### `by_name(self, name: 'str') -> 'GainStage'`
 
 Return the :class:`GainStage` called ``name``; ``KeyError`` if absent.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `name` |  | *required* |
+| `name` | `str` | *required* |
 
 
-#### `default_frontend(self)`
+#### `default_frontend(self) -> 'dict[str, Any]'`
 
 Each frontend stage at its :meth:`GainStage.default_value`, as a dict.
 
 
-#### `frontend_db(self, combo)`
+#### `frontend_db(self, combo: 'dict[str, Any]') -> 'float'`
 
 Total frontend gain in dB for a ``{name: value}`` combo (stages not
 in ``combo`` contribute nothing).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `combo` |  | *required* |
+| `combo` | `dict[str, Any]` | *required* |
 
 
-#### `frontend_grid(self)`
+#### `frontend_grid(self) -> 'Iterator[dict[str, Any]]'`
 
 Every combination of frontend stage settings, as dicts.
 
 
-#### `level_stage(self)`
+#### `level_stage(self) -> 'GainStage'`
 
 The stage walked for ADC level: the last level stage, or -- when the
 radio has none -- the last frontend stage (one knob does both).
 
 
-#### `min_settings(self)`
+#### `min_settings(self) -> 'dict[str, Any]'`
 
 Every stage at its lowest step, as a ``{name: value}`` dict.
 
@@ -2718,12 +3013,12 @@ default: the value used when this stage is NOT chosen by a quality sweep
          (no quality metric available). None means the lowest step.
 
 
-**Constructor:** `GainStage(self, name: 'str', steps: 'tuple', role: 'str', db: 'Callable[..., float]' = <class 'float'>, default: 'object' = None) -> None`
+**Constructor:** `GainStage(self, name: 'str', steps: 'tuple[Any, ...]', role: 'str', db: 'Callable[..., float]' = <class 'float'>, default: 'object' = None) -> None`
 
 | Parameter | Type | Default |
 |---|---|---|
 | `name` | `str` | *required* |
-| `steps` | `tuple` | *required* |
+| `steps` | `tuple[Any, ...]` | *required* |
 | `role` | `str` | *required* |
 | `db` | `Callable[..., float]` | `<class 'float'>` |
 | `default` | `object` | `None` |
@@ -2733,20 +3028,20 @@ default: the value used when this stage is NOT chosen by a quality sweep
 
 #### `db(x=0, /)`
 
-Convert a string or number to a floating-point number, if possible.
+Convert a string or number to a floating point number, if possible.
 
 | Parameter | Type | Default |
 |---|---|---|
 | `x` |  | `0` |
 
 
-#### `default_value(self)`
+#### `default_value(self) -> 'Any'`
 
 The setting used when no quality sweep picks this stage: ``default``
 if given, otherwise the lowest step.
 
 
-#### `min_gap(self)`
+#### `min_gap(self) -> 'float'`
 
 Smallest positive spacing between consecutive numeric steps.
 
@@ -2755,7 +3050,7 @@ Smallest positive spacing between consecutive numeric steps.
 **Attributes:**
 
 - `name`: `str`
-- `steps`: `tuple`
+- `steps`: `tuple[Any, ...]`
 - `role`: `str`
 - `db`: `Callable[..., float]`
 - `default`: `object`
@@ -2787,14 +3082,14 @@ locked:   summary -- True if the loop was locked over the final portion.
 
 **Methods:**
 
-#### `to_csv(self, path)`
+#### `to_csv(self, path: 'str | os.PathLike[str]') -> 'str'`
 
 Write the per-sample diagnostics to a CSV (sample, error, estimate,
 lock). Useful for plotting convergence outside the library.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `path` |  | *required* |
+| `path` | `str | os.PathLike[str]` | *required* |
 
 
 
@@ -2809,7 +3104,7 @@ lock). Useful for plotting convergence outside the library.
 
 ### Functions
 
-### `add_cfo(iq, cfo_hz, sample_rate)`
+### `add_cfo(iq: 'Any', sample_rate: 'float', cfo_hz: 'float') -> 'np.ndarray'`
 
 Apply a carrier frequency offset (Hz). OUR code.
 
@@ -2822,13 +3117,16 @@ carrier recovery, or measurable with estimate_cfo.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `cfo_hz` |  | *required* |
-| `sample_rate` |  | *required* |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `cfo_hz` | `float` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `add_delay(iq, delay_samples)`
+### `add_delay(iq: 'Any', delay_samples: 'int') -> 'np.ndarray'`
 
 Delay the signal by an integer number of samples (zero-pad the front).
 
@@ -2840,8 +3138,11 @@ as the input (the tail is truncated); negative delay advances. OUR code.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `delay_samples` |  | *required* |
+| `iq` | `Any` | *required* |
+| `delay_samples` | `int` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
@@ -2893,7 +3194,7 @@ This is the standard second-order I/Q imbalance model used by the estimator.
 
 
 
-### `add_noise(iq, snr_db, rng=None)`
+### `add_noise(iq: 'Any', snr_db: 'float', seed: 'int | None' = None, rng: 'np.random.Generator | None' = None) -> 'np.ndarray'`
 
 Add complex AWGN at a specified SNR (dB) relative to the signal. OUR code.
 
@@ -2901,14 +3202,22 @@ Measures the signal's mean power, computes the noise power for the requested
 SNR, and adds complex Gaussian noise at that level. This is the honest way to
 set noise -- by the SNR you want, not an arbitrary amplitude.
 
+seed: int for a reproducible draw, as apply_channel / add_phase_noise take
+      it. rng: an existing np.random.Generator to draw from instead (one
+      of the two; rng wins if both are given). Neither -> fresh entropy.
+
 
 **Parameters:**
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `snr_db` |  | *required* |
-| `rng` |  | `None` |
+| `iq` | `Any` | *required* |
+| `snr_db` | `float` | *required* |
+| `seed` | `int | None` | `None` |
+| `rng` | `np.random.Generator | None` | `None` |
+
+
+**Returns:** `np.ndarray`
 
 
 
@@ -2966,7 +3275,7 @@ fall out of band and are not represented here.
 
 
 
-### `add_phase_noise(iq: 'np.ndarray', linewidth_hz: 'float', sample_rate: 'float', seed: 'int | None' = None) -> 'np.ndarray'`
+### `add_phase_noise(iq: 'np.ndarray', sample_rate: 'float', linewidth_hz: 'float', seed: 'int | None' = None) -> 'np.ndarray'`
 
 Apply oscillator phase noise as a Wiener (random-walk) phase process.
 
@@ -2998,8 +3307,8 @@ np.ndarray
 | Parameter | Type | Default |
 |---|---|---|
 | `iq` | `np.ndarray` | *required* |
-| `linewidth_hz` | `float` | *required* |
 | `sample_rate` | `float` | *required* |
+| `linewidth_hz` | `float` | *required* |
 | `seed` | `int | None` | `None` |
 
 
@@ -3007,7 +3316,7 @@ np.ndarray
 
 
 
-### `agc(iq, mode='rms', target=1.0, attack=0.01, decay=0.001, max_gain=None, _initial_gain=1.0, _initial_level=None)`
+### `agc(iq: 'Any', mode: 'str' = 'rms', target: 'float' = 1.0, attack: 'float' = 0.01, decay: 'float' = 0.001, max_gain: 'float | None' = None, _initial_gain: 'float' = 1.0, _initial_level: 'float | None' = None) -> 'tuple[np.ndarray, np.ndarray]'`
 
 Apply automatic gain control. Returns (adjusted_iq, gain_trace). OUR code.
 
@@ -3038,18 +3347,21 @@ and aren't normally set by hand.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `mode` |  | `'rms'` |
-| `target` |  | `1.0` |
-| `attack` |  | `0.01` |
-| `decay` |  | `0.001` |
-| `max_gain` |  | `None` |
-| `_initial_gain` |  | `1.0` |
-| `_initial_level` |  | `None` |
+| `iq` | `Any` | *required* |
+| `mode` | `str` | `'rms'` |
+| `target` | `float` | `1.0` |
+| `attack` | `float` | `0.01` |
+| `decay` | `float` | `0.001` |
+| `max_gain` | `float | None` | `None` |
+| `_initial_gain` | `float` | `1.0` |
+| `_initial_level` | `float | None` | `None` |
+
+
+**Returns:** `tuple[np.ndarray, np.ndarray]`
 
 
 
-### `am_demod(iq, dc_block=True)`
+### `am_demod(iq: 'Any', dc_block: 'bool' = True) -> 'np.ndarray'`
 
 Demodulate amplitude modulation: the envelope (magnitude). OUR code.
 
@@ -3061,12 +3373,15 @@ removed so the output swings around zero like audio.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `dc_block` |  | `True` |
+| `iq` | `Any` | *required* |
+| `dc_block` | `bool` | `True` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `am_modulate(message, modulation_index=0.5)`
+### `am_modulate(message: 'Any', modulation_index: 'float' = 0.5) -> 'np.ndarray'`
 
 AM-modulate a real message into IQ. Inverse of am_demod. OUR code.
 
@@ -3085,12 +3400,15 @@ Returns complex64 IQ with the message in its magnitude.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `message` |  | *required* |
-| `modulation_index` |  | `0.5` |
+| `message` | `Any` | *required* |
+| `modulation_index` | `float` | `0.5` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `apply_channel(iq, sample_rate=None, snr_db=None, cfo_hz=None, delay_samples=0, scale=1.0, phase=0.0, seed=None)`
+### `apply_channel(iq: 'Any', sample_rate: 'float | None' = None, snr_db: 'float | None' = None, cfo_hz: 'float | None' = None, delay_samples: 'int' = 0, scale: 'float' = 1.0, phase: 'float' = 0.0, seed: 'int | None' = None) -> 'np.ndarray'`
 
 Pass a signal through a simulated channel. OUR code.
 
@@ -3114,14 +3432,17 @@ to test how the link holds up before any hardware.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | `None` |
-| `snr_db` |  | `None` |
-| `cfo_hz` |  | `None` |
-| `delay_samples` |  | `0` |
-| `scale` |  | `1.0` |
-| `phase` |  | `0.0` |
-| `seed` |  | `None` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float | None` | `None` |
+| `snr_db` | `float | None` | `None` |
+| `cfo_hz` | `float | None` | `None` |
+| `delay_samples` | `int` | `0` |
+| `scale` | `float` | `1.0` |
+| `phase` | `float` | `0.0` |
+| `seed` | `int | None` | `None` |
+
+
+**Returns:** `np.ndarray`
 
 
 
@@ -3169,7 +3490,7 @@ np.ndarray
 
 
 
-### `bpsk_demod(iq, normalize_phase=True)`
+### `bpsk_demod(iq: 'Any', normalize_phase: 'bool' = True) -> 'DemodResult'`
 
 Demodulate binary phase-shift keying (coherent-ish). OUR code.
 
@@ -3180,7 +3501,7 @@ loop / carrier recovery). For captures with a residual carrier offset,
 correct it first (see estimate_cfo / frequency_shift) -- the library does
 not auto-recover the carrier.
 
-Returns (bits, soft) where bits is uint8 (0/1) and soft is the real-part
+Returns DemodResult(bits, soft): bits uint8 (0/1), soft the real-part
 decision statistic (useful for confidence / plotting a constellation).
 
 
@@ -3188,12 +3509,15 @@ decision statistic (useful for confidence / plotting a constellation).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `normalize_phase` |  | `True` |
+| `iq` | `Any` | *required* |
+| `normalize_phase` | `bool` | `True` |
+
+
+**Returns:** `DemodResult`
 
 
 
-### `bpsk_modulate(bits, samples_per_symbol=1, pulse_shaping=False, beta=0.35, span_symbols=8, pad_symbols=0)`
+### `bpsk_modulate(bits: 'Any', samples_per_symbol: 'int' = 1, pulse_shaping: 'bool' = False, beta: 'float' = 0.35, span_symbols: 'int' = 8, pad_symbols: 'int' = 0) -> 'np.ndarray'`
 
 BPSK: bit 1 -> +1, bit 0 -> -1 (phase 0 or pi). Inverse of bpsk_demod.
 
@@ -3214,16 +3538,19 @@ Returns complex64 baseband.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `samples_per_symbol` |  | `1` |
-| `pulse_shaping` |  | `False` |
-| `beta` |  | `0.35` |
-| `span_symbols` |  | `8` |
-| `pad_symbols` |  | `0` |
+| `bits` | `Any` | *required* |
+| `samples_per_symbol` | `int` | `1` |
+| `pulse_shaping` | `bool` | `False` |
+| `beta` | `float` | `0.35` |
+| `span_symbols` | `int` | `8` |
+| `pad_symbols` | `int` | `0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `build_frame(payload, sync=None, preamble_bits=32)`
+### `build_frame(payload: 'Any', sync: 'Any | None' = None, preamble_bits: 'int' = 32) -> 'np.ndarray'`
 
 Build a complete frame from a payload. Returns a bit array (0/1). OUR code.
 
@@ -3242,13 +3569,16 @@ The CRC covers the length byte and the payload, so a receiver validates both.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `payload` |  | *required* |
-| `sync` |  | `None` |
-| `preamble_bits` |  | `32` |
+| `payload` | `Any` | *required* |
+| `sync` | `Any | None` | `None` |
+| `preamble_bits` | `int` | `32` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `capture_health(iq, sample_rate, channel_bw=None, adc_bits=8, min_counts=4.0, min_excess_db=3.0, nfft=8192)`
+### `capture_health(iq: 'Any', sample_rate: 'float', channel_bw_hz: 'float | None' = None, adc_bits: 'int' = 8, min_counts: 'float' = 4.0, min_excess_db: 'float' = 3.0, nfft: 'int' = 8192, max_clip_fraction: 'float' = 0.001, max_dc_ratio: 'float' = 1.0) -> 'dict[str, Any]'`
 
 Assess whether a recording actually contains a signal. OUR code.
 
@@ -3259,7 +3589,17 @@ that wasn't connected, gain set too low, or a capture tuned somewhere
 with nothing on it -- and no amount of processing recovers a signal that
 was never recorded.
 
-Two independent checks:
+Four independent checks, each with its threshold HERE so that every
+consumer (the gain search, the collection tools, a bridge gating a
+recording) applies the same one rather than re-deriving it:
+
+``clip_fraction``
+    Fraction of samples with |I| or |Q| at the converter's last code on
+    either rail (+127 or -128 for 8 bits; the threshold is
+    (full_scale - 1) / full_scale in normalized units). Clipping destroys information the way
+    under-driving does not -- it cannot be undone downstream -- so it
+    is the worst verdict. ``max_clip_fraction`` 1e-3 (0.1%) tolerates
+    the occasional spike a strong adjacent signal produces.
 
 ``adc_counts``
     How much of the digitizer's range the recording used, recovered by
@@ -3275,15 +3615,24 @@ Two independent checks:
     converter can produce.
 
 ``channel_excess_db``
-    Power inside ``channel_bw`` of DC, relative to the outer 20% of the
+    Power inside ``channel_bw_hz`` of DC, relative to the outer 20% of the
     span. A real carrier is a hump standing above its surroundings; a
-    flat spectrum means nothing is there. Skipped when channel_bw is
+    flat spectrum means nothing is there. Skipped when channel_bw_hz is
     None or the capture is too short to average.
+
+``dc_ratio``
+    |mean| of the complex samples over the rms of what is left after the
+    mean is removed: DC power against everything-else power. A
+    direct-conversion receiver always has SOME DC (the HackRF's spike;
+    see docs/DC_SPIKE.md, typically a few % of rms), so a small ratio is
+    normal. A ratio above ``max_dc_ratio`` (1.0: more DC than signal) is
+    a stuck or saturated front end, a muted stream, or a capture of
+    nothing but the LO -- the "stuck_dc" verdict.
 
 Args:
     iq:          complex samples normalized to +/-1 (as sources return).
     sample_rate: Hz, used to place the channel band.
-    channel_bw:  half-width in Hz of the channel of interest. None skips
+    channel_bw_hz:  half-width in Hz of the channel of interest. None skips
                  the spectral check.
     adc_bits:    converter width; 8 for HackRF's ci8. Counts scale is
              2**(adc_bits-1) = 128, matching the loader's /128
@@ -3292,9 +3641,16 @@ Args:
     min_excess_db: in-band excess below which no carrier is called.
     nfft:        FFT size for the averaged spectrum.
 
-Returns a dict with ``ok`` (bool), ``adc_counts``, ``channel_excess_db``
-(None if not computed), ``peak_dbfs``, and ``reasons`` (list of strings
-describing each failure, empty when ok).
+Returns a dict with:
+  ``verdict``  one of HEALTH_VERDICTS -- "clipping", "under_driven",
+               "stuck_dc", "no_carrier" or "ok" -- the WORST failing
+               check, in that order. Key off this, not off the numbers.
+  ``ok``       ``verdict == "ok"``.
+  ``clip_fraction``, ``adc_counts``, ``peak_dbfs``, ``dc_offset`` (|mean|,
+               normalized units), ``dc_ratio``, ``channel_excess_db``
+               (None when channel_bw_hz is None or the capture is shorter
+               than 4 * nfft -- "not computed", never "no carrier").
+  ``reasons``  one sentence per failing check, empty when ok.
 
 This is a screening tool, not a detector. A signal far weaker than the
 noise floor in the channel -- spread spectrum below the noise, say --
@@ -3306,17 +3662,22 @@ this directly" and the wrong one for "is there anything here at all."
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `channel_bw` |  | `None` |
-| `adc_bits` |  | `8` |
-| `min_counts` |  | `4.0` |
-| `min_excess_db` |  | `3.0` |
-| `nfft` |  | `8192` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `channel_bw_hz` | `float | None` | `None` |
+| `adc_bits` | `int` | `8` |
+| `min_counts` | `float` | `4.0` |
+| `min_excess_db` | `float` | `3.0` |
+| `nfft` | `int` | `8192` |
+| `max_clip_fraction` | `float` | `0.001` |
+| `max_dc_ratio` | `float` | `1.0` |
+
+
+**Returns:** `dict[str, Any]`
 
 
 
-### `carrier_recovery(iq, method='costas', order=2, loop_bw=0.01, damping=0.707, diagnostics=False, csv_path=None, lock_threshold=0.05)`
+### `carrier_recovery(iq: 'Any', method: 'str' = 'costas', order: 'int' = 2, loop_bw: 'float' = 0.01, damping: 'float' = 0.707, diagnostics: 'bool' = False, csv_path: 'str | os.PathLike[str] | None' = None, lock_threshold: 'float' = 0.05) -> 'np.ndarray | tuple[np.ndarray, LoopDiagnostics]'`
 
 Track and remove residual carrier phase/frequency offset. OUR code.
 
@@ -3349,20 +3710,23 @@ unit-rate symbols -- these numbers are pinned by tests/test_sync.py:
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `method` |  | `'costas'` |
-| `order` |  | `2` |
-| `loop_bw` |  | `0.01` |
-| `damping` |  | `0.707` |
-| `diagnostics` |  | `False` |
-| `csv_path` |  | `None` |
-| `lock_threshold` |  | `0.05` |
+| `iq` | `Any` | *required* |
+| `method` | `str` | `'costas'` |
+| `order` | `int` | `2` |
+| `loop_bw` | `float` | `0.01` |
+| `damping` | `float` | `0.707` |
+| `diagnostics` | `bool` | `False` |
+| `csv_path` | `str | os.PathLike[str] | None` | `None` |
+| `lock_threshold` | `float` | `0.05` |
+
+
+**Returns:** `np.ndarray | tuple[np.ndarray, LoopDiagnostics]`
 
 
 
-### `channelize(iq, sample_rate, offset_hz, channel_bw, decim=None)`
+### `channelize(iq: 'Any', sample_rate: 'float', offset_hz: 'float', channel_bw_hz: 'float', decim: 'int | None' = None) -> 'tuple[np.ndarray, float]'`
 
-Extract the single channel at offset_hz with bandwidth channel_bw. OUR code.
+Extract the single channel at offset_hz with bandwidth channel_bw_hz. OUR code.
 
 tune -> lowpass -> decimate. Returns (channel_iq, new_sample_rate). decim
 defaults to the largest integer that keeps the channel comfortably inside
@@ -3376,25 +3740,29 @@ For splitting the whole band into a uniform grid, use channelize_bank.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `offset_hz` |  | *required* |
-| `channel_bw` |  | *required* |
-| `decim` |  | `None` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `offset_hz` | `float` | *required* |
+| `channel_bw_hz` | `float` | *required* |
+| `decim` | `int | None` | `None` |
+
+
+**Returns:** `tuple[np.ndarray, float]`
 
 
 
-### `channelize_bank(iq, sample_rate, n_channels, decim=None, taps_per_channel=12, return_freqs=True)`
+### `channelize_bank(iq: 'Any', sample_rate: 'float', n_channels: 'int', decim: 'int | None' = None, taps_per_channel: 'int' = 12) -> 'tuple[np.ndarray, float, np.ndarray]'`
 
 Split the band into n_channels equal channels via a polyphase filterbank.
 
 Produces N evenly-spaced channels each sample_rate/N wide, in one efficient
-pass. Returns (channels, new_sample_rate[, center_freqs]):
+pass. Always returns the 3-tuple (channels, new_sample_rate, center_freqs)
+-- a flag that changed the return arity was removed in 0.3.0:
     channels:     complex64 array of shape (n_channels, n_out_samples).
                   Row k is the channel centered at center_freqs[k].
     new_rate:     the per-channel output sample rate.
-    center_freqs: (if return_freqs) the center frequency of each channel, in
-                  Hz relative to the capture center, ordered low->high.
+    center_freqs: the center frequency of each channel, in Hz relative to
+                  the capture center, ordered low->high.
 
 decim sets the sampling scheme (D = decim, must divide N):
     decim = n_channels (default)  -> critically sampled: each channel output
@@ -3421,16 +3789,18 @@ edges, more compute.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `n_channels` |  | *required* |
-| `decim` |  | `None` |
-| `taps_per_channel` |  | `12` |
-| `return_freqs` |  | `True` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `n_channels` | `int` | *required* |
+| `decim` | `int | None` | `None` |
+| `taps_per_channel` | `int` | `12` |
+
+
+**Returns:** `tuple[np.ndarray, float, np.ndarray]`
 
 
 
-### `compute_cal_offset(iq, known_dbm, frequency_hz=None, conditions=None, notes='', drift_warn_hz=5000000.0)`
+### `compute_cal_offset(iq: 'Any', known_dbm: 'float', frequency_hz: 'float | None' = None, conditions: 'dict[str, Any] | None' = None, notes: 'str' = '', drift_warn_hz: 'float' = 5000000.0) -> 'Calibration'`
 
 Derive a calibration from a measurement of a KNOWN-power reference.
 
@@ -3459,16 +3829,19 @@ a noisy or fluctuating source gives a noisy offset.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `known_dbm` |  | *required* |
-| `frequency_hz` |  | `None` |
-| `conditions` |  | `None` |
-| `notes` |  | `''` |
-| `drift_warn_hz` |  | `5000000.0` |
+| `iq` | `Any` | *required* |
+| `known_dbm` | `float` | *required* |
+| `frequency_hz` | `float | None` | `None` |
+| `conditions` | `dict[str, Any] | None` | `None` |
+| `notes` | `str` | `''` |
+| `drift_warn_hz` | `float` | `5000000.0` |
+
+
+**Returns:** `Calibration`
 
 
 
-### `convolve(a, b, mode='full')`
+### `convolve(a: 'Any', b: 'Any', mode: "Literal['full', 'same', 'valid']" = 'full') -> 'np.ndarray'`
 
 Convolution of two signals. OUR code (thin, for a uniform API).
 
@@ -3481,13 +3854,16 @@ both are first-class.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `a` |  | *required* |
-| `b` |  | *required* |
-| `mode` |  | `'full'` |
+| `a` | `Any` | *required* |
+| `b` | `Any` | *required* |
+| `mode` | `Literal['full', 'same', 'valid']` | `'full'` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `correct_fm_cfo(iq, sample_rate, cfo_hz=None, **kwargs)`
+### `correct_fm_cfo(iq: 'Any', sample_rate: 'float', cfo_hz: 'float | None' = None, **kwargs: 'Any') -> 'tuple[np.ndarray, float]'`
 
 Remove a broadcast-FM carrier frequency offset. OUR code.
 
@@ -3507,14 +3883,17 @@ too low), returns the input unchanged with ``cfo_hz = 0.0``.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `cfo_hz` |  | `None` |
-| `kwargs` (**kwargs) |  | *required* |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `cfo_hz` | `float | None` | `None` |
+| `kwargs` (**kwargs) | `Any` | *required* |
+
+
+**Returns:** `tuple[np.ndarray, float]`
 
 
 
-### `correlate(a, b, mode='full')`
+### `correlate(a: 'Any', b: 'Any', mode: "Literal['full', 'same', 'valid']" = 'full') -> 'np.ndarray'`
 
 Cross-correlation of two signals, conjugation handled correctly. OUR code.
 
@@ -3530,13 +3909,16 @@ mode: "full", "same", or "valid" (as numpy).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `a` |  | *required* |
-| `b` |  | *required* |
-| `mode` |  | `'full'` |
+| `a` | `Any` | *required* |
+| `b` | `Any` | *required* |
+| `mode` | `Literal['full', 'same', 'valid']` | `'full'` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `crc16(data)`
+### `crc16(data: 'Any') -> 'int'`
 
 CRC-16/CCITT-FALSE over a bytes-like input. OUR code.
 
@@ -3548,11 +3930,14 @@ received payload is intact. Not cryptographic -- just error detection.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `data` |  | *required* |
+| `data` | `Any` | *required* |
+
+
+**Returns:** `int`
 
 
 
-### `cw_decode(bits, samples_per_symbol)`
+### `cw_decode(bits: 'Any', samples_per_symbol: 'float') -> 'str'`
 
 Decode Morse (CW) from a sliced on/off stream. OUR code.
 
@@ -3574,12 +3959,15 @@ unit estimate and the dit/dah threshold may need tuning on real signals.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `samples_per_symbol` |  | *required* |
+| `bits` | `Any` | *required* |
+| `samples_per_symbol` | `float` | *required* |
+
+
+**Returns:** `str`
 
 
 
-### `dbpsk_demod(symbols)`
+### `dbpsk_demod(symbols: 'Any') -> 'DemodResult'`
 
 Demodulate differential BPSK. OUR code.
 
@@ -3598,7 +3986,10 @@ differential product (sign gives the bit, magnitude gives confidence).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `symbols` |  | *required* |
+| `symbols` | `Any` | *required* |
+
+
+**Returns:** `DemodResult`
 
 
 
@@ -3636,7 +4027,7 @@ np.ndarray
 
 
 
-### `decimate(iq, factor, half_len=10)`
+### `decimate(iq: 'Any', factor: 'int', half_len: 'int' = 10) -> 'np.ndarray'`
 
 Lowpass then keep every ``factor``-th sample. OUR code (via resample).
 
@@ -3645,13 +4036,16 @@ Lowpass then keep every ``factor``-th sample. OUR code (via resample).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `factor` |  | *required* |
-| `half_len` |  | `10` |
+| `iq` | `Any` | *required* |
+| `factor` | `int` | *required* |
+| `half_len` | `int` | `10` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `deemphasis(audio, sample_rate, tau_us=75.0)`
+### `deemphasis(audio: 'Any', sample_rate: 'float', tau_us: 'float' = 75.0) -> 'np.ndarray'`
 
 Single-pole de-emphasis filter for broadcast FM audio. OUR code.
 
@@ -3669,13 +4063,16 @@ blocks.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `audio` |  | *required* |
-| `sample_rate` |  | *required* |
-| `tau_us` |  | `75.0` |
+| `audio` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `tau_us` | `float` | `75.0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `design_bandpass(low_hz, high_hz, sample_rate, num_taps=101, window='hamming')`
+### `design_bandpass(low_hz: 'float', high_hz: 'float', sample_rate: 'float', num_taps: 'int' = 101, window: 'Any' = 'hamming') -> 'np.ndarray'`
 
 Design a bandpass FIR. Returns tap coefficients.
 
@@ -3684,15 +4081,18 @@ Design a bandpass FIR. Returns tap coefficients.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `low_hz` |  | *required* |
-| `high_hz` |  | *required* |
-| `sample_rate` |  | *required* |
-| `num_taps` |  | `101` |
-| `window` |  | `'hamming'` |
+| `low_hz` | `float` | *required* |
+| `high_hz` | `float` | *required* |
+| `sample_rate` | `float` | *required* |
+| `num_taps` | `int` | `101` |
+| `window` | `Any` | `'hamming'` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `design_highpass(cutoff_hz, sample_rate, num_taps=101, window='hamming')`
+### `design_highpass(cutoff_hz: 'float', sample_rate: 'float', num_taps: 'int' = 101, window: 'Any' = 'hamming') -> 'np.ndarray'`
 
 Design a highpass FIR. Returns tap coefficients.
 
@@ -3701,14 +4101,17 @@ Design a highpass FIR. Returns tap coefficients.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `cutoff_hz` |  | *required* |
-| `sample_rate` |  | *required* |
-| `num_taps` |  | `101` |
-| `window` |  | `'hamming'` |
+| `cutoff_hz` | `float` | *required* |
+| `sample_rate` | `float` | *required* |
+| `num_taps` | `int` | `101` |
+| `window` | `Any` | `'hamming'` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `design_lowpass(cutoff_hz, sample_rate, num_taps=101, window='hamming')`
+### `design_lowpass(cutoff_hz: 'float', sample_rate: 'float', num_taps: 'int' = 101, window: 'Any' = 'hamming') -> 'np.ndarray'`
 
 Design a lowpass FIR. Returns tap coefficients (numpy array).
 
@@ -3721,14 +4124,17 @@ num_taps:    filter length (odd recommended for a linear-phase Type-I FIR).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `cutoff_hz` |  | *required* |
-| `sample_rate` |  | *required* |
-| `num_taps` |  | `101` |
-| `window` |  | `'hamming'` |
+| `cutoff_hz` | `float` | *required* |
+| `sample_rate` | `float` | *required* |
+| `num_taps` | `int` | `101` |
+| `window` | `Any` | `'hamming'` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `detect_peak(signal, template, threshold=None)`
+### `detect_peak(signal: 'Any', template: 'Any', threshold: 'float | None' = None) -> 'tuple[int | None, float]'`
 
 Run a matched filter and return the best-match index (and its value).
 
@@ -3740,13 +4146,16 @@ else (None, value). Without a threshold, always returns the argmax.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `signal` |  | *required* |
-| `template` |  | *required* |
-| `threshold` |  | `None` |
+| `signal` | `Any` | *required* |
+| `template` | `Any` | *required* |
+| `threshold` | `float | None` | `None` |
+
+
+**Returns:** `tuple[int | None, float]`
 
 
 
-### `dqpsk_demod(symbols)`
+### `dqpsk_demod(symbols: 'Any') -> 'DemodResult'`
 
 Demodulate differential QPSK. OUR code.
 
@@ -3761,11 +4170,14 @@ angles for inspection.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `symbols` |  | *required* |
+| `symbols` | `Any` | *required* |
+
+
+**Returns:** `DemodResult`
 
 
 
-### `dsb_sc_demod(iq, sample_rate, bfo_hz=0.0)`
+### `dsb_sc_demod(iq: 'Any', sample_rate: 'float', bfo_hz: 'float' = 0.0) -> 'np.ndarray'`
 
 Demodulate double-sideband suppressed-carrier (DSB-SC). OUR code.
 
@@ -3784,13 +4196,16 @@ Returns the real demodulated message.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `bfo_hz` |  | `0.0` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `bfo_hz` | `float` | `0.0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `dsss_despread(iq, code, samples_per_chip=1)`
+### `dsss_despread(iq: 'Any', code: 'Any', samples_per_chip: 'int' = 1) -> 'np.ndarray'`
 
 Despread a DSSS signal using a KNOWN spreading code. OUR code.
 
@@ -3812,13 +4227,16 @@ with core.correlate and pick the peak.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `code` |  | *required* |
-| `samples_per_chip` |  | `1` |
+| `iq` | `Any` | *required* |
+| `code` | `Any` | *required* |
+| `samples_per_chip` | `int` | `1` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `edges(bits)`
+### `edges(bits: 'Any') -> 'tuple[np.ndarray, np.ndarray, np.ndarray]'`
 
 Indices where a 0/1 stream transitions, and the run lengths. OUR code.
 
@@ -3832,7 +4250,10 @@ on/off stream.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
+| `bits` | `Any` | *required* |
+
+
+**Returns:** `tuple[np.ndarray, np.ndarray, np.ndarray]`
 
 
 
@@ -3866,7 +4287,7 @@ np.ndarray
 
 
 
-### `estimate_cfo(iq, sample_rate, nfft=None)`
+### `estimate_cfo(iq: 'Any', sample_rate: 'float', nfft: 'int | None' = None) -> 'float'`
 
 Estimate a signal's carrier frequency offset from band center. OUR code.
 
@@ -3892,9 +4313,12 @@ offset when mark/space time is roughly balanced.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `nfft` |  | `None` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `nfft` | `int | None` | `None` |
+
+
+**Returns:** `float`
 
 
 
@@ -3933,7 +4357,7 @@ float
 
 
 
-### `estimate_fm_cfo(iq, sample_rate, *, channel_bw=100000.0, trim_hz=None)`
+### `estimate_fm_cfo(iq: 'Any', sample_rate: 'float', *, channel_bw_hz: 'float' = 100000.0, trim_hz: 'float | None' = None) -> 'float | None'`
 
 Estimate a broadcast-FM capture's carrier frequency offset, in Hz.
 
@@ -3962,12 +4386,12 @@ station is actually there with ``fm_pilot_excess_db`` before trusting this
 number, because the mean of noise is not a carrier offset.
 
 Args:
-    channel_bw: FM channel half-not-needed; used only to size the click
+    channel_bw_hz: FM channel half-not-needed; used only to size the click
         trim. Broadcast FM is ~100 kHz half-bandwidth of program content.
     trim_hz: discriminator "clicks" (phase wraps in deep fades / low SNR)
         are impulsive outliers that bias a plain mean. Samples whose
         demodulated frequency exceeds trim_hz in magnitude are dropped
-        before averaging. Default 1.5 * channel_bw keeps the full +/-75 kHz
+        before averaging. Default 1.5 * channel_bw_hz keeps the full +/-75 kHz
         deviation swing while rejecting the near-+/-Nyquist click spikes.
         Pass None to disable trimming.
 
@@ -3982,10 +4406,13 @@ OUR code.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `channel_bw` |  | `100000.0` |
-| `trim_hz` |  | `None` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `channel_bw_hz` | `float` | `100000.0` |
+| `trim_hz` | `float | None` | `None` |
+
+
+**Returns:** `float | None`
 
 
 
@@ -4116,7 +4543,7 @@ random-walk component that phase noise contributes.
 
 
 
-### `estimate_symbol_rate(bits, sample_rate, min_run=2)`
+### `estimate_symbol_rate(bits: 'Any', sample_rate: 'float', min_run: 'int' = 2) -> 'tuple[float, float]'`
 
 Estimate samples-per-symbol from the run lengths in a sliced stream.
 
@@ -4135,9 +4562,12 @@ capture is very noisy; lower it (to 1) only for pristine synthetic data.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `sample_rate` |  | *required* |
-| `min_run` |  | `2` |
+| `bits` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `min_run` | `int` | `2` |
+
+
+**Returns:** `tuple[float, float]`
 
 
 
@@ -4188,7 +4618,7 @@ np.ndarray
 
 
 
-### `fhss_detect_hops(iq, sample_rate, nfft=256, overlap=0.5, center_freq=0.0)`
+### `fhss_detect_hops(iq: 'Any', sample_rate: 'float', nfft: 'int' = 256, overlap: 'float' = 0.5, center_freq: 'float' = 0.0) -> 'tuple[np.ndarray, np.ndarray]'`
 
 Detect frequency hops: the dominant frequency per time slice. OUR code.
 
@@ -4205,15 +4635,18 @@ offset by center_freq) during time slice times[i].
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `nfft` |  | `256` |
-| `overlap` |  | `0.5` |
-| `center_freq` |  | `0.0` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `nfft` | `int` | `256` |
+| `overlap` | `float` | `0.5` |
+| `center_freq` | `float` | `0.0` |
+
+
+**Returns:** `tuple[np.ndarray, np.ndarray]`
 
 
 
-### `find_bursts(iq, sample_rate=None, threshold=None, min_gap=0, min_len=1)`
+### `find_bursts(iq: 'Any', sample_rate: 'float | None' = None, threshold: 'float | None' = None, min_gap: 'int' = 0, min_len: 'int' = 1) -> 'list[tuple[int, int]]'`
 
 Find where signal energy is present: burst start/stop indices. OUR code.
 
@@ -4246,15 +4679,18 @@ always in samples (convert to time yourself: start/sample_rate).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | `None` |
-| `threshold` |  | `None` |
-| `min_gap` |  | `0` |
-| `min_len` |  | `1` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float | None` | `None` |
+| `threshold` | `float | None` | `None` |
+| `min_gap` | `int` | `0` |
+| `min_len` | `int` | `1` |
+
+
+**Returns:** `list[tuple[int, int]]`
 
 
 
-### `find_frames(bits, sync=None, max_sync_errors=2)`
+### `find_frames(bits: 'Any', sync: 'Any | None' = None, max_sync_errors: 'int' = 2) -> 'list[dict[str, Any]]'`
 
 Find and validate frames in a recovered bit stream. OUR code.
 
@@ -4266,17 +4702,28 @@ and CRC after each match. Returns a list of dicts, one per frame found:
 
 crc_ok tells you whether the payload survived intact -- the basis for an ACK.
 Frames with a bad length read or running off the end of the buffer are
-skipped. Overlapping/false sync matches inside a validated frame are stepped
-past so one packet isn't reported twice.
+skipped. After a frame whose CRC VERIFIES, the scan steps past its whole
+body so a sync-like pattern inside the payload is not reported again.
+After a match whose CRC FAILS, the scan advances one bit: the match may
+have been a near-miss on random bits with a plausible length byte, and the
+real frame may begin inside the body it claimed. (Stepping past every
+claimed body, as an earlier version did, lost 2% of real frames at the
+default tolerance when preceded by noise.) A consequence: one corrupted
+real frame can be reported more than once at nearby offsets, all with
+crc_ok False -- consumers act on crc_ok, so this costs a duplicate NAK
+at most.
 
 
 **Parameters:**
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `sync` |  | `None` |
-| `max_sync_errors` |  | `2` |
+| `bits` | `Any` | *required* |
+| `sync` | `Any | None` | `None` |
+| `max_sync_errors` | `int` | `2` |
+
+
+**Returns:** `list[dict[str, Any]]`
 
 
 
@@ -4332,7 +4779,7 @@ Returns
 
 
 
-### `fir_apply(iq, taps)`
+### `fir_apply(iq: 'Any', taps: 'Any') -> 'np.ndarray'`
 
 Apply an FIR filter to a signal by direct convolution. OUR code.
 
@@ -4349,12 +4796,15 @@ truncated to the first len(iq) samples -- matching lfilter's output).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `taps` |  | *required* |
+| `iq` | `Any` | *required* |
+| `taps` | `Any` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `fir_apply_centered(iq, taps)`
+### `fir_apply_centered(iq: 'Any', taps: 'Any') -> 'np.ndarray'`
 
 Apply an FIR with the group delay removed (zero-phase alignment).
 
@@ -4367,12 +4817,15 @@ returns the 'same'-mode convolution (centered), trimming the delay.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `taps` |  | *required* |
+| `iq` | `Any` | *required* |
+| `taps` | `Any` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `fm_demod(iq, deviation_hz=None, sample_rate=None)`
+### `fm_demod(iq: 'Any', sample_rate: 'float | None' = None, deviation_hz: 'float | None' = None) -> 'np.ndarray'`
 
 Demodulate frequency modulation via the phase discriminator. OUR code.
 
@@ -4392,13 +4845,16 @@ indication why.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `deviation_hz` |  | `None` |
-| `sample_rate` |  | `None` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float | None` | `None` |
+| `deviation_hz` | `float | None` | `None` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `fm_modulate(message, deviation_hz, sample_rate)`
+### `fm_modulate(message: 'Any', sample_rate: 'float', deviation_hz: 'float') -> 'np.ndarray'`
 
 FM-modulate a real message into IQ. Inverse of fm_demod. OUR code.
 
@@ -4417,13 +4873,16 @@ Returns unit-magnitude complex64 IQ (FM is constant-envelope).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `message` |  | *required* |
-| `deviation_hz` |  | *required* |
-| `sample_rate` |  | *required* |
+| `message` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `deviation_hz` | `float` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `fm_pilot_excess_db(iq, sample_rate, pilot_hz=19000.0, nfft=16384)`
+### `fm_pilot_excess_db(iq: 'Any', sample_rate: 'float', pilot_hz: 'float' = 19000.0, nfft: 'int' = 16384) -> 'float | None'`
 
 How far the 19 kHz stereo pilot stands above the demodulated noise
 floor, in dB. The decisive "is this an FM broadcast station" check.
@@ -4457,14 +4916,17 @@ OUR code.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `pilot_hz` |  | `19000.0` |
-| `nfft` |  | `16384` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `pilot_hz` | `float` | `19000.0` |
+| `nfft` | `int` | `16384` |
+
+
+**Returns:** `float | None`
 
 
 
-### `fm_stereo_decode(composite, sample_rate, pilot_hz=19000.0, audio_bw=15000.0, pilot_bw=1000.0)`
+### `fm_stereo_decode(composite: 'Any', sample_rate: 'float', pilot_hz: 'float' = 19000.0, audio_bw_hz: 'float' = 15000.0, pilot_bw_hz: 'float' = 1000.0) -> 'tuple[np.ndarray, np.ndarray]'`
 
 Recover left/right audio from a demodulated FM stereo composite. OUR code.
 
@@ -4510,15 +4972,18 @@ actually present rather than decoding unconditionally.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `composite` |  | *required* |
-| `sample_rate` |  | *required* |
-| `pilot_hz` |  | `19000.0` |
-| `audio_bw` |  | `15000.0` |
-| `pilot_bw` |  | `1000.0` |
+| `composite` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `pilot_hz` | `float` | `19000.0` |
+| `audio_bw_hz` | `float` | `15000.0` |
+| `pilot_bw_hz` | `float` | `1000.0` |
+
+
+**Returns:** `tuple[np.ndarray, np.ndarray]`
 
 
 
-### `frequency_shift(iq, shift_hz, sample_rate)`
+### `frequency_shift(iq: 'Any', sample_rate: 'float', shift_hz: 'float') -> 'np.ndarray'`
 
 Shift a complex signal up (positive) or down (negative) in frequency.
 
@@ -4530,13 +4995,16 @@ baseband (0 Hz), pass shift_hz = -f.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `shift_hz` |  | *required* |
-| `sample_rate` |  | *required* |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `shift_hz` | `float` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `from_db(db, *, power=True)`
+### `from_db(db: 'Any', *, power: 'bool' = True) -> 'np.ndarray'`
 
 Inverse of to_db: dB back to a linear value.
 
@@ -4545,12 +5013,15 @@ Inverse of to_db: dB back to a linear value.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `db` |  | *required* |
-| `power` |  | `True` |
+| `db` | `Any` | *required* |
+| `power` | `bool` | `True` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `fsk_demod(iq, sample_rate, threshold_hz=0.0, smooth_samples=0)`
+### `fsk_demod(iq: 'Any', sample_rate: 'float', threshold_hz: 'float | str | None' = 0.0, smooth_samples: 'int' = 0) -> 'np.ndarray'`
 
 Demodulate 2-level frequency-shift keying. OUR code.
 
@@ -4563,7 +5034,9 @@ is the common case after tuning to baseband).
 threshold_hz: the mark/space decision frequency. Two real radios never
     share an oscillator, so a carrier frequency offset (crystal ppm --
     easily +/-10-20 kHz at 433 MHz between two SDRs) shifts BOTH tones and
-    biases the fixed 0 Hz split. Pass "auto" to threshold at the
+    biases the fixed 0 Hz split. Pass None (the library's spelling of
+    "decide it from the data", as in ook_slice / find_bursts; the string
+    "auto" is accepted as a synonym) to threshold at the
     amplitude^2-weighted mean of the instantaneous frequency instead: with
     roughly balanced mark/space time (any frame with an alternating
     preamble qualifies) that mean IS the offset, so the split self-centers.
@@ -4586,14 +5059,17 @@ GFSK/MSK well enough for typical ISM-band sensors and pagers.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `threshold_hz` |  | `0.0` |
-| `smooth_samples` |  | `0` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `threshold_hz` | `float | str | None` | `0.0` |
+| `smooth_samples` | `int` | `0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `fsk_demod_nlevel(iq, sample_rate, n_levels=4, thresholds=None, smooth_samples=0)`
+### `fsk_demod_nlevel(iq: 'Any', sample_rate: 'float', n_levels: 'int' = 4, thresholds: 'Any | None' = None, smooth_samples: 'int' = 0) -> 'np.ndarray'`
 
 Demodulate N-level FSK (4-FSK, etc.) and CPFSK. OUR code.
 
@@ -4603,7 +5079,8 @@ frequency, it slices the frequency into n_levels bands. Used by 4-FSK
 phase is a transmit-side property; the receiver still reads instantaneous
 frequency.
 
-thresholds: explicit frequency band centers (Hz). If None, the levels are
+thresholds: explicit frequency band centers (Hz); when given they define
+    the level count and n_levels is ignored. If None, n_levels centers are
     spread uniformly across the observed frequency range -- fine for a
     clean capture; pass measured centers for real signals.
 smooth_samples: if > 1, moving-average the instantaneous frequency over
@@ -4623,15 +5100,18 @@ Returns per-sample symbol indices 0..n_levels-1.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `n_levels` |  | `4` |
-| `thresholds` |  | `None` |
-| `smooth_samples` |  | `0` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `n_levels` | `int` | `4` |
+| `thresholds` | `Any | None` | `None` |
+| `smooth_samples` | `int` | `0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `fsk_modulate(bits, samples_per_symbol, deviation_hz, sample_rate, pad_symbols=0)`
+### `fsk_modulate(bits: 'Any', samples_per_symbol: 'int', deviation_hz: 'float', sample_rate: 'float', pad_symbols: 'int' = 0) -> 'np.ndarray'`
 
 Binary FSK: bit selects one of two frequencies. Inverse of fsk_demod.
 
@@ -4661,15 +5141,18 @@ constant-envelope); the pad regions are silence.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `samples_per_symbol` |  | *required* |
-| `deviation_hz` |  | *required* |
-| `sample_rate` |  | *required* |
-| `pad_symbols` |  | `0` |
+| `bits` | `Any` | *required* |
+| `samples_per_symbol` | `int` | *required* |
+| `deviation_hz` | `float` | *required* |
+| `sample_rate` | `float` | *required* |
+| `pad_symbols` | `int` | `0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `get_window(window, n)`
+### `get_window(window: 'str | np.ndarray | None', n: 'int') -> 'np.ndarray'`
 
 Window vector of length n by name. sdr_dsp's own small set (hann,
 hamming, blackman, boxcar/rect), matching what psd()/spectrogram() use.
@@ -4685,12 +5168,15 @@ one psd() applies internally.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `window` |  | *required* |
-| `n` |  | *required* |
+| `window` | `str | np.ndarray | None` | *required* |
+| `n` | `int` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `hackrf_gain_model(lna_steps=(0, 8, 16, 24, 32, 40), vga_steps=(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62), *, use_amp=True) -> 'GainModel'`
+### `hackrf_gain_model(lna_steps: 'Sequence[int]' = (0, 8, 16, 24, 32, 40), vga_steps: 'Sequence[int]' = (0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62), *, use_amp: 'bool' = True) -> 'GainModel'`
 
 The HackRF One: LNA + optional +14 dB amp (frontend) and VGA (level).
 
@@ -4699,16 +5185,16 @@ The HackRF One: LNA + optional +14 dB amp (frontend) and VGA (level).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `lna_steps` |  | `(0, 8, 16, 24, 32, 40)` |
-| `vga_steps` |  | `(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62)` |
-| `use_amp` |  | `True` |
+| `lna_steps` | `Sequence[int]` | `(0, 8, 16, 24, 32, 40)` |
+| `vga_steps` | `Sequence[int]` | `(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62)` |
+| `use_amp` | `bool` | `True` |
 
 
 **Returns:** `GainModel`
 
 
 
-### `instantaneous_frequency(iq, sample_rate=None)`
+### `instantaneous_frequency(iq: 'Any', sample_rate: 'float | None' = None) -> 'np.ndarray'`
 
 The instantaneous frequency of a complex signal. OUR code.
 
@@ -4725,12 +5211,15 @@ len(iq) - 1 (one difference per adjacent pair).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | `None` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float | None` | `None` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `instantaneous_phase(iq, unwrap=True)`
+### `instantaneous_phase(iq: 'Any', unwrap: 'bool' = True) -> 'np.ndarray'`
 
 The phase angle of each complex sample. OUR code.
 
@@ -4743,12 +5232,15 @@ measuring frequency as its slope).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `unwrap` |  | `True` |
+| `iq` | `Any` | *required* |
+| `unwrap` | `bool` | `True` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `interpolate(iq, factor, half_len=10)`
+### `interpolate(iq: 'Any', factor: 'int', half_len: 'int' = 10) -> 'np.ndarray'`
 
 Upsample by ``factor`` with interpolation filtering. OUR code.
 
@@ -4757,9 +5249,12 @@ Upsample by ``factor`` with interpolation filtering. OUR code.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `factor` |  | *required* |
-| `half_len` |  | `10` |
+| `iq` | `Any` | *required* |
+| `factor` | `int` | *required* |
+| `half_len` | `int` | `10` |
+
+
+**Returns:** `np.ndarray`
 
 
 
@@ -4835,7 +5330,7 @@ DeviceImpairments
 
 
 
-### `matched_filter(signal, template)`
+### `matched_filter(signal: 'Any', template: 'Any') -> 'np.ndarray'`
 
 Correlate a known template against a signal. OUR code.
 
@@ -4853,19 +5348,23 @@ np.correlate computes.)
 
 | Parameter | Type | Default |
 |---|---|---|
-| `signal` |  | *required* |
-| `template` |  | *required* |
+| `signal` | `Any` | *required* |
+| `template` | `Any` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `nask_slice(envelope, n_levels=4, levels=None)`
+### `nask_slice(envelope: 'Any', n_levels: 'int' = 4, levels: 'Any | None' = None) -> 'np.ndarray'`
 
 Slice an amplitude envelope into N levels (M-ASK). OUR code.
 
 Generalizes 2-level OOK to N amplitude levels (4-ASK, 8-ASK). Returns a
 per-sample symbol index in 0..n_levels-1.
 
-levels: explicit amplitude thresholds/centers. If None, the levels are
+levels: explicit amplitude centers; when given, they define the level
+count and n_levels is ignored. If None, n_levels centers are
 spread uniformly from the envelope's min to its max -- a reasonable default
 for a clean capture, but YOU can pass measured levels for real signals where
 the spacing isn't uniform.
@@ -4875,13 +5374,16 @@ the spacing isn't uniform.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `envelope` |  | *required* |
-| `n_levels` |  | `4` |
-| `levels` |  | `None` |
+| `envelope` | `Any` | *required* |
+| `n_levels` | `int` | `4` |
+| `levels` | `Any | None` | `None` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `normalize(iq, mode='peak', target=1.0)`
+### `normalize(iq: 'Any', mode: 'str' = 'peak', target: 'float' = 1.0) -> 'np.ndarray'`
 
 Rescale a signal's amplitude. EXPLICIT -- you choose if and how.
 
@@ -4903,32 +5405,47 @@ returned unchanged (nothing sensible to scale to).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `mode` |  | `'peak'` |
-| `target` |  | `1.0` |
+| `iq` | `Any` | *required* |
+| `mode` | `str` | `'peak'` |
+| `target` | `float` | `1.0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `occupied_bandwidth(iq, sample_rate, fraction=0.99, nfft=1024)`
+### `occupied_bandwidth(iq: 'Any', sample_rate: 'float', fraction: 'float' = 0.99, nfft: 'int' = 1024) -> 'float'`
 
-Bandwidth containing ``fraction`` of the total power (e.g. 99%).
+Bandwidth containing ``fraction`` of the total power (e.g. 99%). OUR code.
 
-Returns bandwidth in Hz. Integrates the PSD and finds the central band
-holding the requested fraction of total power.
+The standard occupied-bandwidth definition: from the averaged PSD, the
+frequency interval between the point where the cumulative power (low to
+high frequency) reaches (1 - fraction)/2 of the total and the point where
+it reaches 1 - (1 - fraction)/2. It is computed WHEREVER the signal sits in
+the span -- a tone at +100 kHz has the bandwidth of a tone, not of a
+200 kHz band around DC. (An earlier version integrated outward from 0 Hz,
+which assumed the signal was centred and reported 203 kHz for that tone,
+and 1.47 MHz for a 200 kHz FM station tuned off centre.)
+
+Returns the bandwidth in Hz, quantized to the PSD's bin spacing
+(sample_rate / nfft). Raises ValueError for fraction outside (0, 1].
 
 
 **Parameters:**
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `fraction` |  | `0.99` |
-| `nfft` |  | `1024` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `fraction` | `float` | `0.99` |
+| `nfft` | `int` | `1024` |
+
+
+**Returns:** `float`
 
 
 
-### `ook_envelope(iq)`
+### `ook_envelope(iq: 'Any') -> 'np.ndarray'`
 
 On-off-keying / ASK front end: the magnitude envelope. OUR code.
 
@@ -4940,11 +5457,14 @@ level). Feed to ``ook_slice`` to recover bits.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
+| `iq` | `Any` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `ook_modulate(bits, samples_per_symbol, high=1.0, low=0.0, pad_symbols=0)`
+### `ook_modulate(bits: 'Any', samples_per_symbol: 'int', high: 'float' = 1.0, low: 'float' = 0.0, pad_symbols: 'int' = 0) -> 'np.ndarray'`
 
 On-off keying: bit 1 -> carrier on, bit 0 -> off. Inverse of ook_slice.
 
@@ -4970,15 +5490,18 @@ Returns complex64 baseband (real-valued amplitude, zero phase).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `samples_per_symbol` |  | *required* |
-| `high` |  | `1.0` |
-| `low` |  | `0.0` |
-| `pad_symbols` |  | `0` |
+| `bits` | `Any` | *required* |
+| `samples_per_symbol` | `int` | *required* |
+| `high` | `float` | `1.0` |
+| `low` | `float` | `0.0` |
+| `pad_symbols` | `int` | `0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `ook_slice(envelope, threshold=None)`
+### `ook_slice(envelope: 'Any', threshold: 'float | None' = None) -> 'np.ndarray'`
 
 Threshold an OOK envelope into a 0/1 stream. OUR code.
 
@@ -4991,12 +5514,15 @@ capture). Returns a uint8 array of 0/1.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `envelope` |  | *required* |
-| `threshold` |  | `None` |
+| `envelope` | `Any` | *required* |
+| `threshold` | `float | None` | `None` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `peak_counts(iq, full_scale=128.0)`
+### `peak_counts(iq: 'Any', full_scale: 'float' = 128.0) -> 'float'`
 
 Peak per-component ADC utilization of a normalized capture, in counts.
 
@@ -5010,12 +5536,15 @@ loader's normalization (``load_iq`` divides int8 by 128).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `full_scale` |  | `128.0` |
+| `iq` | `Any` | *required* |
+| `full_scale` | `float` | `128.0` |
+
+
+**Returns:** `float`
 
 
 
-### `power_dbfs(iq)`
+### `power_dbfs(iq: 'Any') -> 'float'`
 
 Mean power of a complex signal in dBFS (dB relative to |amp|=1).
 
@@ -5024,11 +5553,14 @@ Mean power of a complex signal in dBFS (dB relative to |amp|=1).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
+| `iq` | `Any` | *required* |
+
+
+**Returns:** `float`
 
 
 
-### `power_dbm(iq, cal_offset_db)`
+### `power_dbm(iq: 'Any', cal_offset_db: 'float') -> 'float'`
 
 Absolute power in dBm = power_dbfs(iq) + cal_offset_db. OUR code.
 
@@ -5046,12 +5578,15 @@ so the responsibility is yours.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `cal_offset_db` |  | *required* |
+| `iq` | `Any` | *required* |
+| `cal_offset_db` | `float` | *required* |
+
+
+**Returns:** `float`
 
 
 
-### `psd(iq, sample_rate, nfft=1024, window='hann', center_freq=0.0, scaling='density')`
+### `psd(iq: 'Any', sample_rate: 'float', nfft: 'int' = 1024, window: 'str | np.ndarray | None' = 'hann', center_freq: 'float' = 0.0, scaling: 'str' = 'density') -> 'tuple[np.ndarray, np.ndarray]'`
 
 Power spectral density of a complex signal via Welch averaging. OUR code.
 
@@ -5084,16 +5619,19 @@ occupied_bandwidth, snr_db -- confidently wrong on short inputs.)
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `nfft` |  | `1024` |
-| `window` |  | `'hann'` |
-| `center_freq` |  | `0.0` |
-| `scaling` |  | `'density'` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `nfft` | `int` | `1024` |
+| `window` | `str | np.ndarray | None` | `'hann'` |
+| `center_freq` | `float` | `0.0` |
+| `scaling` | `str` | `'density'` |
+
+
+**Returns:** `tuple[np.ndarray, np.ndarray]`
 
 
 
-### `psk8_demod(symbols)`
+### `psk8_demod(symbols: 'Any') -> 'DemodResult'`
 
 Demodulate 8-PSK from recovered symbols. OUR code.
 
@@ -5113,11 +5651,14 @@ here than for QPSK.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `symbols` |  | *required* |
+| `symbols` | `Any` | *required* |
+
+
+**Returns:** `DemodResult`
 
 
 
-### `pulse_shape(symbols, sps, span_symbols=8, beta=0.35)`
+### `pulse_shape(symbols: 'Any', sps: 'int', span_symbols: 'int' = 8, beta: 'float' = 0.35) -> 'np.ndarray'`
 
 Upsample symbols and shape them with an RRC pulse. OUR code.
 
@@ -5131,14 +5672,17 @@ receive. Returns the shaped complex64 baseband signal.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `symbols` |  | *required* |
-| `sps` |  | *required* |
-| `span_symbols` |  | `8` |
-| `beta` |  | `0.35` |
+| `symbols` | `Any` | *required* |
+| `sps` | `int` | *required* |
+| `span_symbols` | `int` | `8` |
+| `beta` | `float` | `0.35` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `qam16_demod(symbols, normalize=True)`
+### `qam16_demod(symbols: 'Any', normalize: 'bool' = True) -> 'DemodResult'`
 
 Demodulate QAM-16 from recovered symbols. OUR code.
 
@@ -5163,12 +5707,15 @@ normalize=False if you've already scaled the signal yourself.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `symbols` |  | *required* |
-| `normalize` |  | `True` |
+| `symbols` | `Any` | *required* |
+| `normalize` | `bool` | `True` |
+
+
+**Returns:** `DemodResult`
 
 
 
-### `qpsk_demod(symbols, gray=True)`
+### `qpsk_demod(symbols: 'Any', gray: 'bool' = True) -> 'DemodResult'`
 
 Demodulate QPSK from recovered symbols. OUR code.
 
@@ -5193,20 +5740,24 @@ standard choice that minimizes bit errors.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `symbols` |  | *required* |
-| `gray` |  | `True` |
+| `symbols` | `Any` | *required* |
+| `gray` | `bool` | `True` |
+
+
+**Returns:** `DemodResult`
 
 
 
-### `qpsk_modulate(bits, samples_per_symbol=1, pulse_shaping=False, beta=0.35, span_symbols=8, gray=True, pad_symbols=0)`
+### `qpsk_modulate(bits: 'Any', samples_per_symbol: 'int' = 1, pulse_shaping: 'bool' = False, beta: 'float' = 0.35, span_symbols: 'int' = 8, gray: 'bool' = True, pad_symbols: 'int' = 0) -> 'np.ndarray'`
 
 QPSK: 2 bits per symbol, Gray-coded quadrants. Inverse of qpsk_demod.
 
 Pairs of bits map to the four points (1+1j, -1+1j, -1-1j, 1-1j)/sqrt(2) via
-the same Gray convention qpsk_demod uses, so the round-trip is exact. An odd
-trailing bit is dropped (QPSK consumes bits in pairs).
+the same Gray convention qpsk_demod uses, so the round-trip is exact. The
+bit count must be even (QPSK consumes bits in pairs); an odd count is a
+ValueError rather than a silently dropped bit.
 
-bits:               sequence of 0/1 (length should be even).
+bits:               sequence of 0/1 (length must be even).
 samples_per_symbol: samples per symbol.
 pulse_shaping:      RRC-shape the symbols if True.
 gray:               use Gray coding (match the demod).
@@ -5218,17 +5769,20 @@ Returns complex64 baseband.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `samples_per_symbol` |  | `1` |
-| `pulse_shaping` |  | `False` |
-| `beta` |  | `0.35` |
-| `span_symbols` |  | `8` |
-| `gray` |  | `True` |
-| `pad_symbols` |  | `0` |
+| `bits` | `Any` | *required* |
+| `samples_per_symbol` | `int` | `1` |
+| `pulse_shaping` | `bool` | `False` |
+| `beta` | `float` | `0.35` |
+| `span_symbols` | `int` | `8` |
+| `gray` | `bool` | `True` |
+| `pad_symbols` | `int` | `0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `remove_dc(iq)`
+### `remove_dc(iq: 'Any') -> 'np.ndarray'`
 
 Remove the DC offset / LO leakage: subtract the complex mean. OUR code.
 
@@ -5249,11 +5803,14 @@ is never near your signal in the first place. See docs/DC_SPIKE.md.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
+| `iq` | `Any` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `resample_poly(iq, up, down, half_len=10, window='hamming')`
+### `resample_poly(iq: 'Any', up: 'int', down: 'int', half_len: 'int' = 10, window: 'str' = 'hamming') -> 'np.ndarray'`
 
 Rational resample by up/down. OUR implementation (polyphase).
 
@@ -5284,15 +5841,18 @@ half_len:  controls filter length / quality.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `up` |  | *required* |
-| `down` |  | *required* |
-| `half_len` |  | `10` |
-| `window` |  | `'hamming'` |
+| `iq` | `Any` | *required* |
+| `up` | `int` | *required* |
+| `down` | `int` | *required* |
+| `half_len` | `int` | `10` |
+| `window` | `str` | `'hamming'` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `rrc_taps(sps, span_symbols=8, beta=0.35)`
+### `rrc_taps(sps: 'int', span_symbols: 'int' = 8, beta: 'float' = 0.35) -> 'np.ndarray'`
 
 Root-raised-cosine filter taps. OUR code.
 
@@ -5309,13 +5869,16 @@ the zero-ISI pulse).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `sps` |  | *required* |
-| `span_symbols` |  | `8` |
-| `beta` |  | `0.35` |
+| `sps` | `int` | *required* |
+| `span_symbols` | `int` | `8` |
+| `beta` | `float` | `0.35` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `rtlsdr_gain_model(gain_steps=(0.0, 0.9, 1.4, 2.7, 3.7, 7.7, 8.7, 12.5, 14.4, 15.7, 16.6, 19.7, 20.7, 22.9, 25.4, 28.0, 29.7, 32.8, 33.8, 36.4, 37.2, 38.6, 40.2, 42.1, 43.4, 43.9, 44.5, 48.0, 49.6)) -> 'GainModel'`
+### `rtlsdr_gain_model(gain_steps: 'Sequence[float]' = (0.0, 0.9, 1.4, 2.7, 3.7, 7.7, 8.7, 12.5, 14.4, 15.7, 16.6, 19.7, 20.7, 22.9, 25.4, 28.0, 29.7, 32.8, 33.8, 36.4, 37.2, 38.6, 40.2, 42.1, 43.4, 43.9, 44.5, 48.0, 49.6)) -> 'GainModel'`
 
 An RTL-SDR: a SINGLE tuner-gain knob, no separate level stage.
 
@@ -5328,14 +5891,14 @@ cannot set SNR and level independently.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `gain_steps` |  | `(0.0, 0.9, 1.4, 2.7, 3.7, 7.7, 8.7, 12.5, 14.4, 15.7, 16.6, 19.7, 20.7, 22.9, 25.4, 28.0, 29.7, 32.8, 33.8, 36.4, 37.2, 38.6, 40.2, 42.1, 43.4, 43.9, 44.5, 48.0, 49.6)` |
+| `gain_steps` | `Sequence[float]` | `(0.0, 0.9, 1.4, 2.7, 3.7, 7.7, 8.7, 12.5, 14.4, 15.7, 16.6, 19.7, 20.7, 22.9, 25.4, 28.0, 29.7, 32.8, 33.8, 36.4, 37.2, 38.6, 40.2, 42.1, 43.4, 43.9, 44.5, 48.0, 49.6)` |
 
 
 **Returns:** `GainModel`
 
 
 
-### `sample_symbols(bits, samples_per_symbol, active=None)`
+### `sample_symbols(bits: 'Any', samples_per_symbol: 'int', active: 'Any | None' = None) -> 'np.ndarray'`
 
 Decimate an over-sampled 0/1 stream to symbols at the RIGHT phase. OUR code.
 
@@ -5369,13 +5932,16 @@ Returns a uint8 array with one entry per symbol period.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `samples_per_symbol` |  | *required* |
-| `active` |  | `None` |
+| `bits` | `Any` | *required* |
+| `samples_per_symbol` | `int` | *required* |
+| `active` | `Any | None` | `None` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `search_gain(probe, *, lna_steps=(0, 8, 16, 24, 32, 40), vga_steps=(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62), use_amp=True, quality=None, target=(45.0, 110.0), clip=120.0, full_scale=128.0, max_level_probes=14, min_quality_db=3.0)`
+### `search_gain(probe: 'Callable[..., Any]', *, lna_steps: 'Sequence[int]' = (0, 8, 16, 24, 32, 40), vga_steps: 'Sequence[int]' = (0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62), use_amp: 'bool' = True, quality: 'Callable[[Any], float | None] | None' = None, target: 'tuple[float, float]' = (45.0, 110.0), clip: 'float' = 120.0, full_scale: 'float' = 128.0, max_level_probes: 'int' = 14, min_quality_db: 'float' = 3.0) -> 'dict[str, Any]'`
 
 Find (lna, vga, amp) for a usable HackRF capture. Returns a result dict.
 
@@ -5402,20 +5968,23 @@ a list of ``(lna, vga, amp, counts)`` -- the original shape.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `probe` |  | *required* |
-| `lna_steps` |  | `(0, 8, 16, 24, 32, 40)` |
-| `vga_steps` |  | `(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62)` |
-| `use_amp` |  | `True` |
-| `quality` |  | `None` |
-| `target` |  | `(45.0, 110.0)` |
-| `clip` |  | `120.0` |
-| `full_scale` |  | `128.0` |
-| `max_level_probes` |  | `14` |
-| `min_quality_db` |  | `3.0` |
+| `probe` | `Callable[..., Any]` | *required* |
+| `lna_steps` | `Sequence[int]` | `(0, 8, 16, 24, 32, 40)` |
+| `vga_steps` | `Sequence[int]` | `(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62)` |
+| `use_amp` | `bool` | `True` |
+| `quality` | `Callable[[Any], float | None] | None` | `None` |
+| `target` | `tuple[float, float]` | `(45.0, 110.0)` |
+| `clip` | `float` | `120.0` |
+| `full_scale` | `float` | `128.0` |
+| `max_level_probes` | `int` | `14` |
+| `min_quality_db` | `float` | `3.0` |
+
+
+**Returns:** `dict[str, Any]`
 
 
 
-### `search_gain_model(probe, model: 'GainModel', *, quality=None, target=(45.0, 110.0), clip=120.0, full_scale=128.0, max_level_probes=14, min_quality_db=3.0)`
+### `search_gain_model(probe: 'Callable[[dict[str, Any]], Any]', model: 'GainModel', *, quality: 'Callable[[Any], float | None] | None' = None, target: 'tuple[float, float]' = (45.0, 110.0), clip: 'float' = 120.0, full_scale: 'float' = 128.0, max_level_probes: 'int' = 14, min_quality_db: 'float' = 3.0) -> 'dict[str, Any]'`
 
 Find gain settings for a usable capture on any radio. Returns a dict.
 
@@ -5438,18 +6007,21 @@ settings is the chosen ``{stage: value}``, status is "ok"|"too_weak"|
 
 | Parameter | Type | Default |
 |---|---|---|
-| `probe` |  | *required* |
+| `probe` | `Callable[[dict[str, Any]], Any]` | *required* |
 | `model` | `GainModel` | *required* |
-| `quality` |  | `None` |
-| `target` |  | `(45.0, 110.0)` |
-| `clip` |  | `120.0` |
-| `full_scale` |  | `128.0` |
-| `max_level_probes` |  | `14` |
-| `min_quality_db` |  | `3.0` |
+| `quality` | `Callable[[Any], float | None] | None` | `None` |
+| `target` | `tuple[float, float]` | `(45.0, 110.0)` |
+| `clip` | `float` | `120.0` |
+| `full_scale` | `float` | `128.0` |
+| `max_level_probes` | `int` | `14` |
+| `min_quality_db` | `float` | `3.0` |
+
+
+**Returns:** `dict[str, Any]`
 
 
 
-### `slice_to_symbols(bits, samples_per_symbol)`
+### `slice_to_symbols(bits: 'Any', samples_per_symbol: 'float') -> 'np.ndarray'`
 
 Collapse an over-sampled 0/1 stream into one bit per symbol. OUR code.
 
@@ -5461,12 +6033,15 @@ round(run_length / spb) times. Returns a uint8 array of symbol bits.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `samples_per_symbol` |  | *required* |
+| `bits` | `Any` | *required* |
+| `samples_per_symbol` | `float` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `snr_db(iq, sample_rate, signal_band_hz, nfft=1024)`
+### `snr_db(iq: 'Any', sample_rate: 'float', signal_band_hz: 'Any', nfft: 'int' = 1024) -> 'float'`
 
 Estimate SNR by comparing in-band power to out-of-band (noise) power.
 
@@ -5479,14 +6054,17 @@ signal_band_hz: (low, high) frequency range (relative to center) holding
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `signal_band_hz` |  | *required* |
-| `nfft` |  | `1024` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `signal_band_hz` | `Any` | *required* |
+| `nfft` | `int` | `1024` |
+
+
+**Returns:** `float`
 
 
 
-### `spectrogram(iq, sample_rate, nfft=1024, overlap=0.5, window='hann', center_freq=0.0)`
+### `spectrogram(iq: 'Any', sample_rate: 'float', nfft: 'int' = 1024, overlap: 'float' = 0.5, window: 'str | np.ndarray | None' = 'hann', center_freq: 'float' = 0.0) -> 'tuple[np.ndarray, np.ndarray, np.ndarray]'`
 
 Time-frequency spectrogram. OUR code (numpy FFT per frame).
 
@@ -5498,16 +6076,19 @@ Returns (freqs_hz, times_s, sxx_db) where sxx_db has shape
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `nfft` |  | `1024` |
-| `overlap` |  | `0.5` |
-| `window` |  | `'hann'` |
-| `center_freq` |  | `0.0` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `nfft` | `int` | `1024` |
+| `overlap` | `float` | `0.5` |
+| `window` | `str | np.ndarray | None` | `'hann'` |
+| `center_freq` | `float` | `0.0` |
+
+
+**Returns:** `tuple[np.ndarray, np.ndarray, np.ndarray]`
 
 
 
-### `ssb_demod(iq, sample_rate, sideband='usb', bfo_hz=0.0)`
+### `ssb_demod(iq: 'Any', sample_rate: 'float', sideband: 'str' = 'usb', bfo_hz: 'float' = 0.0) -> 'np.ndarray'`
 
 Demodulate single-sideband (USB or LSB). OUR code.
 
@@ -5531,14 +6112,17 @@ Returns the real demodulated audio.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `sideband` |  | `'usb'` |
-| `bfo_hz` |  | `0.0` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `sideband` | `str` | `'usb'` |
+| `bfo_hz` | `float` | `0.0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `ssb_modulate(message, sideband='usb')`
+### `ssb_modulate(message: 'Any', sideband: 'str' = 'usb') -> 'np.ndarray'`
 
 SSB-modulate a real message into IQ. Inverse of ssb_demod. OUR code.
 
@@ -5557,12 +6141,15 @@ Returns complex64 IQ -- the single-sideband analytic signal.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `message` |  | *required* |
-| `sideband` |  | `'usb'` |
+| `message` | `Any` | *required* |
+| `sideband` | `str` | `'usb'` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `symbol_sync(iq, samples_per_symbol, method='gardner', loop_bw=0.01, damping=0.707, diagnostics=False, csv_path=None, lock_threshold=None)`
+### `symbol_sync(iq: 'Any', samples_per_symbol: 'float', method: 'str' = 'gardner', loop_bw: 'float' = 0.01, damping: 'float' = 0.707, diagnostics: 'bool' = False, csv_path: 'str | os.PathLike[str] | None' = None, lock_threshold: 'float | None' = None) -> 'np.ndarray | tuple[np.ndarray, LoopDiagnostics]'`
 
 Recover symbol timing: pick the best sampling instant per symbol. OUR code.
 
@@ -5620,18 +6207,21 @@ Muller is decision-directed (use it after, or on a clean constellation).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `samples_per_symbol` |  | *required* |
-| `method` |  | `'gardner'` |
-| `loop_bw` |  | `0.01` |
-| `damping` |  | `0.707` |
-| `diagnostics` |  | `False` |
-| `csv_path` |  | `None` |
-| `lock_threshold` |  | `None` |
+| `iq` | `Any` | *required* |
+| `samples_per_symbol` | `float` | *required* |
+| `method` | `str` | `'gardner'` |
+| `loop_bw` | `float` | `0.01` |
+| `damping` | `float` | `0.707` |
+| `diagnostics` | `bool` | `False` |
+| `csv_path` | `str | os.PathLike[str] | None` | `None` |
+| `lock_threshold` | `float | None` | `None` |
+
+
+**Returns:** `np.ndarray | tuple[np.ndarray, LoopDiagnostics]`
 
 
 
-### `to_db(x, *, power=True, epsilon=1e-20)`
+### `to_db(x: 'Any', *, power: 'bool' = True, epsilon: 'float' = 1e-20) -> 'np.ndarray'`
 
 Convert linear values to dB.
 
@@ -5644,13 +6234,16 @@ epsilon floors the input so zeros don't produce -inf.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `x` |  | *required* |
-| `power` |  | `True` |
-| `epsilon` |  | `1e-20` |
+| `x` | `Any` | *required* |
+| `power` | `bool` | `True` |
+| `epsilon` | `float` | `1e-20` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `tune_to_baseband(iq, offset_hz, sample_rate)`
+### `tune_to_baseband(iq: 'Any', sample_rate: 'float', offset_hz: 'float') -> 'np.ndarray'`
 
 Bring a signal sitting at +offset_hz down to 0 Hz (DC).
 
@@ -5659,13 +6252,16 @@ Bring a signal sitting at +offset_hz down to 0 Hz (DC).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `offset_hz` |  | *required* |
-| `sample_rate` |  | *required* |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `offset_hz` | `float` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `upsample(symbols, sps)`
+### `upsample(symbols: 'Any', sps: 'int') -> 'np.ndarray'`
 
 Insert sps-1 zeros between symbols (zero-stuffing). OUR code.
 
@@ -5677,8 +6273,11 @@ filter to spread it into a pulse. Returns a complex64 array sps times longer.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `symbols` |  | *required* |
-| `sps` |  | *required* |
+| `symbols` | `Any` | *required* |
+| `sps` | `int` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
@@ -5690,9 +6289,30 @@ Recover bits/audio/symbols from IQ.
 
 Import: `import sdr_dsp.core.demod`
 
+### Classes
+
+### class `DemodResult`
+
+Hard bits plus the soft information behind them.
+
+bits: uint8 array of 0/1, k bits per symbol for a 2^k-ary scheme.
+soft: per-symbol decision information; its meaning depends on the demod
+      (bpsk/dbpsk: the real-axis statistic, float64; qpsk/qam16: the
+      chosen constellation points, complex64; psk8: the sector index,
+      uint8; dqpsk: the differential angle, float64). Confidence,
+      constellation plots and EVM all start from here.
+
+
+**Attributes:**
+
+- `bits`: `ForwardRef('np.ndarray')`
+- `soft`: `ForwardRef('np.ndarray')`
+
+
+
 ### Functions
 
-### `am_demod(iq, dc_block=True)`
+### `am_demod(iq: 'Any', dc_block: 'bool' = True) -> 'np.ndarray'`
 
 Demodulate amplitude modulation: the envelope (magnitude). OUR code.
 
@@ -5704,12 +6324,15 @@ removed so the output swings around zero like audio.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `dc_block` |  | `True` |
+| `iq` | `Any` | *required* |
+| `dc_block` | `bool` | `True` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `bpsk_demod(iq, normalize_phase=True)`
+### `bpsk_demod(iq: 'Any', normalize_phase: 'bool' = True) -> 'DemodResult'`
 
 Demodulate binary phase-shift keying (coherent-ish). OUR code.
 
@@ -5720,7 +6343,7 @@ loop / carrier recovery). For captures with a residual carrier offset,
 correct it first (see estimate_cfo / frequency_shift) -- the library does
 not auto-recover the carrier.
 
-Returns (bits, soft) where bits is uint8 (0/1) and soft is the real-part
+Returns DemodResult(bits, soft): bits uint8 (0/1), soft the real-part
 decision statistic (useful for confidence / plotting a constellation).
 
 
@@ -5728,12 +6351,15 @@ decision statistic (useful for confidence / plotting a constellation).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `normalize_phase` |  | `True` |
+| `iq` | `Any` | *required* |
+| `normalize_phase` | `bool` | `True` |
+
+
+**Returns:** `DemodResult`
 
 
 
-### `cw_decode(bits, samples_per_symbol)`
+### `cw_decode(bits: 'Any', samples_per_symbol: 'float') -> 'str'`
 
 Decode Morse (CW) from a sliced on/off stream. OUR code.
 
@@ -5755,12 +6381,15 @@ unit estimate and the dit/dah threshold may need tuning on real signals.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `samples_per_symbol` |  | *required* |
+| `bits` | `Any` | *required* |
+| `samples_per_symbol` | `float` | *required* |
+
+
+**Returns:** `str`
 
 
 
-### `dbpsk_demod(symbols)`
+### `dbpsk_demod(symbols: 'Any') -> 'DemodResult'`
 
 Demodulate differential BPSK. OUR code.
 
@@ -5779,11 +6408,14 @@ differential product (sign gives the bit, magnitude gives confidence).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `symbols` |  | *required* |
+| `symbols` | `Any` | *required* |
+
+
+**Returns:** `DemodResult`
 
 
 
-### `deemphasis(audio, sample_rate, tau_us=75.0)`
+### `deemphasis(audio: 'Any', sample_rate: 'float', tau_us: 'float' = 75.0) -> 'np.ndarray'`
 
 Single-pole de-emphasis filter for broadcast FM audio. OUR code.
 
@@ -5801,13 +6433,16 @@ blocks.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `audio` |  | *required* |
-| `sample_rate` |  | *required* |
-| `tau_us` |  | `75.0` |
+| `audio` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `tau_us` | `float` | `75.0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `dqpsk_demod(symbols)`
+### `dqpsk_demod(symbols: 'Any') -> 'DemodResult'`
 
 Demodulate differential QPSK. OUR code.
 
@@ -5822,11 +6457,14 @@ angles for inspection.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `symbols` |  | *required* |
+| `symbols` | `Any` | *required* |
+
+
+**Returns:** `DemodResult`
 
 
 
-### `dsb_sc_demod(iq, sample_rate, bfo_hz=0.0)`
+### `dsb_sc_demod(iq: 'Any', sample_rate: 'float', bfo_hz: 'float' = 0.0) -> 'np.ndarray'`
 
 Demodulate double-sideband suppressed-carrier (DSB-SC). OUR code.
 
@@ -5845,13 +6483,16 @@ Returns the real demodulated message.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `bfo_hz` |  | `0.0` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `bfo_hz` | `float` | `0.0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `dsss_despread(iq, code, samples_per_chip=1)`
+### `dsss_despread(iq: 'Any', code: 'Any', samples_per_chip: 'int' = 1) -> 'np.ndarray'`
 
 Despread a DSSS signal using a KNOWN spreading code. OUR code.
 
@@ -5873,13 +6514,16 @@ with core.correlate and pick the peak.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `code` |  | *required* |
-| `samples_per_chip` |  | `1` |
+| `iq` | `Any` | *required* |
+| `code` | `Any` | *required* |
+| `samples_per_chip` | `int` | `1` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `edges(bits)`
+### `edges(bits: 'Any') -> 'tuple[np.ndarray, np.ndarray, np.ndarray]'`
 
 Indices where a 0/1 stream transitions, and the run lengths. OUR code.
 
@@ -5893,11 +6537,14 @@ on/off stream.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
+| `bits` | `Any` | *required* |
+
+
+**Returns:** `tuple[np.ndarray, np.ndarray, np.ndarray]`
 
 
 
-### `estimate_symbol_rate(bits, sample_rate, min_run=2)`
+### `estimate_symbol_rate(bits: 'Any', sample_rate: 'float', min_run: 'int' = 2) -> 'tuple[float, float]'`
 
 Estimate samples-per-symbol from the run lengths in a sliced stream.
 
@@ -5916,13 +6563,16 @@ capture is very noisy; lower it (to 1) only for pristine synthetic data.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `sample_rate` |  | *required* |
-| `min_run` |  | `2` |
+| `bits` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `min_run` | `int` | `2` |
+
+
+**Returns:** `tuple[float, float]`
 
 
 
-### `fhss_detect_hops(iq, sample_rate, nfft=256, overlap=0.5, center_freq=0.0)`
+### `fhss_detect_hops(iq: 'Any', sample_rate: 'float', nfft: 'int' = 256, overlap: 'float' = 0.5, center_freq: 'float' = 0.0) -> 'tuple[np.ndarray, np.ndarray]'`
 
 Detect frequency hops: the dominant frequency per time slice. OUR code.
 
@@ -5939,15 +6589,18 @@ offset by center_freq) during time slice times[i].
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `nfft` |  | `256` |
-| `overlap` |  | `0.5` |
-| `center_freq` |  | `0.0` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `nfft` | `int` | `256` |
+| `overlap` | `float` | `0.5` |
+| `center_freq` | `float` | `0.0` |
+
+
+**Returns:** `tuple[np.ndarray, np.ndarray]`
 
 
 
-### `fm_demod(iq, deviation_hz=None, sample_rate=None)`
+### `fm_demod(iq: 'Any', sample_rate: 'float | None' = None, deviation_hz: 'float | None' = None) -> 'np.ndarray'`
 
 Demodulate frequency modulation via the phase discriminator. OUR code.
 
@@ -5967,13 +6620,16 @@ indication why.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `deviation_hz` |  | `None` |
-| `sample_rate` |  | `None` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float | None` | `None` |
+| `deviation_hz` | `float | None` | `None` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `fm_stereo_decode(composite, sample_rate, pilot_hz=19000.0, audio_bw=15000.0, pilot_bw=1000.0)`
+### `fm_stereo_decode(composite: 'Any', sample_rate: 'float', pilot_hz: 'float' = 19000.0, audio_bw_hz: 'float' = 15000.0, pilot_bw_hz: 'float' = 1000.0) -> 'tuple[np.ndarray, np.ndarray]'`
 
 Recover left/right audio from a demodulated FM stereo composite. OUR code.
 
@@ -6019,15 +6675,18 @@ actually present rather than decoding unconditionally.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `composite` |  | *required* |
-| `sample_rate` |  | *required* |
-| `pilot_hz` |  | `19000.0` |
-| `audio_bw` |  | `15000.0` |
-| `pilot_bw` |  | `1000.0` |
+| `composite` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `pilot_hz` | `float` | `19000.0` |
+| `audio_bw_hz` | `float` | `15000.0` |
+| `pilot_bw_hz` | `float` | `1000.0` |
+
+
+**Returns:** `tuple[np.ndarray, np.ndarray]`
 
 
 
-### `fsk_demod(iq, sample_rate, threshold_hz=0.0, smooth_samples=0)`
+### `fsk_demod(iq: 'Any', sample_rate: 'float', threshold_hz: 'float | str | None' = 0.0, smooth_samples: 'int' = 0) -> 'np.ndarray'`
 
 Demodulate 2-level frequency-shift keying. OUR code.
 
@@ -6040,7 +6699,9 @@ is the common case after tuning to baseband).
 threshold_hz: the mark/space decision frequency. Two real radios never
     share an oscillator, so a carrier frequency offset (crystal ppm --
     easily +/-10-20 kHz at 433 MHz between two SDRs) shifts BOTH tones and
-    biases the fixed 0 Hz split. Pass "auto" to threshold at the
+    biases the fixed 0 Hz split. Pass None (the library's spelling of
+    "decide it from the data", as in ook_slice / find_bursts; the string
+    "auto" is accepted as a synonym) to threshold at the
     amplitude^2-weighted mean of the instantaneous frequency instead: with
     roughly balanced mark/space time (any frame with an alternating
     preamble qualifies) that mean IS the offset, so the split self-centers.
@@ -6063,14 +6724,17 @@ GFSK/MSK well enough for typical ISM-band sensors and pagers.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `threshold_hz` |  | `0.0` |
-| `smooth_samples` |  | `0` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `threshold_hz` | `float | str | None` | `0.0` |
+| `smooth_samples` | `int` | `0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `fsk_demod_nlevel(iq, sample_rate, n_levels=4, thresholds=None, smooth_samples=0)`
+### `fsk_demod_nlevel(iq: 'Any', sample_rate: 'float', n_levels: 'int' = 4, thresholds: 'Any | None' = None, smooth_samples: 'int' = 0) -> 'np.ndarray'`
 
 Demodulate N-level FSK (4-FSK, etc.) and CPFSK. OUR code.
 
@@ -6080,7 +6744,8 @@ frequency, it slices the frequency into n_levels bands. Used by 4-FSK
 phase is a transmit-side property; the receiver still reads instantaneous
 frequency.
 
-thresholds: explicit frequency band centers (Hz). If None, the levels are
+thresholds: explicit frequency band centers (Hz); when given they define
+    the level count and n_levels is ignored. If None, n_levels centers are
     spread uniformly across the observed frequency range -- fine for a
     clean capture; pass measured centers for real signals.
 smooth_samples: if > 1, moving-average the instantaneous frequency over
@@ -6100,15 +6765,18 @@ Returns per-sample symbol indices 0..n_levels-1.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `n_levels` |  | `4` |
-| `thresholds` |  | `None` |
-| `smooth_samples` |  | `0` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `n_levels` | `int` | `4` |
+| `thresholds` | `Any | None` | `None` |
+| `smooth_samples` | `int` | `0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `instantaneous_frequency(iq, sample_rate=None)`
+### `instantaneous_frequency(iq: 'Any', sample_rate: 'float | None' = None) -> 'np.ndarray'`
 
 The instantaneous frequency of a complex signal. OUR code.
 
@@ -6125,12 +6793,15 @@ len(iq) - 1 (one difference per adjacent pair).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | `None` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float | None` | `None` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `instantaneous_phase(iq, unwrap=True)`
+### `instantaneous_phase(iq: 'Any', unwrap: 'bool' = True) -> 'np.ndarray'`
 
 The phase angle of each complex sample. OUR code.
 
@@ -6143,19 +6814,23 @@ measuring frequency as its slope).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `unwrap` |  | `True` |
+| `iq` | `Any` | *required* |
+| `unwrap` | `bool` | `True` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `nask_slice(envelope, n_levels=4, levels=None)`
+### `nask_slice(envelope: 'Any', n_levels: 'int' = 4, levels: 'Any | None' = None) -> 'np.ndarray'`
 
 Slice an amplitude envelope into N levels (M-ASK). OUR code.
 
 Generalizes 2-level OOK to N amplitude levels (4-ASK, 8-ASK). Returns a
 per-sample symbol index in 0..n_levels-1.
 
-levels: explicit amplitude thresholds/centers. If None, the levels are
+levels: explicit amplitude centers; when given, they define the level
+count and n_levels is ignored. If None, n_levels centers are
 spread uniformly from the envelope's min to its max -- a reasonable default
 for a clean capture, but YOU can pass measured levels for real signals where
 the spacing isn't uniform.
@@ -6165,13 +6840,16 @@ the spacing isn't uniform.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `envelope` |  | *required* |
-| `n_levels` |  | `4` |
-| `levels` |  | `None` |
+| `envelope` | `Any` | *required* |
+| `n_levels` | `int` | `4` |
+| `levels` | `Any | None` | `None` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `ook_envelope(iq)`
+### `ook_envelope(iq: 'Any') -> 'np.ndarray'`
 
 On-off-keying / ASK front end: the magnitude envelope. OUR code.
 
@@ -6183,11 +6861,14 @@ level). Feed to ``ook_slice`` to recover bits.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
+| `iq` | `Any` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `ook_slice(envelope, threshold=None)`
+### `ook_slice(envelope: 'Any', threshold: 'float | None' = None) -> 'np.ndarray'`
 
 Threshold an OOK envelope into a 0/1 stream. OUR code.
 
@@ -6200,12 +6881,15 @@ capture). Returns a uint8 array of 0/1.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `envelope` |  | *required* |
-| `threshold` |  | `None` |
+| `envelope` | `Any` | *required* |
+| `threshold` | `float | None` | `None` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `psk8_demod(symbols)`
+### `psk8_demod(symbols: 'Any') -> 'DemodResult'`
 
 Demodulate 8-PSK from recovered symbols. OUR code.
 
@@ -6225,11 +6909,14 @@ here than for QPSK.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `symbols` |  | *required* |
+| `symbols` | `Any` | *required* |
+
+
+**Returns:** `DemodResult`
 
 
 
-### `qam16_demod(symbols, normalize=True)`
+### `qam16_demod(symbols: 'Any', normalize: 'bool' = True) -> 'DemodResult'`
 
 Demodulate QAM-16 from recovered symbols. OUR code.
 
@@ -6254,12 +6941,15 @@ normalize=False if you've already scaled the signal yourself.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `symbols` |  | *required* |
-| `normalize` |  | `True` |
+| `symbols` | `Any` | *required* |
+| `normalize` | `bool` | `True` |
+
+
+**Returns:** `DemodResult`
 
 
 
-### `qpsk_demod(symbols, gray=True)`
+### `qpsk_demod(symbols: 'Any', gray: 'bool' = True) -> 'DemodResult'`
 
 Demodulate QPSK from recovered symbols. OUR code.
 
@@ -6284,12 +6974,15 @@ standard choice that minimizes bit errors.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `symbols` |  | *required* |
-| `gray` |  | `True` |
+| `symbols` | `Any` | *required* |
+| `gray` | `bool` | `True` |
+
+
+**Returns:** `DemodResult`
 
 
 
-### `sample_symbols(bits, samples_per_symbol, active=None)`
+### `sample_symbols(bits: 'Any', samples_per_symbol: 'int', active: 'Any | None' = None) -> 'np.ndarray'`
 
 Decimate an over-sampled 0/1 stream to symbols at the RIGHT phase. OUR code.
 
@@ -6323,13 +7016,16 @@ Returns a uint8 array with one entry per symbol period.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `samples_per_symbol` |  | *required* |
-| `active` |  | `None` |
+| `bits` | `Any` | *required* |
+| `samples_per_symbol` | `int` | *required* |
+| `active` | `Any | None` | `None` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `slice_to_symbols(bits, samples_per_symbol)`
+### `slice_to_symbols(bits: 'Any', samples_per_symbol: 'float') -> 'np.ndarray'`
 
 Collapse an over-sampled 0/1 stream into one bit per symbol. OUR code.
 
@@ -6341,12 +7037,15 @@ round(run_length / spb) times. Returns a uint8 array of symbol bits.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `samples_per_symbol` |  | *required* |
+| `bits` | `Any` | *required* |
+| `samples_per_symbol` | `float` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `ssb_demod(iq, sample_rate, sideband='usb', bfo_hz=0.0)`
+### `ssb_demod(iq: 'Any', sample_rate: 'float', sideband: 'str' = 'usb', bfo_hz: 'float' = 0.0) -> 'np.ndarray'`
 
 Demodulate single-sideband (USB or LSB). OUR code.
 
@@ -6370,10 +7069,13 @@ Returns the real demodulated audio.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `sideband` |  | `'usb'` |
-| `bfo_hz` |  | `0.0` |
+| `iq` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `sideband` | `str` | `'usb'` |
+| `bfo_hz` | `float` | `0.0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
@@ -6387,7 +7089,7 @@ Import: `import sdr_dsp.core.modulate`
 
 ### Functions
 
-### `am_modulate(message, modulation_index=0.5)`
+### `am_modulate(message: 'Any', modulation_index: 'float' = 0.5) -> 'np.ndarray'`
 
 AM-modulate a real message into IQ. Inverse of am_demod. OUR code.
 
@@ -6406,12 +7108,15 @@ Returns complex64 IQ with the message in its magnitude.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `message` |  | *required* |
-| `modulation_index` |  | `0.5` |
+| `message` | `Any` | *required* |
+| `modulation_index` | `float` | `0.5` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `bpsk_modulate(bits, samples_per_symbol=1, pulse_shaping=False, beta=0.35, span_symbols=8, pad_symbols=0)`
+### `bpsk_modulate(bits: 'Any', samples_per_symbol: 'int' = 1, pulse_shaping: 'bool' = False, beta: 'float' = 0.35, span_symbols: 'int' = 8, pad_symbols: 'int' = 0) -> 'np.ndarray'`
 
 BPSK: bit 1 -> +1, bit 0 -> -1 (phase 0 or pi). Inverse of bpsk_demod.
 
@@ -6432,16 +7137,19 @@ Returns complex64 baseband.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `samples_per_symbol` |  | `1` |
-| `pulse_shaping` |  | `False` |
-| `beta` |  | `0.35` |
-| `span_symbols` |  | `8` |
-| `pad_symbols` |  | `0` |
+| `bits` | `Any` | *required* |
+| `samples_per_symbol` | `int` | `1` |
+| `pulse_shaping` | `bool` | `False` |
+| `beta` | `float` | `0.35` |
+| `span_symbols` | `int` | `8` |
+| `pad_symbols` | `int` | `0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `fm_modulate(message, deviation_hz, sample_rate)`
+### `fm_modulate(message: 'Any', sample_rate: 'float', deviation_hz: 'float') -> 'np.ndarray'`
 
 FM-modulate a real message into IQ. Inverse of fm_demod. OUR code.
 
@@ -6460,13 +7168,16 @@ Returns unit-magnitude complex64 IQ (FM is constant-envelope).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `message` |  | *required* |
-| `deviation_hz` |  | *required* |
-| `sample_rate` |  | *required* |
+| `message` | `Any` | *required* |
+| `sample_rate` | `float` | *required* |
+| `deviation_hz` | `float` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `fsk_modulate(bits, samples_per_symbol, deviation_hz, sample_rate, pad_symbols=0)`
+### `fsk_modulate(bits: 'Any', samples_per_symbol: 'int', deviation_hz: 'float', sample_rate: 'float', pad_symbols: 'int' = 0) -> 'np.ndarray'`
 
 Binary FSK: bit selects one of two frequencies. Inverse of fsk_demod.
 
@@ -6496,15 +7207,18 @@ constant-envelope); the pad regions are silence.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `samples_per_symbol` |  | *required* |
-| `deviation_hz` |  | *required* |
-| `sample_rate` |  | *required* |
-| `pad_symbols` |  | `0` |
+| `bits` | `Any` | *required* |
+| `samples_per_symbol` | `int` | *required* |
+| `deviation_hz` | `float` | *required* |
+| `sample_rate` | `float` | *required* |
+| `pad_symbols` | `int` | `0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `ook_modulate(bits, samples_per_symbol, high=1.0, low=0.0, pad_symbols=0)`
+### `ook_modulate(bits: 'Any', samples_per_symbol: 'int', high: 'float' = 1.0, low: 'float' = 0.0, pad_symbols: 'int' = 0) -> 'np.ndarray'`
 
 On-off keying: bit 1 -> carrier on, bit 0 -> off. Inverse of ook_slice.
 
@@ -6530,15 +7244,18 @@ Returns complex64 baseband (real-valued amplitude, zero phase).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `samples_per_symbol` |  | *required* |
-| `high` |  | `1.0` |
-| `low` |  | `0.0` |
-| `pad_symbols` |  | `0` |
+| `bits` | `Any` | *required* |
+| `samples_per_symbol` | `int` | *required* |
+| `high` | `float` | `1.0` |
+| `low` | `float` | `0.0` |
+| `pad_symbols` | `int` | `0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `pulse_shape(symbols, sps, span_symbols=8, beta=0.35)`
+### `pulse_shape(symbols: 'Any', sps: 'int', span_symbols: 'int' = 8, beta: 'float' = 0.35) -> 'np.ndarray'`
 
 Upsample symbols and shape them with an RRC pulse. OUR code.
 
@@ -6552,22 +7269,26 @@ receive. Returns the shaped complex64 baseband signal.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `symbols` |  | *required* |
-| `sps` |  | *required* |
-| `span_symbols` |  | `8` |
-| `beta` |  | `0.35` |
+| `symbols` | `Any` | *required* |
+| `sps` | `int` | *required* |
+| `span_symbols` | `int` | `8` |
+| `beta` | `float` | `0.35` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `qpsk_modulate(bits, samples_per_symbol=1, pulse_shaping=False, beta=0.35, span_symbols=8, gray=True, pad_symbols=0)`
+### `qpsk_modulate(bits: 'Any', samples_per_symbol: 'int' = 1, pulse_shaping: 'bool' = False, beta: 'float' = 0.35, span_symbols: 'int' = 8, gray: 'bool' = True, pad_symbols: 'int' = 0) -> 'np.ndarray'`
 
 QPSK: 2 bits per symbol, Gray-coded quadrants. Inverse of qpsk_demod.
 
 Pairs of bits map to the four points (1+1j, -1+1j, -1-1j, 1-1j)/sqrt(2) via
-the same Gray convention qpsk_demod uses, so the round-trip is exact. An odd
-trailing bit is dropped (QPSK consumes bits in pairs).
+the same Gray convention qpsk_demod uses, so the round-trip is exact. The
+bit count must be even (QPSK consumes bits in pairs); an odd count is a
+ValueError rather than a silently dropped bit.
 
-bits:               sequence of 0/1 (length should be even).
+bits:               sequence of 0/1 (length must be even).
 samples_per_symbol: samples per symbol.
 pulse_shaping:      RRC-shape the symbols if True.
 gray:               use Gray coding (match the demod).
@@ -6579,17 +7300,20 @@ Returns complex64 baseband.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `bits` |  | *required* |
-| `samples_per_symbol` |  | `1` |
-| `pulse_shaping` |  | `False` |
-| `beta` |  | `0.35` |
-| `span_symbols` |  | `8` |
-| `gray` |  | `True` |
-| `pad_symbols` |  | `0` |
+| `bits` | `Any` | *required* |
+| `samples_per_symbol` | `int` | `1` |
+| `pulse_shaping` | `bool` | `False` |
+| `beta` | `float` | `0.35` |
+| `span_symbols` | `int` | `8` |
+| `gray` | `bool` | `True` |
+| `pad_symbols` | `int` | `0` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `rrc_taps(sps, span_symbols=8, beta=0.35)`
+### `rrc_taps(sps: 'int', span_symbols: 'int' = 8, beta: 'float' = 0.35) -> 'np.ndarray'`
 
 Root-raised-cosine filter taps. OUR code.
 
@@ -6606,13 +7330,16 @@ the zero-ISI pulse).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `sps` |  | *required* |
-| `span_symbols` |  | `8` |
-| `beta` |  | `0.35` |
+| `sps` | `int` | *required* |
+| `span_symbols` | `int` | `8` |
+| `beta` | `float` | `0.35` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `ssb_modulate(message, sideband='usb')`
+### `ssb_modulate(message: 'Any', sideband: 'str' = 'usb') -> 'np.ndarray'`
 
 SSB-modulate a real message into IQ. Inverse of ssb_demod. OUR code.
 
@@ -6631,12 +7358,15 @@ Returns complex64 IQ -- the single-sideband analytic signal.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `message` |  | *required* |
-| `sideband` |  | `'usb'` |
+| `message` | `Any` | *required* |
+| `sideband` | `str` | `'usb'` |
+
+
+**Returns:** `np.ndarray`
 
 
 
-### `upsample(symbols, sps)`
+### `upsample(symbols: 'Any', sps: 'int') -> 'np.ndarray'`
 
 Insert sps-1 zeros between symbols (zero-stuffing). OUR code.
 
@@ -6648,8 +7378,11 @@ filter to spread it into a pulse. Returns a complex64 array sps times longer.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `symbols` |  | *required* |
-| `sps` |  | *required* |
+| `symbols` | `Any` | *required* |
+| `sps` | `int` | *required* |
+
+
+**Returns:** `np.ndarray`
 
 
 
@@ -7049,7 +7782,7 @@ Useful for tests, synthetic signals, and feeding already-loaded data into
 the same pipeline code a file or device would drive.
 
 
-**Constructor:** `ArraySource(self, iq: 'np.ndarray', sample_rate: 'float', center_freq: 'float' = 0.0, block_size: 'int' = 65536)`
+**Constructor:** `ArraySource(self, iq: 'np.ndarray', sample_rate: 'float', center_freq: 'float' = 0.0, block_size: 'int' = 65536) -> 'None'`
 
 | Parameter | Type | Default |
 |---|---|---|
@@ -7092,14 +7825,14 @@ Args:
     offset_samples: skip this many samples from the start.
 
 
-**Constructor:** `FileSource(self, path, block_size=65536, count=None, offset_samples=0)`
+**Constructor:** `FileSource(self, path: 'str | os.PathLike[str]', block_size: 'int' = 65536, count: 'int | None' = None, offset_samples: 'int' = 0) -> 'None'`
 
 | Parameter | Type | Default |
 |---|---|---|
-| `path` |  | *required* |
-| `block_size` |  | `65536` |
-| `count` |  | `None` |
-| `offset_samples` |  | `0` |
+| `path` | `str | os.PathLike[str]` | *required* |
+| `block_size` | `int` | `65536` |
+| `count` | `int | None` | `None` |
+| `offset_samples` | `int` | `0` |
 
 
 **Methods:**
@@ -7115,8 +7848,9 @@ path), slice that instead of re-reading.
 
 #### `read(self, n_samples: 'int') -> 'np.ndarray'`
 
-Read up to n_samples from the start (respecting offset). Streams from
-disk without loading the whole file.
+Read up to n_samples from the start of THIS source's range (offset
+and count respected, like blocks()). Streams from disk without loading
+the whole file.
 
 | Parameter | Type | Default |
 |---|---|---|
@@ -7186,28 +7920,28 @@ really drives a sink, the sink really receives the IQ -- only the antenna is
 missing.
 
 
-**Constructor:** `LoopbackSink(self, sample_rate, center_freq=0.0)`
+**Constructor:** `LoopbackSink(self, sample_rate: 'float', center_freq: 'float' = 0.0) -> 'None'`
 
 | Parameter | Type | Default |
 |---|---|---|
-| `sample_rate` |  | *required* |
-| `center_freq` |  | `0.0` |
+| `sample_rate` | `float` | *required* |
+| `center_freq` | `float` | `0.0` |
 
 
 **Methods:**
 
-#### `clear(self)`
+#### `clear(self) -> 'None'`
 
 Reset the buffer and counter.
 
 
-#### `transmit(self, iq)`
+#### `transmit(self, iq: 'np.ndarray') -> 'None'`
 
 Append the IQ to the in-memory buffer (no radio).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
+| `iq` | `np.ndarray` | *required* |
 
 
 
@@ -7254,7 +7988,7 @@ Transmit one buffer of complex64 IQ samples.
 
 ### Functions
 
-### `plot_spectrogram(iq, sample_rate, center_freq=0.0, nfft=1024, overlap=0.5, title=None, show=True)`
+### `plot_spectrogram(iq: 'np.ndarray', sample_rate: 'float', center_freq: 'float' = 0.0, nfft: 'int' = 1024, overlap: 'float' = 0.5, title: 'str | None' = None, show: 'bool' = True) -> 'tuple[Any, Any]'`
 
 Plot a spectrogram waterfall. Returns (fig, ax).
 
@@ -7263,17 +7997,20 @@ Plot a spectrogram waterfall. Returns (fig, ax).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `center_freq` |  | `0.0` |
-| `nfft` |  | `1024` |
-| `overlap` |  | `0.5` |
-| `title` |  | `None` |
-| `show` |  | `True` |
+| `iq` | `np.ndarray` | *required* |
+| `sample_rate` | `float` | *required* |
+| `center_freq` | `float` | `0.0` |
+| `nfft` | `int` | `1024` |
+| `overlap` | `float` | `0.5` |
+| `title` | `str | None` | `None` |
+| `show` | `bool` | `True` |
+
+
+**Returns:** `tuple[Any, Any]`
 
 
 
-### `plot_spectrum(iq, sample_rate, center_freq=0.0, nfft=2048, title=None, show=True)`
+### `plot_spectrum(iq: 'np.ndarray', sample_rate: 'float', center_freq: 'float' = 0.0, nfft: 'int' = 2048, title: 'str | None' = None, show: 'bool' = True) -> 'tuple[Any, Any]'`
 
 Plot the PSD of a signal. Returns (fig, ax).
 
@@ -7282,16 +8019,19 @@ Plot the PSD of a signal. Returns (fig, ax).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `center_freq` |  | `0.0` |
-| `nfft` |  | `2048` |
-| `title` |  | `None` |
-| `show` |  | `True` |
+| `iq` | `np.ndarray` | *required* |
+| `sample_rate` | `float` | *required* |
+| `center_freq` | `float` | `0.0` |
+| `nfft` | `int` | `2048` |
+| `title` | `str | None` | `None` |
+| `show` | `bool` | `True` |
+
+
+**Returns:** `tuple[Any, Any]`
 
 
 
-### `write_iq(path, iq, sample_rate, center_freq=0.0, **extra_global)`
+### `write_iq(path: 'str | os.PathLike[str]', iq: 'np.ndarray', sample_rate: 'float', center_freq: 'float' = 0.0, **extra_global: 'Any') -> 'tuple[str, str]'`
 
 Save complex64 IQ + a SigMF sidecar (cf32_le). Returns (data, meta) paths.
 
@@ -7303,15 +8043,18 @@ look for "where results go". extra_global lands in the SigMF global object.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `path` |  | *required* |
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `center_freq` |  | `0.0` |
-| `extra_global` (**kwargs) |  | *required* |
+| `path` | `str | os.PathLike[str]` | *required* |
+| `iq` | `np.ndarray` | *required* |
+| `sample_rate` | `float` | *required* |
+| `center_freq` | `float` | `0.0` |
+| `extra_global` (**kwargs) | `Any` | *required* |
+
+
+**Returns:** `tuple[str, str]`
 
 
 
-### `write_wav(path, audio, sample_rate, normalize=True, headroom=0.9, percentile=99.9)`
+### `write_wav(path: 'str | os.PathLike[str]', audio: 'np.ndarray', sample_rate: 'float', normalize: 'bool' = True, headroom: 'float' = 0.9, percentile: 'float' = 99.9) -> 'str'`
 
 Write a real audio array to a mono 16-bit WAV.
 
@@ -7339,12 +8082,15 @@ Returns the path written.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `path` |  | *required* |
-| `audio` |  | *required* |
-| `sample_rate` |  | *required* |
-| `normalize` |  | `True` |
-| `headroom` |  | `0.9` |
-| `percentile` |  | `99.9` |
+| `path` | `str | os.PathLike[str]` | *required* |
+| `audio` | `np.ndarray` | *required* |
+| `sample_rate` | `float` | *required* |
+| `normalize` | `bool` | `True` |
+| `headroom` | `float` | `0.9` |
+| `percentile` | `float` | `99.9` |
+
+
+**Returns:** `str`
 
 
 
@@ -7432,7 +8178,7 @@ Serialize to a SigMF annotation dict (core:-namespaced keys).
 
 ### Functions
 
-### `bursts_to_annotations(spans, label=None, freq_lower_edge=None, freq_upper_edge=None)`
+### `bursts_to_annotations(spans: 'Sequence[tuple[int, int]]', label: 'str | None' = None, freq_lower_edge: 'float | None' = None, freq_upper_edge: 'float | None' = None) -> 'list[Annotation]'`
 
 Convert find_bursts() output into Annotation objects. The detect->label
 step in one call.
@@ -7449,14 +8195,17 @@ Returns a list of Annotation ready to pass to save_iq(annotations=...).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `spans` |  | *required* |
-| `label` |  | `None` |
-| `freq_lower_edge` |  | `None` |
-| `freq_upper_edge` |  | `None` |
+| `spans` | `Sequence[tuple[int, int]]` | *required* |
+| `label` | `str | None` | `None` |
+| `freq_lower_edge` | `float | None` | `None` |
+| `freq_upper_edge` | `float | None` | `None` |
+
+
+**Returns:** `list[Annotation]`
 
 
 
-### `iq_info(path)`
+### `iq_info(path: 'str | os.PathLike[str]') -> 'dict[str, Any]'`
 
 Inspect a recording WITHOUT loading the IQ data into memory.
 
@@ -7470,11 +8219,14 @@ reading the samples. Cheap: it stats the data file and parses the sidecar.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `path` |  | *required* |
+| `path` | `str | os.PathLike[str]` | *required* |
+
+
+**Returns:** `dict[str, Any]`
 
 
 
-### `load_iq(path, count=None, offset_samples=0)`
+### `load_iq(path: 'str | os.PathLike[str]', count: 'int | None' = None, offset_samples: 'int' = 0) -> 'tuple[np.ndarray, dict[str, Any]]'`
 
 Load a SigMF recording into complex64, using its sidecar to interpret.
 
@@ -7491,13 +8243,16 @@ complex64 in roughly [-1, 1).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `path` |  | *required* |
-| `count` |  | `None` |
-| `offset_samples` |  | `0` |
+| `path` | `str | os.PathLike[str]` | *required* |
+| `count` | `int | None` | `None` |
+| `offset_samples` | `int` | `0` |
+
+
+**Returns:** `tuple[np.ndarray, dict[str, Any]]`
 
 
 
-### `read_annotations(path) -> 'list'`
+### `read_annotations(path: 'str | os.PathLike[str]') -> 'list[Annotation]'`
 
 Read the annotations from a recording's sidecar as Annotation objects.
 
@@ -7509,14 +8264,14 @@ Annotation, sorted by sample_start. Empty list if there are none.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `path` |  | *required* |
+| `path` | `str | os.PathLike[str]` | *required* |
 
 
-**Returns:** `list`
+**Returns:** `list[Annotation]`
 
 
 
-### `read_meta(path)`
+### `read_meta(path: 'str | os.PathLike[str]') -> 'dict[str, Any]'`
 
 Read a .sigmf-meta sidecar into a dict. Accepts the meta or data path.
 
@@ -7525,11 +8280,14 @@ Read a .sigmf-meta sidecar into a dict. Accepts the meta or data path.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `path` |  | *required* |
+| `path` | `str | os.PathLike[str]` | *required* |
+
+
+**Returns:** `dict[str, Any]`
 
 
 
-### `save_iq(path, iq, sample_rate, center_freq=0.0, extra_global=None, annotations=None)`
+### `save_iq(path: 'str | os.PathLike[str]', iq: 'np.ndarray', sample_rate: 'float', center_freq: 'float' = 0.0, extra_global: 'dict[str, Any] | None' = None, annotations: 'Sequence[Annotation | dict[str, Any]] | None' = None) -> 'tuple[str, str]'`
 
 Write complex64 IQ + a SigMF sidecar as cf32_le (processed-output type).
 
@@ -7545,12 +8303,15 @@ read_annotations read them back as Annotation objects.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `path` |  | *required* |
-| `iq` |  | *required* |
-| `sample_rate` |  | *required* |
-| `center_freq` |  | `0.0` |
-| `extra_global` |  | `None` |
-| `annotations` |  | `None` |
+| `path` | `str | os.PathLike[str]` | *required* |
+| `iq` | `np.ndarray` | *required* |
+| `sample_rate` | `float` | *required* |
+| `center_freq` | `float` | `0.0` |
+| `extra_global` | `dict[str, Any] | None` | `None` |
+| `annotations` | `Sequence[Annotation | dict[str, Any]] | None` | `None` |
+
+
+**Returns:** `tuple[str, str]`
 
 
 
@@ -7587,31 +8348,31 @@ are genuinely per-sample (``to_db``, ``am_demod`` without dc_block, a
 slicer) or for taps.
 
 
-**Constructor:** `Pipeline(self, source)`
+**Constructor:** `Pipeline(self, source: 'IQSource') -> 'None'`
 
 | Parameter | Type | Default |
 |---|---|---|
-| `source` |  | *required* |
+| `source` | `IQSource` | *required* |
 
 
 **Methods:**
 
-#### `add(self, fn, name=None)`
+#### `add(self, fn: 'Callable[[np.ndarray], np.ndarray]', name: 'str | None' = None) -> 'Self'`
 
 Append a transforming stage (block -> block).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `fn` |  | *required* |
-| `name` |  | `None` |
+| `fn` | `Callable[[np.ndarray], np.ndarray]` | *required* |
+| `name` | `str | None` | `None` |
 
 
-#### `describe(self)`
+#### `describe(self) -> 'str'`
 
 Return the chain as inspectable text (the pipeline is data).
 
 
-#### `flush(self) -> 'list'`
+#### `flush(self) -> 'list[np.ndarray]'`
 
 Drain the look-ahead held inside stages once the stream has ended.
 
@@ -7629,17 +8390,17 @@ call it yourself only if you drive ``process_block`` by hand.
 Flushing twice is harmless: a drained stage returns nothing.
 
 
-#### `process_block(self, block)`
+#### `process_block(self, block: 'np.ndarray') -> 'np.ndarray'`
 
 Thread a single block through every stage. Useful for testing and
 for driving the pipeline from an external loop (e.g. a GUI timer).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `block` |  | *required* |
+| `block` | `np.ndarray` | *required* |
 
 
-#### `run(self, sink=None, profile=False, max_blocks=None)`
+#### `run(self, sink: 'Callable[[np.ndarray], Any] | None' = None, profile: 'bool' = False, max_blocks: 'int | None' = None) -> 'list[np.ndarray] | None | tuple[list[np.ndarray] | None, PipelineStats]'`
 
 Pull blocks from the source, process each, deliver to sink.
 
@@ -7658,12 +8419,12 @@ returns (results_or_None, PipelineStats).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `sink` |  | `None` |
-| `profile` |  | `False` |
-| `max_blocks` |  | `None` |
+| `sink` | `Callable[[np.ndarray], Any] | None` | `None` |
+| `profile` | `bool` | `False` |
+| `max_blocks` | `int | None` | `None` |
 
 
-#### `stream(self, max_blocks=None) -> 'Iterator[np.ndarray]'`
+#### `stream(self, max_blocks: 'int | None' = None) -> 'Iterator[np.ndarray]'`
 
 Run as a generator, yielding each processed block lazily.
 
@@ -7675,10 +8436,10 @@ the stages' look-ahead when the source is exhausted (not when cut by
 
 | Parameter | Type | Default |
 |---|---|---|
-| `max_blocks` |  | `None` |
+| `max_blocks` | `int | None` | `None` |
 
 
-#### `tap(self, fn, name=None)`
+#### `tap(self, fn: 'Callable[[np.ndarray], Any]', name: 'str | None' = None) -> 'Self'`
 
 Append an observing stage (block -> ignored). Flow is unchanged.
 
@@ -7688,8 +8449,8 @@ affecting what the next stage sees.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `fn` |  | *required* |
-| `name` |  | `None` |
+| `fn` | `Callable[[np.ndarray], Any]` | *required* |
+| `name` | `str | None` | `None` |
 
 
 
@@ -7749,11 +8510,11 @@ many samples into the stride the last block ended. No filtering -- put a
 ``StreamingFIR`` (or use ``StreamingResampler``) in front of it.
 
 
-**Constructor:** `StreamingDecimator(self, factor)`
+**Constructor:** `StreamingDecimator(self, factor: 'int') -> 'None'`
 
 | Parameter | Type | Default |
 |---|---|---|
-| `factor` |  | *required* |
+| `factor` | `int` | *required* |
 
 
 **Methods:**
@@ -7775,12 +8536,12 @@ the streamed output is identical to the whole-record one rather than
 close to it, with no warm-up region to discard.
 
 
-**Constructor:** `StreamingDeemphasis(self, sample_rate, tau_us=75.0)`
+**Constructor:** `StreamingDeemphasis(self, sample_rate: 'float', tau_us: 'float' = 75.0) -> 'None'`
 
 | Parameter | Type | Default |
 |---|---|---|
-| `sample_rate` |  | *required* |
-| `tau_us` |  | `75.0` |
+| `sample_rate` | `float` | *required* |
+| `tau_us` | `float` | `75.0` |
 
 
 **Methods:**
@@ -7802,11 +8563,11 @@ are prepended, filtered, and discarded, which is exactly the history a
 causal FIR has at that point.
 
 
-**Constructor:** `StreamingFIR(self, taps)`
+**Constructor:** `StreamingFIR(self, taps: 'np.ndarray') -> 'None'`
 
 | Parameter | Type | Default |
 |---|---|---|
-| `taps` |  | *required* |
+| `taps` | `np.ndarray` | *required* |
 
 
 **Methods:**
@@ -7832,12 +8593,12 @@ whole record (which is one shorter than its input).
 to roughly normalized audio, otherwise raw radians/sample.
 
 
-**Constructor:** `StreamingFMDemod(self, deviation_hz=None, sample_rate=None)`
+**Constructor:** `StreamingFMDemod(self, deviation_hz: 'float | None' = None, sample_rate: 'float | None' = None) -> 'None'`
 
 | Parameter | Type | Default |
 |---|---|---|
-| `deviation_hz` |  | `None` |
-| `sample_rate` |  | `None` |
+| `deviation_hz` | `float | None` | `None` |
+| `sample_rate` | `float | None` | `None` |
 
 
 **Methods:**
@@ -7860,12 +8621,12 @@ continues the LO from where the previous block left it. Output matches
 ``frequency_shift`` on the whole record.
 
 
-**Constructor:** `StreamingMixer(self, shift_hz, sample_rate)`
+**Constructor:** `StreamingMixer(self, shift_hz: 'float', sample_rate: 'float') -> 'None'`
 
 | Parameter | Type | Default |
 |---|---|---|
-| `shift_hz` |  | *required* |
-| `sample_rate` |  | *required* |
+| `shift_hz` | `float` | *required* |
+| `sample_rate` | `float` | *required* |
 
 
 **Methods:**
@@ -7881,12 +8642,18 @@ Forget all carried history, e.g. after a retune or a stream restart.
 
 ``psd`` over a live stream: one averaged spectrum per ``avg`` frames.
 
-Feed blocks of any size; the stage buffers them and, each time
-``avg * nfft`` new samples have arrived, returns ``psd()`` of exactly those
-samples (the dB array; the frequency axis is ``.freqs``). Otherwise it
-returns None. The math is ``core.psd`` itself, not a copy, so a stream fed
-through this stage emits the same numbers ``psd()`` gives on the same
-samples -- to the bit, not to a tolerance.
+Feed blocks of any size; the stage buffers them and computes ``psd()`` of
+every complete run of ``avg * nfft`` samples (the math is ``core.psd``
+itself, not a copy, so the numbers are the ones ``psd()`` gives on the
+same samples -- to the bit). A call returns the NEWEST spectrum completed
+by that block, or None if none completed; every spectrum the call
+completed is in ``.last_batch`` (usually zero or one entry; several when a
+block is larger than ``avg * nfft``). A display wants the return value; an
+analysis that must see every spectrum reads ``last_batch``. The buffer
+never holds more than ``avg * nfft - 1`` samples between calls. (A first
+version computed at most one spectrum per call, so a stream delivering
+64k-sample blocks to a 1024-point stage buffered ~63k samples per call
+without bound.)
 
 nfft, window, scaling: as for ``psd``; scaling defaults to "dbfs" because
   a display is the usual consumer (see ``psd`` for the two scales).
@@ -7895,26 +8662,25 @@ sample_rate, center_freq: for the frequency axis. With sample_rate None the
   axis is in cycles/sample and only "dbfs" scaling is allowed ("density"
   needs the rate).
 
+``frames_emitted`` counts every spectrum ever computed.
 ``retune(center_freq)`` relabels ``.freqs`` and keeps the buffered
 samples, for a DISPLAY retune where the samples this stage sees have not
 changed (the mixer sits downstream of the spectrum tap, say) or where a
 one-frame blend across the seam is acceptable; pass ``drop_buffer=True``
 (or call ``reset()``) when the RF centre actually moved, so a spectrum
-never straddles two centre frequencies. ``frames_emitted`` counts outputs.
-Blocks are not dropped: a slow consumer sees every spectrum, later;
-rate-limit upstream (skip calls) if that is not wanted.
+never straddles two centre frequencies.
 
 
-**Constructor:** `StreamingPSD(self, nfft=1024, avg=1, window='hann', scaling='dbfs', sample_rate=None, center_freq=0.0)`
+**Constructor:** `StreamingPSD(self, nfft: 'int' = 1024, avg: 'int' = 1, window: 'str | np.ndarray | None' = 'hann', scaling: 'str' = 'dbfs', sample_rate: 'float | None' = None, center_freq: 'float' = 0.0) -> 'None'`
 
 | Parameter | Type | Default |
 |---|---|---|
-| `nfft` |  | `1024` |
-| `avg` |  | `1` |
-| `window` |  | `'hann'` |
-| `scaling` |  | `'dbfs'` |
-| `sample_rate` |  | `None` |
-| `center_freq` |  | `0.0` |
+| `nfft` | `int` | `1024` |
+| `avg` | `int` | `1` |
+| `window` | `str | np.ndarray | None` | `'hann'` |
+| `scaling` | `str` | `'dbfs'` |
+| `sample_rate` | `float | None` | `None` |
+| `center_freq` | `float` | `0.0` |
 
 
 **Methods:**
@@ -7924,7 +8690,7 @@ rate-limit upstream (skip calls) if that is not wanted.
 Drop buffered samples (e.g. after an RF retune). Keeps the axis/config.
 
 
-#### `retune(self, center_freq, drop_buffer=False) -> 'None'`
+#### `retune(self, center_freq: 'float', drop_buffer: 'bool' = False) -> 'None'`
 
 Move the frequency axis to a new centre; optionally drop the buffer.
 
@@ -7935,8 +8701,8 @@ are from a different RF centre than the ones already buffered.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `center_freq` |  | *required* |
-| `drop_buffer` |  | `False` |
+| `center_freq` | `float` | *required* |
+| `drop_buffer` | `bool` | `False` |
 
 
 
@@ -7958,19 +8724,19 @@ held-back tail, which ``flush()`` emits when the stream ends.
 ``up``/``down`` are the output/input rates (any common factor is removed).
 
 
-**Constructor:** `StreamingResampler(self, up, down, half_len=10, window='hamming')`
+**Constructor:** `StreamingResampler(self, up: 'int', down: 'int', half_len: 'int' = 10, window: 'str' = 'hamming') -> 'None'`
 
 | Parameter | Type | Default |
 |---|---|---|
-| `up` |  | *required* |
-| `down` |  | *required* |
-| `half_len` |  | `10` |
-| `window` |  | `'hamming'` |
+| `up` | `int` | *required* |
+| `down` | `int` | *required* |
+| `half_len` | `int` | `10` |
+| `window` | `str` | `'hamming'` |
 
 
 **Methods:**
 
-#### `flush(self)`
+#### `flush(self) -> 'np.ndarray'`
 
 Emit the output for samples still held back for look-ahead.
 
@@ -8012,40 +8778,51 @@ Args:
                   Default False (Selective Repeat, per-frame ACK).
 
 
-**Constructor:** `ARQ(self, window_size=1, timeout_ticks=10, max_retries=5, seq_mod=None, cumulative_ack=False)`
+**Constructor:** `ARQ(self, window_size: 'int' = 1, timeout_ticks: 'int' = 10, max_retries: 'int' = 5, seq_mod: 'int | None' = None, cumulative_ack: 'bool' = False) -> 'None'`
 
 | Parameter | Type | Default |
 |---|---|---|
-| `window_size` |  | `1` |
-| `timeout_ticks` |  | `10` |
-| `max_retries` |  | `5` |
-| `seq_mod` |  | `None` |
-| `cumulative_ack` |  | `False` |
+| `window_size` | `int` | `1` |
+| `timeout_ticks` | `int` | `10` |
+| `max_retries` | `int` | `5` |
+| `seq_mod` | `int | None` | `None` |
+| `cumulative_ack` | `bool` | `False` |
 
 
 **Methods:**
 
-#### `on_event(self, event)`
+#### `on_event(self, event: 'tuple[Any, ...]') -> 'None'`
 
 Feed one event to the machine. Updates state, may queue intentions.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `event` |  | *required* |
+| `event` | `tuple[Any, ...]` | *required* |
 
 
-#### `poll(self)`
+#### `poll(self) -> 'list[tuple[Any, ...]]'`
 
 Return and clear the pending intentions emitted so far.
 
 
-#### `send(self, data)`
+#### `reset(self) -> 'None'`
+
+Return to the initial state: nothing queued, in flight, buffered or
+expected; sequence numbers restart at 0; the failure latch clears.
+Both ends of a link must reset together, or their sequence numbers
+disagree.
+
+
+#### `send(self, data: 'bytes') -> 'None'`
 
 Queue a message for reliable delivery (an application event).
 
+Raises RuntimeError once the link has failed (a frame exhausted its
+retries); call reset() on both ends to start a fresh session.
+
 | Parameter | Type | Default |
 |---|---|---|
-| `data` |  | *required* |
+| `data` | `bytes` | *required* |
 
 
 
@@ -8070,37 +8847,37 @@ an insular format. Replay only needs the inbound events; the full log
 
 **Methods:**
 
-#### `load(path)`
+#### `load(path: 'str | os.PathLike[str]') -> 'EventLog'`
 
 Load a log saved by save().
 
 | Parameter | Type | Default |
 |---|---|---|
-| `path` |  | *required* |
+| `path` | `str | os.PathLike[str]` | *required* |
 
 
-#### `record(self, tick, station, direction, payload=None, crc_ok=None, note='')`
+#### `record(self, tick: 'int', station: 'str', direction: 'str', payload: 'bytes | None' = None, crc_ok: 'bool | None' = None, note: 'str' = '') -> 'None'`
 
 Append one structured event record. payload is the protocol payload
 bytes (decoded into type/seq for readability).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `tick` |  | *required* |
-| `station` |  | *required* |
-| `direction` |  | *required* |
-| `payload` |  | `None` |
-| `crc_ok` |  | `None` |
-| `note` |  | `''` |
+| `tick` | `int` | *required* |
+| `station` | `str` | *required* |
+| `direction` | `str` | *required* |
+| `payload` | `bytes | None` | `None` |
+| `crc_ok` | `bool | None` | `None` |
+| `note` | `str` | `''` |
 
 
-#### `save(self, path)`
+#### `save(self, path: 'str | os.PathLike[str]') -> 'str'`
 
 Write the log as indented JSON.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `path` |  | *required* |
+| `path` | `str | os.PathLike[str]` | *required* |
 
 
 
@@ -8148,22 +8925,22 @@ Args:
         duplicate detection (sequence numbers) exists for exactly this.
 
 
-**Constructor:** `LiveLink(self, engine, sink, modulate, demodulate, log=None, station='A', carry_samples=0)`
+**Constructor:** `LiveLink(self, engine: 'ARQ', sink: 'TXSink', modulate: 'Callable[[bytes], np.ndarray]', demodulate: 'Callable[[np.ndarray], list[dict[str, Any]]]', log: 'EventLog | None' = None, station: 'str' = 'A', carry_samples: 'int' = 0) -> 'None'`
 
 | Parameter | Type | Default |
 |---|---|---|
-| `engine` |  | *required* |
-| `sink` |  | *required* |
-| `modulate` |  | *required* |
-| `demodulate` |  | *required* |
-| `log` |  | `None` |
-| `station` |  | `'A'` |
-| `carry_samples` |  | `0` |
+| `engine` | `ARQ` | *required* |
+| `sink` | `TXSink` | *required* |
+| `modulate` | `Callable[[bytes], np.ndarray]` | *required* |
+| `demodulate` | `Callable[[np.ndarray], list[dict[str, Any]]]` | *required* |
+| `log` | `EventLog | None` | `None` |
+| `station` | `str` | `'A'` |
+| `carry_samples` | `int` | `0` |
 
 
 **Methods:**
 
-#### `on_rx_iq(self, iq)`
+#### `on_rx_iq(self, iq: 'np.ndarray') -> 'list[Intent]'`
 
 Feed received IQ: demodulate, find frames, deliver each as an rx
 event. Returns the app outputs produced.
@@ -8173,25 +8950,25 @@ prepended so frames straddling a block boundary are still found.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `iq` |  | *required* |
+| `iq` | `np.ndarray` | *required* |
 
 
-#### `pump(self)`
+#### `pump(self) -> 'list[Intent]'`
 
 Flush the engine's pending intentions: transmit any tx, return the
 app-level outputs (deliver/done/failed). Call after feeding events.
 
 
-#### `send(self, data)`
+#### `send(self, data: 'bytes') -> 'list[Intent]'`
 
 Queue an application message and flush.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `data` |  | *required* |
+| `data` | `bytes` | *required* |
 
 
-#### `tick(self)`
+#### `tick(self) -> 'list[Intent]'`
 
 Advance one logical tick (drives timeouts/retransmits).
 
@@ -8200,7 +8977,7 @@ Advance one logical tick (drives timeouts/retransmits).
 
 ### Functions
 
-### `make_channel_transport(modulate, demodulate, channel, drop_predicate=None)`
+### `make_channel_transport(modulate: 'Callable[[bytes], np.ndarray]', demodulate: 'Callable[[np.ndarray], list[dict[str, Any]]]', channel: 'Callable[[np.ndarray], np.ndarray]', drop_predicate: 'Callable[[], bool] | None' = None) -> 'Transport'`
 
 Build a transport that runs a payload through modulate -> channel ->
 demodulate -> framing, returning (crc_ok, recovered_payload | None).
@@ -8218,14 +8995,17 @@ the sim driver exercises the protocol over the Phase C channel.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `modulate` |  | *required* |
-| `demodulate` |  | *required* |
-| `channel` |  | *required* |
-| `drop_predicate` |  | `None` |
+| `modulate` | `Callable[[bytes], np.ndarray]` | *required* |
+| `demodulate` | `Callable[[np.ndarray], list[dict[str, Any]]]` | *required* |
+| `channel` | `Callable[[np.ndarray], np.ndarray]` | *required* |
+| `drop_predicate` | `Callable[[], bool] | None` | `None` |
+
+
+**Returns:** `Transport`
 
 
 
-### `pack_payload(frame_type, seq, data=b'')`
+### `pack_payload(frame_type: 'int', seq: 'int', data: 'bytes' = b'') -> 'bytes'`
 
 Build a protocol payload: [type][seq][data]. Returns bytes.
 
@@ -8236,13 +9016,16 @@ This goes inside build_frame() as the payload. seq is taken mod 256.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `frame_type` |  | *required* |
-| `seq` |  | *required* |
-| `data` |  | `b''` |
+| `frame_type` | `int` | *required* |
+| `seq` | `int` | *required* |
+| `data` | `bytes` | `b''` |
+
+
+**Returns:** `bytes`
 
 
 
-### `perfect_transport(payload)`
+### `perfect_transport(payload: 'bytes') -> 'tuple[bool, bytes | None]'`
 
 A lossless transport: every frame arrives, CRC ok.
 
@@ -8251,11 +9034,14 @@ A lossless transport: every frame arrives, CRC ok.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `payload` |  | *required* |
+| `payload` | `bytes` | *required* |
+
+
+**Returns:** `tuple[bool, bytes | None]`
 
 
 
-### `replay(log, engine, station)`
+### `replay(log: 'EventLog', engine: 'ARQ', station: 'str') -> 'list[Intent]'`
 
 Feed a recorded log's inbound events for `station` to a fresh engine and
 return the intentions it produces -- reproducing the original run with no
@@ -8270,13 +9056,16 @@ zero-TX demo path: load a saved exchange and watch the protocol re-derive it.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `log` |  | *required* |
-| `engine` |  | *required* |
-| `station` |  | *required* |
+| `log` | `EventLog` | *required* |
+| `engine` | `ARQ` | *required* |
+| `station` | `str` | *required* |
+
+
+**Returns:** `list[Intent]`
 
 
 
-### `run_link(messages, window_size=1, transport=None, timeout_ticks=10, max_retries=5, max_ticks=500)`
+### `run_link(messages: 'Sequence[bytes]', window_size: 'int' = 1, transport: 'Transport | None' = None, timeout_ticks: 'int' = 10, max_retries: 'int' = 5, max_ticks: 'int' = 500) -> 'tuple[list[bytes], EventLog]'`
 
 Send a list of messages from station A to station B over a sim link.
 
@@ -8294,16 +9083,19 @@ make_channel_transport) to run over the Phase C DSP chain.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `messages` |  | *required* |
-| `window_size` |  | `1` |
-| `transport` |  | `None` |
-| `timeout_ticks` |  | `10` |
-| `max_retries` |  | `5` |
-| `max_ticks` |  | `500` |
+| `messages` | `Sequence[bytes]` | *required* |
+| `window_size` | `int` | `1` |
+| `transport` | `Transport | None` | `None` |
+| `timeout_ticks` | `int` | `10` |
+| `max_retries` | `int` | `5` |
+| `max_ticks` | `int` | `500` |
+
+
+**Returns:** `tuple[list[bytes], EventLog]`
 
 
 
-### `run_sim(station_a, station_b, max_ticks=200, transport=None, log=None)`
+### `run_sim(station_a: 'ARQ', station_b: 'ARQ', max_ticks: 'int' = 200, transport: 'Transport | None' = None, log: 'EventLog | None' = None) -> 'tuple[list[bytes], list[bytes], EventLog]'`
 
 Drive two ARQ engines until both are idle or max_ticks is reached.
 
@@ -8319,15 +9111,18 @@ payloads each station's app received (in order).
 
 | Parameter | Type | Default |
 |---|---|---|
-| `station_a` |  | *required* |
-| `station_b` |  | *required* |
-| `max_ticks` |  | `200` |
-| `transport` |  | `None` |
-| `log` |  | `None` |
+| `station_a` | `ARQ` | *required* |
+| `station_b` | `ARQ` | *required* |
+| `max_ticks` | `int` | `200` |
+| `transport` | `Transport | None` | `None` |
+| `log` | `EventLog | None` | `None` |
+
+
+**Returns:** `tuple[list[bytes], list[bytes], EventLog]`
 
 
 
-### `type_name(t)`
+### `type_name(t: 'int') -> 'str'`
 
 Human name for a frame type byte.
 
@@ -8336,11 +9131,14 @@ Human name for a frame type byte.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `t` |  | *required* |
+| `t` | `int` | *required* |
+
+
+**Returns:** `str`
 
 
 
-### `unpack_payload(payload)`
+### `unpack_payload(payload: 'bytes') -> 'tuple[int, int, bytes]'`
 
 Parse a protocol payload. Returns (frame_type, seq, data).
 
@@ -8351,7 +9149,10 @@ Raises ValueError if too short to hold the 2-byte header.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `payload` |  | *required* |
+| `payload` | `bytes` | *required* |
+
+
+**Returns:** `tuple[int, int, bytes]`
 
 
 

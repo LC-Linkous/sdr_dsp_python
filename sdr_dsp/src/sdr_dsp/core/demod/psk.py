@@ -1,4 +1,4 @@
-"""Phase-shift-keying demodulation: BPSK (and coming QPSK/8-PSK/differential).
+"""Phase-shift-keying demodulation: BPSK, QPSK, 8-PSK and the differential forms.
 
 Coherent demods assume the signal is carrier-aligned; use the recovery
 primitives in core.sync first for real captures.
@@ -6,10 +6,14 @@ primitives in core.sync first for real captures.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
+from .result import DemodResult
 
-def bpsk_demod(iq, normalize_phase=True):
+
+def bpsk_demod(iq: Any, normalize_phase: bool = True) -> DemodResult:
     """Demodulate binary phase-shift keying (coherent-ish). OUR code.
 
     BPSK encodes bits as 0 or pi phase. With the carrier already at baseband and
@@ -19,7 +23,7 @@ def bpsk_demod(iq, normalize_phase=True):
     correct it first (see estimate_cfo / frequency_shift) -- the library does
     not auto-recover the carrier.
 
-    Returns (bits, soft) where bits is uint8 (0/1) and soft is the real-part
+    Returns DemodResult(bits, soft): bits uint8 (0/1), soft the real-part
     decision statistic (useful for confidence / plotting a constellation).
     """
     iq = np.asarray(iq, dtype=np.complex64)
@@ -30,10 +34,10 @@ def bpsk_demod(iq, normalize_phase=True):
         iq = iq * rot
     soft = np.real(iq).astype(np.float64)
     bits = (soft > 0).astype(np.uint8)
-    return bits, soft
+    return DemodResult(bits, soft)
 
 
-def dbpsk_demod(symbols):
+def dbpsk_demod(symbols: Any) -> DemodResult:
     """Demodulate differential BPSK. OUR code.
 
     Differential PSK encodes bits in phase CHANGES between consecutive symbols,
@@ -48,15 +52,15 @@ def dbpsk_demod(symbols):
     """
     s = np.asarray(symbols, dtype=np.complex64)
     if len(s) < 2:
-        return np.zeros(0, dtype=np.uint8), np.zeros(0, dtype=np.float64)
+        return DemodResult(np.zeros(0, dtype=np.uint8), np.zeros(0, dtype=np.float64))
     diff = s[1:] * np.conj(s[:-1])         # phase difference between neighbors
     soft = np.real(diff).astype(np.float64)
     # phase unchanged -> bit 0; phase flipped (~pi) -> bit 1
     bits = (soft < 0).astype(np.uint8)
-    return bits, soft
+    return DemodResult(bits, soft)
 
 
-def dqpsk_demod(symbols):
+def dqpsk_demod(symbols: Any) -> DemodResult:
     """Demodulate differential QPSK. OUR code.
 
     The QPSK analogue of DBPSK: 2 bits per symbol encoded in the phase CHANGE
@@ -67,7 +71,7 @@ def dqpsk_demod(symbols):
     """
     s = np.asarray(symbols, dtype=np.complex64)
     if len(s) < 2:
-        return np.zeros(0, dtype=np.uint8), np.zeros(0, dtype=np.float64)
+        return DemodResult(np.zeros(0, dtype=np.uint8), np.zeros(0, dtype=np.float64))
     diff = s[1:] * np.conj(s[:-1])
     ang = np.angle(diff)                    # in (-pi, pi]
     # map the four quadrants of phase change to 2-bit symbols (Gray-coded)
@@ -78,10 +82,10 @@ def dqpsk_demod(symbols):
     for q in quad:
         b = gray[int(q)]
         bits.extend(b)
-    return np.array(bits, dtype=np.uint8), ang.astype(np.float64)
+    return DemodResult(np.array(bits, dtype=np.uint8), ang.astype(np.float64))
 
 
-def qpsk_demod(symbols, gray=True):
+def qpsk_demod(symbols: Any, gray: bool = True) -> DemodResult:
     """Demodulate QPSK from recovered symbols. OUR code.
 
     QPSK carries 2 bits/symbol in four phase points (the four quadrants of the
@@ -102,7 +106,7 @@ def qpsk_demod(symbols, gray=True):
     """
     s = np.asarray(symbols, dtype=np.complex64)
     if len(s) == 0:
-        return np.zeros(0, dtype=np.uint8), np.zeros(0, dtype=np.complex64)
+        return DemodResult(np.zeros(0, dtype=np.uint8), np.zeros(0, dtype=np.complex64))
     # Decide the quadrant, then map to 2 bits. We use a consistent Gray mapping
     # where adjacent quadrants (a 90-degree rotation) differ by exactly one bit:
     #   quadrant 0 (I>0,Q>0) -> 00
@@ -115,19 +119,19 @@ def qpsk_demod(symbols, gray=True):
     quadrant = np.where(i_pos & q_pos, 0,
                         np.where(~i_pos & q_pos, 1,
                                  np.where(~i_pos & ~q_pos, 2, 3)))
-    gray = {0: (0, 0), 1: (0, 1), 2: (1, 1), 3: (1, 0)} if gray else \
-           {0: (0, 0), 1: (0, 1), 2: (1, 0), 3: (1, 1)}
+    gray_map = {0: (0, 0), 1: (0, 1), 2: (1, 1), 3: (1, 0)} if gray else \
+               {0: (0, 0), 1: (0, 1), 2: (1, 0), 3: (1, 1)}
     bits: list[int] = []
     for q in quadrant:
-        bits.extend(gray[int(q)])
+        bits.extend(gray_map[int(q)])
     # the chosen constellation points (unit circle, quadrant centers)
     centers = {0: (1 + 1j), 1: (-1 + 1j), 2: (-1 - 1j), 3: (1 - 1j)}
     decisions = np.array([centers[int(q)] for q in quadrant],
                          dtype=np.complex64) / np.sqrt(2)
-    return np.array(bits, dtype=np.uint8), decisions
+    return DemodResult(np.array(bits, dtype=np.uint8), decisions)
 
 
-def psk8_demod(symbols):
+def psk8_demod(symbols: Any) -> DemodResult:
     """Demodulate 8-PSK from recovered symbols. OUR code.
 
     8-PSK carries 3 bits/symbol in eight phase points (45-degree spacing).
@@ -143,7 +147,7 @@ def psk8_demod(symbols):
     """
     s = np.asarray(symbols, dtype=np.complex64)
     if len(s) == 0:
-        return np.zeros(0, dtype=np.uint8), np.zeros(0, dtype=np.uint8)
+        return DemodResult(np.zeros(0, dtype=np.uint8), np.zeros(0, dtype=np.uint8))
     # nearest of 8 phases; map sector -> 3 Gray-coded bits
     ang = np.mod(np.angle(s), 2 * np.pi)
     sector = np.mod(np.round(ang / (np.pi / 4)).astype(int), 8)
@@ -152,4 +156,4 @@ def psk8_demod(symbols):
     bits: list[int] = []
     for sec in sector:
         bits.extend(gray3[int(sec)])
-    return np.array(bits, dtype=np.uint8), sector.astype(np.uint8)
+    return DemodResult(np.array(bits, dtype=np.uint8), sector.astype(np.uint8))

@@ -112,7 +112,7 @@ def test_adapter_streams_normalized_complex64(live_iq):
 
 
 def test_capture_is_healthy_at_these_gains(file_iq):
-    h = capture_health(file_iq, RATE, channel_bw=CHANNEL_BW)
+    h = capture_health(file_iq, RATE, channel_bw_hz=CHANNEL_BW)
     assert h["ok"], (f"capture_health failed at lna={LNA} vga={VGA} amp={AMP}: {h}. "
                      "Under-driven ADC or no channel energy -- adjust gains or "
                      "SDR_DSP_TEST_FM_HZ.")

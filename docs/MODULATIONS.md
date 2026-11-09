@@ -43,6 +43,23 @@ The status column is honest about what "supported" means:
 | Higher PSK (16-PSK+) | digital phase | — | Out of scope | SNR demands exceed practical use here. |
 | FEC / channel coding | — | — | Out of scope | This is a DSP/demod library, not a codec. |
 
+## What a demodulator returns
+
+Two families, told apart by what one output sample means:
+
+- **Sample-domain** demods (`am_demod`, `fm_demod`, `ssb_demod`, `dsb_sc_demod`,
+  `ook_slice`, `fsk_demod`, `fsk_demod_nlevel`, `dsss_despread`)
+  return one bare array, one value per input sample (audio, or a per-sample
+  decision). Slicing to symbols is a separate step (`slice_to_symbols`);
+  `cw_decode` is the odd one out and returns the decoded text.
+- **Symbol-domain** demods (`bpsk_demod`, `dbpsk_demod`, `qpsk_demod`,
+  `dqpsk_demod`, `psk8_demod`, `qam16_demod`) take one complex sample per
+  symbol and return a `DemodResult` NamedTuple: `.bits` (0/1 array) and
+  `.soft` (the soft decisions or constellation points the bits were sliced
+  from, for EVM and plotting). It unpacks like a pair --
+  `bits, soft = qpsk_demod(symbols)` -- and `find_frames` wants `.bits`, not
+  the tuple.
+
 ## The recovery layer
 
 Coherent demods (BPSK, QPSK, 8-PSK, QAM-16) need the carrier and symbol timing

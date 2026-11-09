@@ -9,8 +9,12 @@ it has no device knowledge.
 from __future__ import annotations
 
 import json
+import os
+import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -98,45 +102,74 @@ class Annotation:
         return start, start + self.sample_count / sample_rate
 
 
-def _meta_path(path):
+# The capture extensions this module knows. Path arithmetic below strips ONLY
+# these and appends by string: pathlib's with_suffix treats whatever follows
+# the last dot as the suffix, so on "fm_98.1MHz_8Msps" (no extension) it would
+# replace ".1MHz_8Msps" and point at "fm_98.sigmf-meta" -- a wrong, shorter
+# name that a neighbouring recording could share.
+_KNOWN_EXTS = (".sigmf-meta", ".sigmf-data", ".iq", ".cf32", ".ci8")
+
+
+_EXT_LIKE = re.compile(r"\.[A-Za-z][A-Za-z0-9]{0,5}$")
+
+
+def _stem(p: Path) -> Path:
+    """The path without its capture extension.
+
+    Strips a known capture extension, or any short, letter-led trailing
+    suffix (".bin", ".dat", ".raw"). Leaves a dotted run that is not shaped
+    like an extension alone: ".1MHz_8Msps" starts with a digit and is part of
+    the name.
+    """
+    name = p.name
+    for ext in _KNOWN_EXTS:
+        if name.endswith(ext):
+            return p.with_name(name[:-len(ext)])
+    m = _EXT_LIKE.search(name)
+    if m and m.start() > 0:
+        return p.with_name(name[:m.start()])
+    return p
+
+
+def _with_ext(p: Path, ext: str) -> Path:
+    return _stem(p).with_name(_stem(p).name + ext)
+
+
+def _meta_path(path: str | os.PathLike[str]) -> Path:
     p = Path(path)
-    if p.suffix == ".sigmf-meta":
+    if p.name.endswith(".sigmf-meta"):
         return p
-    if p.suffix in (".sigmf-data", ".iq"):
-        # try .sigmf-meta sibling, else same-stem .sigmf-meta
-        cand = p.with_suffix(".sigmf-meta")
-        return cand
-    return p.with_suffix(".sigmf-meta")
+    return _with_ext(p, ".sigmf-meta")
 
 
-def _data_path(path):
+def _data_path(path: str | os.PathLike[str]) -> Path:
     p = Path(path)
-    if p.suffix == ".sigmf-meta":
+    if p.name.endswith(".sigmf-meta"):
         for ext in (".sigmf-data", ".iq"):
-            cand = p.with_suffix(ext)
+            cand = _with_ext(p, ext)
             if cand.exists():
                 return cand
-        return p.with_suffix(".sigmf-data")
+        return _with_ext(p, ".sigmf-data")
     # a data path was given (.iq / .sigmf-data / other). If that exact file
     # exists, use it; otherwise try the sibling data extensions, since save_iq
     # always writes .sigmf-data even when handed an .iq name.
     if p.exists():
         return p
     for ext in (".sigmf-data", ".iq"):
-        cand = p.with_suffix(ext)
+        cand = _with_ext(p, ext)
         if cand.exists():
             return cand
     return p
 
 
-def read_meta(path):
+def read_meta(path: str | os.PathLike[str]) -> dict[str, Any]:
     """Read a .sigmf-meta sidecar into a dict. Accepts the meta or data path."""
     mp = _meta_path(path)
     with open(mp, "r") as f:
         return json.load(f)
 
 
-def iq_info(path):
+def iq_info(path: str | os.PathLike[str]) -> dict[str, Any]:
     """Inspect a recording WITHOUT loading the IQ data into memory.
 
     Returns a dict with: meta, datatype, np_dtype, is_complex, itemsize,
@@ -172,7 +205,11 @@ def iq_info(path):
     }
 
 
-def load_iq(path, count=None, offset_samples=0):
+def load_iq(
+    path: str | os.PathLike[str],
+    count: int | None = None,
+    offset_samples: int = 0,
+) -> tuple[np.ndarray, dict[str, Any]]:
     """Load a SigMF recording into complex64, using its sidecar to interpret.
 
     path:           the .iq/.sigmf-data or .sigmf-meta path.
@@ -192,10 +229,17 @@ def load_iq(path, count=None, offset_samples=0):
 
     comps = 2 if is_complex else 1
     itemsize = np.dtype(np_dtype).itemsize
+    if offset_samples < 0:
+        raise ValueError(f"offset_samples must be >= 0, got {offset_samples}")
     byte_offset = offset_samples * comps * itemsize
     n_read = -1 if count is None else count * comps
 
-    raw = np.fromfile(dp, dtype=np_dtype, count=n_read, offset=byte_offset)
+    if byte_offset >= Path(dp).stat().st_size:
+        # past the end: an empty read, the same as count= would give. numpy's
+        # fromfile(count=-1, offset>size) raises "negative dimensions".
+        raw = np.zeros(0, dtype=np_dtype)
+    else:
+        raw = np.fromfile(dp, dtype=np_dtype, count=n_read, offset=byte_offset)
     if is_complex:
         raw = raw[: (len(raw) // 2) * 2]
         iq = np.empty(len(raw) // 2, dtype=np.complex64)
@@ -210,8 +254,14 @@ def load_iq(path, count=None, offset_samples=0):
     return iq.astype(np.complex64), meta
 
 
-def save_iq(path, iq, sample_rate, center_freq=0.0, extra_global=None,
-            annotations=None):
+def save_iq(
+    path: str | os.PathLike[str],
+    iq: np.ndarray,
+    sample_rate: float,
+    center_freq: float = 0.0,
+    extra_global: dict[str, Any] | None = None,
+    annotations: Sequence[Annotation | dict[str, Any]] | None = None,
+) -> tuple[str, str]:
     """Write complex64 IQ + a SigMF sidecar as cf32_le (processed-output type).
 
     Writes <stem>.sigmf-data and <stem>.sigmf-meta. cf32_le is SigMF's canonical
@@ -222,9 +272,9 @@ def save_iq(path, iq, sample_rate, center_freq=0.0, extra_global=None,
     read_annotations read them back as Annotation objects.
     """
     p = Path(path)
-    stem = p.with_suffix("")
-    data_p = stem.with_suffix(".sigmf-data")
-    meta_p = stem.with_suffix(".sigmf-meta")
+    # see _KNOWN_EXTS for why this is not with_suffix
+    data_p = _with_ext(p, ".sigmf-data")
+    meta_p = _with_ext(p, ".sigmf-meta")
 
     iq = np.asarray(iq, dtype=np.complex64)
     # interleave I,Q as float32 little-endian
@@ -241,7 +291,7 @@ def save_iq(path, iq, sample_rate, center_freq=0.0, extra_global=None,
     if extra_global:
         g.update(extra_global)
     # serialize annotations: accept Annotation objects or already-dict form
-    ann_list = []
+    ann_list: list[dict[str, Any]] = []
     for a in (annotations or []):
         if isinstance(a, Annotation):
             ann_list.append(a.to_sigmf())
@@ -264,7 +314,7 @@ def save_iq(path, iq, sample_rate, center_freq=0.0, extra_global=None,
     return str(data_p), str(meta_p)
 
 
-def read_annotations(path) -> list:
+def read_annotations(path: str | os.PathLike[str]) -> list[Annotation]:
     """Read the annotations from a recording's sidecar as Annotation objects.
 
     Accepts any path form (.iq / .sigmf-data / .sigmf-meta). Returns a list of
@@ -276,8 +326,12 @@ def read_annotations(path) -> list:
     return anns
 
 
-def bursts_to_annotations(spans, label=None, freq_lower_edge=None,
-                          freq_upper_edge=None):
+def bursts_to_annotations(
+    spans: Sequence[tuple[int, int]],
+    label: str | None = None,
+    freq_lower_edge: float | None = None,
+    freq_upper_edge: float | None = None,
+) -> list[Annotation]:
     """Convert find_bursts() output into Annotation objects. The detect->label
     step in one call.
 
@@ -288,7 +342,7 @@ def bursts_to_annotations(spans, label=None, freq_lower_edge=None,
 
     Returns a list of Annotation ready to pass to save_iq(annotations=...).
     """
-    out = []
+    out: list[Annotation] = []
     for i, (start, stop) in enumerate(spans):
         lab = None
         if label is not None:

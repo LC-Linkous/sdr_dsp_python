@@ -301,7 +301,7 @@ iq, meta = load_iq("capture.sigmf-meta")
 fs = meta["global"]["core:sample_rate"]
 
 # tune a channel at +200 kHz to baseband, filter, demod FM
-base = tune_to_baseband(iq, 200e3, fs)
+base = tune_to_baseband(iq, fs, 200e3)
 taps = design_lowpass(100e3, fs, num_taps=201)
 audio = fm_demod(fir_apply(base, taps), deviation_hz=75e3, sample_rate=fs)
 ```
@@ -320,8 +320,8 @@ observation:
 from sdr_dsp import Pipeline
 from sdr_dsp.core import tune_to_baseband, fm_demod
 pipe = (Pipeline(src)
-        .add(lambda b: tune_to_baseband(b, 200e3, fs))
-        .add(lambda b: fm_demod(b, 75e3, fs))
+        .add(lambda b: tune_to_baseband(b, fs, 200e3))
+        .add(lambda b: fm_demod(b, fs, 75e3))
         .tap(lambda b: meter.update(b)))
 pipe.run()
 ```
@@ -504,8 +504,10 @@ uv run pytest -m hardware                  # hardware-only (needs a device)
 **After any API change**, regenerate the API handbook so it stays true to its
 "cannot drift" promise (run from the `sdr_dsp/` project directory):
 ```
-PYTHONPATH=src python3 ../docs/dev_handbook/generate_api_handbook.py > ../docs/dev_handbook/sdr_dsp_API_HANDBOOK.md
+uv run python ../docs/dev_handbook/generate_api_handbook.py -o ../docs/dev_handbook/sdr_dsp_API_HANDBOOK.md
 ```
+CI runs the same script with `--check` and fails when the checked-in handbook
+is stale, so a forgotten regeneration is caught at the lint step.
 
 **The discipline that has caught real bugs:** read what's actually in front of
 you (the failing output, the file contents) rather than asserting from memory.
@@ -668,7 +670,7 @@ complex64 in/out, numpy only).
 - `add_pa_nonlinearity(iq, coeffs)` — memoryless odd-order PA polynomial
   `Σ cₖ·x·|x|^{2k}` (AM/AM + AM/PM). **Note:** exactly zero effect on
   constant-envelope signals (see §13.5).
-- `add_phase_noise(iq, linewidth_hz, sample_rate, seed)` — Wiener (random-walk)
+- `add_phase_noise(iq, sample_rate, linewidth_hz, seed)` — Wiener (random-walk)
   oscillator phase; per-step variance `2π·Δν/f_s`.
 - `make_device_impairments(seed)` → `DeviceImpairments` — a frozen, inspectable
   bundle = one repeatable virtual device, drawn from realistic ranges.

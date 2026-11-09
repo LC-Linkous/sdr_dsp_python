@@ -8,10 +8,21 @@ IQ leaves.
 
 from __future__ import annotations
 
+import os
+from typing import Any
+
+import numpy as np
+
 from ..io.sigmf import save_iq
 
 
-def write_iq(path, iq, sample_rate, center_freq=0.0, **extra_global):
+def write_iq(
+    path: str | os.PathLike[str],
+    iq: np.ndarray,
+    sample_rate: float,
+    center_freq: float = 0.0,
+    **extra_global: Any,
+) -> tuple[str, str]:
     """Save complex64 IQ + a SigMF sidecar (cf32_le). Returns (data, meta) paths.
 
     Pass-through to io.sigmf.save_iq; kept here so sinks are a uniform place to

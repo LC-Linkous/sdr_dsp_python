@@ -9,6 +9,8 @@ an analysis.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 # one canonical floor for log conversions, so dB readings are consistent
@@ -16,7 +18,7 @@ import numpy as np
 DB_EPSILON = 1e-20
 
 
-def to_db(x, *, power=True, epsilon=DB_EPSILON):
+def to_db(x: Any, *, power: bool = True, epsilon: float = DB_EPSILON) -> np.ndarray:
     """Convert linear values to dB.
 
     power=True  : x is a power quantity      -> 10*log10(x)
@@ -28,14 +30,14 @@ def to_db(x, *, power=True, epsilon=DB_EPSILON):
     return factor * np.log10(np.abs(x) + epsilon)
 
 
-def from_db(db, *, power=True):
+def from_db(db: Any, *, power: bool = True) -> np.ndarray:
     """Inverse of to_db: dB back to a linear value."""
     db = np.asarray(db, dtype=np.float64)
     factor = 10.0 if power else 20.0
     return 10.0 ** (db / factor)
 
 
-def normalize(iq, mode="peak", target=1.0):
+def normalize(iq: Any, mode: str = "peak", target: float = 1.0) -> np.ndarray:
     """Rescale a signal's amplitude. EXPLICIT -- you choose if and how.
 
     The library never normalizes silently; call this when you want it.
