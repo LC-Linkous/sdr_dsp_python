@@ -78,7 +78,11 @@ def download(url: str, dest: Path, sha: str, quiet: bool = False) -> None:
     tmp_fd, tmp_name = tempfile.mkstemp(dir=dest.parent, prefix=dest.name + ".part-")
     tmp = Path(tmp_name)
     try:
-        with urllib.request.urlopen(url) as resp, open(tmp_fd, "wb") as out:
+        # The temp file's descriptor is wrapped BEFORE the URL is opened, so a
+        # failed urlopen (missing asset, no network) still closes it. Opening
+        # the URL first leaked the descriptor on failure, and Windows refuses
+        # to unlink an open file, so the cleanup below raised PermissionError.
+        with open(tmp_fd, "wb") as out, urllib.request.urlopen(url) as resp:
             total = resp.headers.get("Content-Length")
             total = int(total) if total else None
             done = 0

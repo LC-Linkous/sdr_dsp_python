@@ -88,6 +88,45 @@ def test_only_and_missing_url_and_sidecar_without_hash(tmp_path):
         tool.main(["--base-url", base, "--sample-dir", str(sample), "--only", "b"])
 
 
+def _open_fds() -> int | None:
+    for d in ("/proc/self/fd", "/dev/fd"):
+        try:
+            return len(list(Path(d).iterdir()))
+        except OSError:
+            continue
+    return None
+
+
+@pytest.mark.parametrize("failure", ["missing_url", "hash_mismatch"])
+def test_failed_download_closes_and_removes_temp_file(tmp_path, failure):
+    """A failed download must leave no temp file AND no open descriptor.
+
+    The descriptor half is what broke Windows CI: the temp fd was only wrapped
+    after urlopen succeeded, so a missing URL leaked it and Windows refused
+    the cleanup unlink. Linux deletes an open file without complaint, so on
+    Linux/macOS the leak is caught by counting open descriptors instead.
+    """
+    tool = _load()
+    dest = tmp_path / "out" / "x.iq"
+    if failure == "missing_url":
+        url, sha = (tmp_path / "nowhere.iq").as_uri(), "0" * 64
+        expected = OSError            # URLError is an OSError
+    else:
+        src = tmp_path / "src.iq"
+        src.write_bytes(b"\x01" * 100)
+        url, sha = src.as_uri(), "0" * 64
+        expected = SystemExit
+    before = _open_fds()
+    for _ in range(5):                # a leak of one fd per call shows as 5
+        with pytest.raises(expected):
+            tool.download(url, dest, sha, quiet=True)
+    after = _open_fds()
+    assert list(dest.parent.iterdir()) == [], "temp file left behind"
+    assert not dest.exists()
+    if before is not None:
+        assert after == before, f"leaked {after - before} file descriptor(s)"
+
+
 def test_real_sidecars_carry_hashes_and_check_mode_runs():
     # the shipped sidecars must be fetchable: each has a sha256. --check on the
     # real directory exits 0 or 1 depending on whether payloads are present,

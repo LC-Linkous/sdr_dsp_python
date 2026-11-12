@@ -123,9 +123,14 @@ def document_class(name, obj):
     # public methods
     methods = [(n, m) for n, m in inspect.getmembers(obj, inspect.isfunction)
                if not n.startswith("_")]
-    # also catch methods defined directly (not just inherited)
-    own_methods = [(n, getattr(obj, n)) for n in vars(obj)
-                   if callable(getattr(obj, n, None)) and not n.startswith("_")]
+    # also catch static/class methods defined directly on the class. Only real
+    # function definitions count: a dataclass field whose default is a callable
+    # (GainStage.db = float) is an attribute, and documenting it as a method
+    # pulled in the builtin's docstring, which changes between Python versions.
+    own_methods = [(n, getattr(obj, n)) for n, raw in vars(obj).items()
+                   if not n.startswith("_")
+                   and (inspect.isfunction(raw)
+                        or isinstance(raw, (staticmethod, classmethod)))]
     seen = set()
     all_methods = []
     for n, m in own_methods + methods:

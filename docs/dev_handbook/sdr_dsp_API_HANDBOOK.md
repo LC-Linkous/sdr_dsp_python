@@ -3026,15 +3026,6 @@ default: the value used when this stage is NOT chosen by a quality sweep
 
 **Methods:**
 
-#### `db(x=0, /)`
-
-Convert a string or number to a floating point number, if possible.
-
-| Parameter | Type | Default |
-|---|---|---|
-| `x` |  | `0` |
-
-
 #### `default_value(self) -> 'Any'`
 
 The setting used when no quality sweep picks this stage: ``default``
